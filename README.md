@@ -4,8 +4,10 @@ A load generator for AMQP brokers: a Java DSL, an **open-loop** rate schedule,
 honest latency percentiles, and a report that says what it measured rather than
 what you should do about it.
 
-> **Status: working, unreleased.** 39 unit tests and 5 integration tests against
-> a real broker. Nothing is published anywhere yet.
+> **Status: `0.1.0`, published.** 39 unit tests and 5 integration tests against a
+> real broker. The library is on the
+> [Maven repository](https://acemq-company.github.io/maven/); the CLI jar is
+> attached to the [release](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/releases/tag/v0.1.0).
 
 ```java
 WorkloadReport report = Workload.named("orders-peak")
@@ -223,9 +225,9 @@ the pauses being measured. `HdrHistogram` solves both.
 
 ## Documentation
 
-Seven guide pages and five tutorials, in [docs/](docs/). They read as markdown
-here and render to a site with `.github/scripts/build-docs-site.sh`, which the
-`docs.yml` workflow publishes once this repository has a remote.
+Seven guide pages and five tutorials, published at
+**<https://acemq.org/acemq-java-amqp-workloads/>**. They read as markdown in
+[docs/](docs/) too, and render with `.github/scripts/build-docs-site.sh`.
 
 | | |
 |---|---|
