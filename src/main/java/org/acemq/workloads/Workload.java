@@ -60,7 +60,7 @@ import org.acemq.workloads.rules.Rules;
  *
  * <h2>Warm-up is not measured</h2>
  *
- * <p>{@link #warmup(Duration)} runs the workload and throws the measurements away. The first
+ * <p>{@link Builder#warmup(Duration)} runs the workload and throws the measurements away. The first
  * seconds of any JVM workload measure class loading, JIT compilation, connection and channel
  * setup and the first garbage collection, none of which the broker is responsible for. Without a
  * warm-up those costs land in the p99 and stay there.

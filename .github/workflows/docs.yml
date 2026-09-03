@@ -1,0 +1,80 @@
+# Build the documentation site and publish it to GitHub Pages.
+#
+# The site is the markdown under docs/ rendered to HTML, plus the Javadoc under
+# /apidocs/.
+#
+# Javadoc is part of the site rather than an afterthought because these
+# artifacts are not on Maven Central, and javadoc.io only serves what Central
+# has. Self-hosting is the only way anyone reads the API documentation, so it is
+# generated from the same commit as the prose and can never drift from it.
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'src/main/java/**'
+      - '.github/workflows/docs.yml'
+      - '.github/scripts/build-docs-site.sh'
+      - 'pom.xml'
+  workflow_dispatch:
+
+# One deployment at a time; a queued run supersedes a waiting one rather than
+# racing it. In-progress runs are allowed to finish so a half-published site is
+# never left behind.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+# Least privilege for every job that does not ask for more. Jobs needing more
+# declare it themselves.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc
+
+      - name: Build the Javadoc
+        # javadoc:javadoc rather than javadoc:aggregate -- this is a single
+        # module, and the aggregate goal produces nothing here.
+        #
+        # -DskipTests: this job documents the code, it does not verify it. CI
+        # already ran the full suite on this commit, and the integration tests
+        # need Docker.
+        run: mvn -B --no-transfer-progress -DskipTests javadoc:javadoc
+
+      - name: Render the pages
+        run: bash .github/scripts/build-docs-site.sh
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # A job's own block replaces the workflow default rather than adding to it,
+    # so contents is repeated here. This is GitHub's own deploy-pages triple.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
