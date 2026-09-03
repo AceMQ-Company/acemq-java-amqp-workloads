@@ -131,8 +131,9 @@ for f in docs/*.md; do
     --include-after-body="$OUT/.foot.html" \
     --output "$OUT/$base.html"
   # Links between pages are written as .md so they work when the same files are
-  # read on GitHub; only the rendered copy is rewritten.
-  perl -pi -e 's/href="([^":]*)\.md"/href="$1.html"/g' "$OUT/$base.html"
+  # read on GitHub; only the rendered copy is rewritten. The anchor is kept: a
+  # link to another page's section is written .md#section and must survive.
+  perl -pi -e 's{href="([^":#]*)\.md(#[^"]*)?"}{href="$1.html$2"}g' "$OUT/$base.html"
   echo "  rendered $base.html"
 done
 

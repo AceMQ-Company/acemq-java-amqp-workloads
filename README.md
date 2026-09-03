@@ -221,6 +221,19 @@ the pauses being measured. `HdrHistogram` solves both.
 - **Not a capacity number for your production broker.** A container on a laptop
   sharing a CPU with the generator measures the laptop.
 
+## Documentation
+
+Seven guide pages and five tutorials, in [docs/](docs/). They read as markdown
+here and render to a site with `.github/scripts/build-docs-site.sh`, which the
+`docs.yml` workflow publishes once this repository has a remote.
+
+| | |
+|---|---|
+| **Start here** | [docs/index.md](docs/index.md) · [Getting started](docs/getting-started.md) |
+| **Reference** | [Command line](docs/cli.md) · [Workload file](docs/workload-file.md) · [Rules](docs/rules.md) · [Reports](docs/reports.md) |
+| **Why the numbers hold** | [Measurement](docs/measurement.md) — the schedule arithmetic and coordinated omission |
+| **Tutorials** | [Five, in order](docs/tutorials.md), each ending with something that runs |
+
 ## Requirements
 
 Java 17. Docker for the integration tests.

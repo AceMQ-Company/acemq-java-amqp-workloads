@@ -2,17 +2,17 @@
 
 Step by step, in order, each one ending with something that runs.
 
-The [guide](index.html) explains how a thing works and why it is that way. These
+The [guide](index.md) explains how a thing works and why it is that way. These
 are the other shape: start with nothing, finish with a measurement you can
 defend.
 
 | | | | |
 |---|---|---|---|
-| 1 | [Your first measurement](tutorial-first-run.html) | Run a workload, read the report, understand the three histograms | 15 min |
-| 2 | [Finding the ceiling](tutorial-finding-the-ceiling.html) | How much *can* this broker take, and how to tell the broker's limit from your own | 25 min |
-| 3 | [Classic against quorum](tutorial-comparing.html) | A suite, and the cost of a guarantee as a number | 20 min |
-| 4 | [Failing a build](tutorial-ci-gate.html) | Objectives, exit codes, and a gate that does not lie | 20 min |
-| 5 | [When the consumer is the problem](tutorial-slow-consumer.html) | Prefetch, handler time, and telling a slow consumer from a slow broker | 25 min |
+| 1 | [Your first measurement](tutorial-first-run.md) | Run a workload, read the report, understand the three histograms | 15 min |
+| 2 | [Finding the ceiling](tutorial-finding-the-ceiling.md) | How much *can* this broker take, and how to tell the broker's limit from your own | 25 min |
+| 3 | [Classic against quorum](tutorial-comparing.md) | A suite, and the cost of a guarantee as a number | 20 min |
+| 4 | [Failing a build](tutorial-ci-gate.md) | Objectives, exit codes, and a gate that does not lie | 20 min |
+| 5 | [When the consumer is the problem](tutorial-slow-consumer.md) | Prefetch, handler time, and telling a slow consumer from a slow broker | 25 min |
 
 Each builds on the one before. Nothing is left as an exercise.
 
