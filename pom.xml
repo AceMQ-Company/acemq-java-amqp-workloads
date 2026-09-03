@@ -31,7 +31,7 @@
     <maven.compiler.release>17</maven.compiler.release>
 
     <acemq.version>0.2.10</acemq.version>
-    <acemq.admin.version>0.1.0-SNAPSHOT</acemq.admin.version>
+    <acemq.admin.version>0.1.0</acemq.admin.version>
 
     <!-- Percentiles cannot be averaged, and keeping every sample in a list is
          not viable at hundreds of thousands per second. HdrHistogram is the
