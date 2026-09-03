@@ -4,7 +4,7 @@ A load generator for AMQP brokers: a Java DSL, an **open-loop** rate schedule,
 honest latency percentiles, and a report that says what it measured rather than
 what you should do about it.
 
-> **Status: working, unreleased.** 19 unit tests and 5 integration tests against
+> **Status: working, unreleased.** 39 unit tests and 5 integration tests against
 > a real broker. Nothing is published anywhere yet.
 
 ```java
