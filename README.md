@@ -33,6 +33,65 @@ if (!report.passed()) {
 }
 ```
 
+## From the command line
+
+```bash
+java -jar acemq-workload.jar -f workload.yaml --report reports/ --format html,md,json
+```
+
+```yaml
+# Peak hour is 38,000/s; 50,000 gives headroom for a bad Monday.
+broker: amqp://guest:${BROKER_PASSWORD}@localhost:5672
+management: http://localhost:15672
+
+publishers: { threads: 4, rate: 50000, messageSize: 1024 }
+consumers:  { concurrency: 8, prefetch: 100, handlerTime: 1ms }
+warmup: 10s
+runFor: 2m
+
+workloads:
+  - name: classic-queue
+    topology: { exchange: bench, queue: bench.classic, routingKey: k, queueType: classic }
+    expect: { throughputAtLeast: 45000, p99Below: 50ms }
+  - name: quorum-queue
+    topology: { exchange: bench, queue: bench.quorum, routingKey: k, queueType: quorum }
+    expect: { throughputAtLeast: 45000, p99Below: 50ms }
+```
+
+One file, two runs, compared side by side. `${VAR}` comes from the environment,
+so a password never has to live in a file that gets committed, and `--dry-run`
+prints the resolved configuration with it redacted.
+
+### Exit codes are the interface
+
+More important than the report format: a pipeline reads the exit code, a person
+reads the report. These three are genuinely different problems and a build that
+treats them alike will retry the one that can never succeed.
+
+| | |
+|---|---|
+| `0` | passed |
+| `1` | a **sound** run missed an objective — the broker's answer is "no" |
+| `2` | a run was **invalid**; nothing was measured, and retrying as-is gives the same non-answer |
+| `3` | the workload file is wrong |
+| `4` | the broker could not be reached |
+
+### Formats
+
+`html`, `md`, `json` — default `html,json`.
+
+**JSON is the one to care about.** It is what a pipeline reads to decide whether
+to promote a build, what a dashboard graphs over time, and what lets two runs be
+compared without re-running either. HTML is for people; JSON is for everything
+else, and the HTML embeds it so a report mailed to somebody is still
+re-analysable rather than a picture of numbers.
+
+**PDF is deliberately absent.** It needs a layout engine and its fonts — a large
+dependency in a tool whose output is a table and a list — and the result looks
+worse than what a browser prints. The HTML carries `@media print` rules, so
+printing it to PDF produces a better document with nothing added to the build.
+Passing `--format pdf` says so rather than failing quietly.
+
 ## Why a separate repository
 
 It needs both halves of AceMQ and neither may depend on it:

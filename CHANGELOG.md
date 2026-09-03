@@ -43,3 +43,26 @@ the messaging library's release train.
   a broker 1.8ms away; reaching 300,000 that way would need five hundred
   threads. Measured on the same broker, the same 2,000/s workload went from
   1,048/s achieved with 4.2s of send lag to 2,000/s achieved with 201µs.
+- **A command line**: `java -jar acemq-workload.jar -f workload.yaml --report
+  reports/ --format html,md,json`. YAML or JSON, single workload or a suite that
+  inherits the top level so a classic-versus-quorum comparison does not repeat
+  the broker URL and let the two drift apart.
+- **Exit codes distinguish the three failure modes**, because a pipeline reads
+  the exit code and a person reads the report: `1` for a sound run that missed an
+  objective, `2` for a run that measured nothing, `3` for a bad file, `4` for an
+  unreachable broker. Retrying an invalid run unchanged gives the same
+  non-answer, and a build that cannot tell them apart will do exactly that.
+- `${VAR}` and `${VAR:-default}` are read from the environment. A workload file
+  is meant to be committed, and a password written literally is a password in
+  the git history. `--dry-run` resolves and prints the configuration with the
+  password redacted, touching no broker.
+- **Unknown settings are refused.** A misspelled `prefech: 500` that was ignored
+  would run at the default prefetch and produce a completely normal-looking
+  report answering a different question.
+- Durations are written as `30s`, `500ms`, `2m`. A bare number is refused: it
+  means different things to different readers, and a run of the wrong length
+  produces plausible numbers.
+- Reports in HTML, Markdown and JSON. **PDF is deliberately not supported** —
+  it needs a layout engine and its fonts, and a browser printing the HTML
+  produces a better document. The HTML carries `@media print` rules and embeds
+  the JSON, so a report that has been mailed to somebody is still re-analysable.

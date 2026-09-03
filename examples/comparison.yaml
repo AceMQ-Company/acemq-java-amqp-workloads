@@ -1,0 +1,27 @@
+# Peak hour is 38,000/s; 50,000 gives headroom for a bad Monday.
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5690
+management: http://localhost:15690
+
+publishers:
+  threads: 4
+  rate: 4000
+  messageSize: 1024
+
+consumers:
+  concurrency: 8
+  prefetch: 100
+
+warmup: 3s
+runFor: 10s
+
+workloads:
+  - name: classic-queue
+    topology: { exchange: bench, queue: bench.classic, routingKey: k, queueType: classic }
+    expect:
+      throughputAtLeast: 3500
+      p99Below: 50ms
+  - name: quorum-queue
+    topology: { exchange: bench, queue: bench.quorum, routingKey: k, queueType: quorum }
+    expect:
+      throughputAtLeast: 3500
+      p99Below: 50ms
