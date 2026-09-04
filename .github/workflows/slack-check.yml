@@ -16,4 +16,5 @@ jobs:
       title: "Slack wiring verified"
       message: "This repository can post to the channel. Sent once to confirm the webhook, then the workflow that sent it was deleted."
       icon: ":satellite_antenna:"
-    secrets: inherit
+    secrets:
+      SLACK_DELIVERY_WEBHOOK: ${{ secrets.SLACK_DELIVERY_WEBHOOK }}
