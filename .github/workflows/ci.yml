@@ -75,4 +75,10 @@ jobs:
       title: "AceMQ AMQP workloads: main is failing"
       message: "The build on main did not pass. Artifacts from it should not be trusted."
       url: https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/ci.yml
-    secrets: inherit
+    secrets:
+      # Explicit, not `inherit`. A reusable workflow in another repository
+      # does not receive inherited secrets, so `inherit` here produced a
+      # notify job that went green while sending nothing at all -- the
+      # shared workflow treats a missing webhook as "nothing to notify"
+      # and succeeds, by design, so the silence looked like health.
+      SLACK_DELIVERY_WEBHOOK: ${{ secrets.SLACK_DELIVERY_WEBHOOK }}
