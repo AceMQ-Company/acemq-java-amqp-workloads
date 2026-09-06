@@ -19,6 +19,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.acemq.amqp.security.Security;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,8 +51,20 @@ public final class ScenarioRunner {
      * @return what happened
      */
     public static ScenarioReport run(Scenario scenario, String brokerUrl) {
-        return new ScenarioRun(scenario, brokerUrl, ScenarioListener.NONE, new AtomicBoolean())
-                .execute();
+        return run(scenario, brokerUrl, null);
+    }
+
+    /**
+     * Runs it against a broker that needs TLS, and waits.
+     *
+     * @param scenario what to run
+     * @param brokerUrl an AMQPS URL
+     * @param security the TLS policy: a private CA, a client certificate, or both
+     * @return what happened
+     */
+    public static ScenarioReport run(Scenario scenario, String brokerUrl, Security security) {
+        return new ScenarioRun(scenario, brokerUrl, security, ScenarioListener.NONE,
+                new AtomicBoolean()).execute();
     }
 
     /**
@@ -64,6 +77,20 @@ public final class ScenarioRunner {
      */
     public static ScenarioHandle start(Scenario scenario, String brokerUrl,
             ScenarioListener listener) {
+        return start(scenario, brokerUrl, null, listener);
+    }
+
+    /**
+     * Starts it against a broker that needs TLS.
+     *
+     * @param scenario what to run
+     * @param brokerUrl an AMQPS URL
+     * @param security the TLS policy, or null for what the URL implies
+     * @param listener told about each reading
+     * @return a handle on the run
+     */
+    public static ScenarioHandle start(Scenario scenario, String brokerUrl, Security security,
+            ScenarioListener listener) {
         Objects.requireNonNull(scenario, "scenario");
         Objects.requireNonNull(brokerUrl, "brokerUrl");
         Objects.requireNonNull(listener, "listener");
@@ -73,8 +100,8 @@ public final class ScenarioRunner {
 
         Thread thread = new Thread(() -> {
             try {
-                ScenarioReport result =
-                        new ScenarioRun(scenario, brokerUrl, listener, stopRequested).execute();
+                ScenarioReport result = new ScenarioRun(
+                        scenario, brokerUrl, security, listener, stopRequested).execute();
                 try {
                     listener.onFinished(result);
                 } catch (RuntimeException e) {

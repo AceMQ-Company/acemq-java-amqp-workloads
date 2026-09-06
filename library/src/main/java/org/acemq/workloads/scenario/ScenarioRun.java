@@ -33,6 +33,8 @@ import java.util.concurrent.locks.LockSupport;
 import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerGroup;
 import org.acemq.amqp.core.DefaultPublisher;
+import org.acemq.amqp.security.Security;
+import org.acemq.amqp.transport.ConnectionConfig;
 import org.acemq.workloads.Payload;
 import org.acemq.workloads.Sample;
 import org.acemq.workloads.metrics.LatencyRecorder;
@@ -49,6 +51,7 @@ final class ScenarioRun {
 
     private final Scenario scenario;
     private final String brokerUrl;
+    private final Security security;
     private final ScenarioListener listener;
     private final AtomicBoolean stopRequested;
 
@@ -61,10 +64,11 @@ final class ScenarioRun {
     private final AtomicReference<Sample.Phase> phase =
             new AtomicReference<>(Sample.Phase.STARTING);
 
-    ScenarioRun(Scenario scenario, String brokerUrl, ScenarioListener listener,
-            AtomicBoolean stopRequested) {
+    ScenarioRun(Scenario scenario, String brokerUrl, Security security,
+            ScenarioListener listener, AtomicBoolean stopRequested) {
         this.scenario = scenario;
         this.brokerUrl = brokerUrl;
+        this.security = security;
         this.listener = listener;
         this.stopRequested = stopRequested;
     }
@@ -121,7 +125,7 @@ final class ScenarioRun {
             queueCounters.put(queue.name(), new QueueCounters(queue.name()));
         }
 
-        try (AceMq broker = AceMq.connect(brokerUrl)) {
+        try (AceMq broker = connect()) {
             declare(broker);
 
             List<ConsumerGroup> groups = startConsumers(broker);
@@ -172,6 +176,20 @@ final class ScenarioRun {
                 }
             }
         }
+    }
+
+    /**
+     * Opens the connection, with TLS when a policy was given.
+     *
+     * <p>Without one the URL decides, which means plaintext for amqp:// and the JVM's own trust
+     * store for amqps://. A policy is what carries a private CA or a client certificate, and
+     * neither can be expressed in a URL.
+     */
+    private AceMq connect() {
+        if (security == null) {
+            return AceMq.connect(brokerUrl);
+        }
+        return AceMq.connect(ConnectionConfig.url(brokerUrl).security(security).build());
     }
 
     private ScenarioReport report(AceMq broker, Instant startedAt, Duration measured) {

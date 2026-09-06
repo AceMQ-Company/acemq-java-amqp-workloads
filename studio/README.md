@@ -80,6 +80,38 @@ line reads. A scenario designed here runs unchanged in a pipeline — that is th
 reason for a designer rather than a nicer form over a YAML file. There is a YAML
 export too, for pipelines that already read one.
 
+## TLS and mutual TLS
+
+An `amqps://` URL turns the TLS section on, and the studio **completes a
+handshake** rather than a TCP connect. That distinction matters: port 5671
+answers a plain socket whether or not the certificate on it is one this client
+will accept, so a tool that reported "reachable" on a connect would send you to
+press Run and meet the real failure a minute later, as a stack trace.
+
+What it reports instead:
+
+> Found a broker at localhost:5681
+> TLSv1.3 · certificate verified · the broker did not ask for a client certificate
+> presented localhost, signed by AceMQ development CA, expires 2026-10-04 · marked development-only
+
+| | |
+|---|---|
+| **Certificate authority** | The authority that signed the broker's certificate. Without it the studio trusts only what this machine already trusts, which is not a privately issued certificate |
+| **Client certificate and key** | For mutual TLS, when the broker asks who you are. PEM as it comes — the studio builds the keystores itself |
+| **Accept development certificates** | The AceMQ generator stamps its certificates as development-only and the library refuses them unless this is on. That refusal is the feature |
+| **Trust any certificate** | Encrypts and proves nothing. For a first run against a broker whose certificate nobody can find, and named so nobody reaches for it by accident |
+
+**PEM in, keystores out.** `Security.fromKeystore` wants `keystore.p12` and
+`truststore.p12`; nobody has those. What a broker hands out is `ca.pem`,
+`client.crt` and `client.key`, so the studio reads those and writes the stores
+itself, into a directory only this user can read. The private key never goes
+back to the browser: the API returns what the certificate says about itself and
+nothing else.
+
+Paths are resolved on the machine the studio runs on. **In a container that
+means paths inside the container**, so mount the directory holding the
+certificates — and the studio says so when a file is not where it was told.
+
 ## Running it somewhere other than your laptop
 
 Inside a container, `localhost` is the container. Somebody types

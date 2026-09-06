@@ -38,6 +38,16 @@
     <frontend-plugin.version>1.15.1</frontend-plugin.version>
   </properties>
 
+  <!-- The AceMQ artifacts are served from the family's own Maven repository. The
+       library module declares this too; the studio needs it in its own right for
+       the test-scoped certificate generator. -->
+  <repositories>
+    <repository>
+      <id>acemq</id>
+      <url>https://acemq-company.github.io/maven/</url>
+    </repository>
+  </repositories>
+
   <dependencyManagement>
     <dependencies>
       <dependency>
@@ -96,6 +106,21 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!--
+      The library's own certificate generator, for the TLS tests.
+
+      A checked-in certificate is a private key in a public repository and a test
+      that fails one morning when it expires. Generating them with the same tool
+      the documentation points people at also means the tests exercise the
+      material the studio will really be given.
+    -->
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-security-dev</artifactId>
+      <version>0.2.10</version>
       <scope>test</scope>
     </dependency>
     <dependency>

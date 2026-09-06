@@ -29,6 +29,9 @@ import org.acemq.workloads.scenario.QueueType;
 import org.acemq.workloads.studio.net.BrokerReachability;
 import org.acemq.workloads.studio.net.Where;
 import org.acemq.workloads.studio.scenario.ScenarioJson;
+import org.acemq.workloads.studio.StudioProperties;
+import org.acemq.workloads.studio.tls.TlsProbe;
+import org.acemq.workloads.studio.tls.TlsSettings;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -41,9 +44,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class BrokerController {
 
     private final BrokerReachability reachability;
+    private final TlsProbe tls;
+    private final StudioProperties properties;
 
-    public BrokerController(BrokerReachability reachability) {
+    public BrokerController(BrokerReachability reachability, TlsProbe tls,
+            StudioProperties properties) {
         this.reachability = reachability;
+        this.tls = tls;
+        this.properties = properties;
     }
 
     /**
@@ -52,7 +60,13 @@ public class BrokerController {
      * @param username a management user
      * @param password its password
      */
-    public record Connection(String broker, String management, String username, String password) {
+    public record Connection(String broker, String management, String username, String password,
+            TlsSettings tls) {
+
+        /** @return the TLS settings, or none when the request did not carry any */
+        TlsSettings tlsOrNone() {
+            return tls == null ? TlsSettings.none() : tls;
+        }
     }
 
     /**
@@ -81,6 +95,19 @@ public class BrokerController {
                 "rewritten", amqp.wasRewritten(),
                 "explanation", amqp.explain(),
                 "attempts", amqp.attempts()));
+
+        // A TCP connect to 5671 proves nothing about TLS: the port answers whether or not the
+        // certificate on it is one this client will accept. So when the URL says amqps, the
+        // handshake is actually made and what it found is reported.
+        TlsSettings settings = connection.tlsOrNone();
+        boolean wantsTls = settings.enabled()
+                || String.valueOf(connection.broker()).startsWith("amqps://");
+        if (wantsTls && amqp.isReachable()) {
+            TlsSettings effective = settings.enabled() ? settings
+                    : new TlsSettings(true, null, null, null, null, null, null, false, false);
+            answer.put("tls", tls.probe(amqp.reachableUrl(), effective,
+                    properties.tlsWorkingDirectory()));
+        }
 
         if (connection.management() != null && !connection.management().isBlank()) {
             BrokerReachability.Probe http = reachability.probe(connection.management());

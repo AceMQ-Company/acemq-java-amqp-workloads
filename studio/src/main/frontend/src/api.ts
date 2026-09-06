@@ -19,6 +19,7 @@ import type {
   RunSummary,
   Scenario,
   ScenarioSample,
+  TlsSettings,
 } from './types'
 
 // The token, when the studio is running somewhere that needs one. It arrives in
@@ -78,6 +79,7 @@ export const api = {
     management?: string
     username?: string
     password?: string
+    tls?: TlsSettings
   }) => call<BrokerProbe>('/api/broker/probe', {
     method: 'POST',
     body: JSON.stringify(connection),
@@ -93,10 +95,10 @@ export const api = {
     body: JSON.stringify(connection),
   }),
 
-  start: (scenarioId: string | null, scenario: Scenario, broker: string) =>
+  start: (scenarioId: string | null, scenario: Scenario, broker: string, tls?: TlsSettings) =>
     call<{ id: string; broker: string; rewritten: boolean; explanation: string }>('/api/runs', {
       method: 'POST',
-      body: JSON.stringify({ scenarioId, scenario, broker }),
+      body: JSON.stringify({ scenarioId, scenario, broker, tls }),
     }),
 
   stop: (id: string) => call<{ stopping: boolean }>(`/api/runs/${id}/stop`, { method: 'POST' }),

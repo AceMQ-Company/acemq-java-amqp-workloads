@@ -1119,3 +1119,31 @@ th.mono {
   cursor: default;
   opacity: 1;
 }
+
+/* The TLS section of the gate: present only when the URL asks for it. */
+.tls-panel {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+}
+
+.tls-title {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+}
+
+.tls-panel .field {
+  margin: 10px 0;
+}
+
+.tls-panel .hint {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  line-height: 1.5;
+  margin: 6px 0 0;
+}

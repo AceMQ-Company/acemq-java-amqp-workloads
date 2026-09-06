@@ -34,6 +34,7 @@ import org.acemq.workloads.scenario.ScenarioRunner;
 import org.acemq.workloads.scenario.ScenarioSample;
 import org.acemq.workloads.studio.scenario.ScenarioJson;
 import org.acemq.workloads.studio.store.RunStore;
+import org.acemq.workloads.studio.tls.TlsSettings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -86,6 +87,21 @@ public class Runs {
      * @throws IllegalStateException if a run is already going
      */
     public String start(String scenarioId, ScenarioJson file, String brokerUrl) {
+        return start(scenarioId, file, brokerUrl, null, null);
+    }
+
+    /**
+     * Starts one against a broker that needs TLS.
+     *
+     * @param scenarioId the saved scenario it came from, or null
+     * @param file the scenario to run
+     * @param brokerUrl where to run it
+     * @param tls what to trust and what to present, or null
+     * @param tlsDirectory where generated keystores go
+     * @return the run's identifier
+     */
+    public String start(String scenarioId, ScenarioJson file, String brokerUrl,
+            TlsSettings tls, java.nio.file.Path tlsDirectory) {
         if (!active.isEmpty()) {
             String running = active.keySet().iterator().next();
             throw new IllegalStateException(
@@ -109,7 +125,11 @@ public class Runs {
         Active run = new Active(id);
         active.put(id, run);
 
-        ScenarioHandle handle = ScenarioRunner.start(scenario, brokerUrl, new ScenarioListener() {
+        org.acemq.amqp.security.Security security =
+                tls == null || !tls.enabled() ? null : tls.toSecurity(tlsDirectory);
+
+        ScenarioHandle handle = ScenarioRunner.start(scenario, brokerUrl, security,
+                new ScenarioListener() {
             @Override
             public void onSample(ScenarioSample sample) {
                 Active run = active.get(id);

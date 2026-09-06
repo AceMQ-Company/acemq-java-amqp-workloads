@@ -27,6 +27,7 @@ import type {
   RunSummary,
   Scenario,
   ScenarioSample,
+  TlsSettings,
 } from './types'
 
 type Tab = 'design' | 'run' | 'presets' | 'history'
@@ -67,6 +68,7 @@ export default function App() {
   const [broker, setBroker] = useState('amqp://guest:guest@localhost:5672')
   const [management, setManagement] = useState('http://localhost:15672')
   const [probe, setProbe] = useState<BrokerProbe | null>(null)
+  const [tls, setTls] = useState<TlsSettings>({ enabled: false })
   // Nothing here works without a broker, so the connection is established first
   // and the rest of the application is not reachable until it is.
   const [connected, setConnected] = useState(false)
@@ -145,7 +147,7 @@ export default function App() {
     setSamples([])
     setTab('run')
     try {
-      const started = await api.start(scenarioId, scenario, broker)
+      const started = await api.start(scenarioId, scenario, broker, tls.enabled ? tls : undefined)
       setRunId(started.id)
       if (started.rewritten) {
         setError(null)
@@ -179,8 +181,10 @@ export default function App() {
       <Connect
         broker={broker}
         management={management}
+        tls={tls}
         onBrokerChange={setBroker}
         onManagementChange={setManagement}
+        onTlsChange={setTls}
         onConnected={(found) => {
           setProbe(found)
           // Whatever answered is what the run will use, so the studio keeps the
@@ -221,7 +225,7 @@ export default function App() {
             spellCheck={false}
             title="The AMQP URL to run against"
             onChange={(e) => setBroker(e.target.value)}
-            onBlur={() => api.probe({ broker, management }).then(setProbe).catch(() => {})}
+            onBlur={() => api.probe({ broker, management, tls }).then(setProbe).catch(() => {})}
           />
           {/* The management API is a separate port and often closed. Without it
               the studio cannot tell which queue types the broker honours, and
@@ -234,7 +238,7 @@ export default function App() {
             placeholder="management URL"
             title="The management API, for queue types and importing a topology"
             onChange={(e) => setManagement(e.target.value)}
-            onBlur={() => api.probe({ broker, management }).then(setProbe).catch(() => {})}
+            onBlur={() => api.probe({ broker, management, tls }).then(setProbe).catch(() => {})}
           />
           <button
             className="chip as-button"

@@ -190,6 +190,38 @@ export interface QueueTypeInfo {
   whyNot: string | null
 }
 
+export interface TlsSettings {
+  enabled: boolean
+  caPath?: string
+  caPem?: string
+  clientCertificatePath?: string
+  clientCertificatePem?: string
+  clientKeyPath?: string
+  clientKeyPem?: string
+  trustAnyCertificate?: boolean
+  allowDevelopmentCertificates?: boolean
+}
+
+export interface CertificateDescription {
+  subject: string
+  issuer: string
+  notBefore: string
+  notAfter: string
+  expired: boolean
+  development: boolean
+}
+
+export interface TlsResult {
+  completed: boolean
+  protocol: string | null
+  cipherSuite: string | null
+  trusted: boolean
+  clientCertificateRequested: boolean
+  clientCertificateProvided: boolean
+  chain: CertificateDescription[]
+  problem: string | null
+}
+
 export interface BrokerProbe {
   where: 'host' | 'container' | 'kubernetes'
   whereDescription: string
@@ -214,6 +246,7 @@ export interface BrokerProbe {
     known: boolean
     queueTypes: QueueTypeInfo[]
   }
+  tls?: TlsResult
 }
 
 export interface Preset {

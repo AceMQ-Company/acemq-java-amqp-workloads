@@ -8,6 +8,33 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
+## 0.1.2 — 2026-09-06
+
+### Added
+- **TLS and mutual TLS in the studio.** An `amqps://` URL turns on a TLS section
+  on the connection screen: a certificate authority, a client certificate and
+  key for mutual TLS, and two switches that are named for what they do —
+  accepting development certificates, and trusting anything.
+- **A real handshake, not a TCP connect.** Port 5671 answers a socket whether or
+  not the certificate on it is acceptable, so the studio completes a handshake
+  and reports the protocol, whether the chain verified, what the broker
+  presented, when it expires, whether it is stamped development-only, and
+  whether the broker asked for a client certificate in return.
+- **PEM in, keystores out.** `Security.fromKeystore` wants two PKCS#12 files and
+  nobody has those; what a broker hands out is `ca.pem`, `client.crt` and
+  `client.key`. The studio reads those — PKCS#8 and PKCS#1 keys alike — and
+  writes the stores itself, into a directory only its user can read. An
+  encrypted key is refused with the command that decrypts one, because holding
+  a passphrase would make the studio the thing that leaked it.
+- **`ScenarioRunner.run` and `start` take a `Security`**, so a scenario can be
+  run against a broker that needs TLS from the library as well as the studio.
+
+### Changed
+- A failed run reports its root cause as well as its message. "could not connect
+  to amqps://broker:5671" is what the transport says whether the certificate was
+  refused, the password was wrong or the port was closed, and the answer is
+  three causes further down.
+
 ## 0.1.1 — 2026-09-06
 
 ### Added

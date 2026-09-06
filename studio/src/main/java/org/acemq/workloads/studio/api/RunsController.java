@@ -22,6 +22,8 @@ import org.acemq.workloads.studio.net.BrokerReachability;
 import org.acemq.workloads.studio.run.Runs;
 import org.acemq.workloads.studio.scenario.ScenarioJson;
 import org.acemq.workloads.studio.store.RunStore;
+import org.acemq.workloads.studio.StudioProperties;
+import org.acemq.workloads.studio.tls.TlsSettings;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,11 +43,14 @@ public class RunsController {
     private final Runs runs;
     private final RunStore store;
     private final BrokerReachability reachability;
+    private final StudioProperties properties;
 
-    public RunsController(Runs runs, RunStore store, BrokerReachability reachability) {
+    public RunsController(Runs runs, RunStore store, BrokerReachability reachability,
+            StudioProperties properties) {
         this.runs = runs;
         this.store = store;
         this.reachability = reachability;
+        this.properties = properties;
     }
 
     /**
@@ -55,7 +60,8 @@ public class RunsController {
      * @param broker where to run it
      * @param scenario the scenario itself, so an unsaved design can be run
      */
-    public record StartRequest(String scenarioId, String broker, ScenarioJson scenario) {
+    public record StartRequest(String scenarioId, String broker, ScenarioJson scenario,
+            TlsSettings tls) {
     }
 
     /**
@@ -79,7 +85,8 @@ public class RunsController {
         }
 
         try {
-            String id = runs.start(request.scenarioId(), request.scenario(), probe.reachableUrl());
+            String id = runs.start(request.scenarioId(), request.scenario(), probe.reachableUrl(),
+                    request.tls(), properties.tlsWorkingDirectory());
             return ResponseEntity.ok(Map.of(
                     "id", id,
                     "broker", probe.reachableUrl(),

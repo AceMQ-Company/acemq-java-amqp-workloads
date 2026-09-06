@@ -15,7 +15,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from './api'
-import type { BrokerProbe } from './types'
+import type { BrokerProbe, TlsSettings } from './types'
 
 /**
  * The first screen: find a broker, or go no further.
@@ -34,16 +34,20 @@ import type { BrokerProbe } from './types'
 interface Props {
   broker: string
   management: string
+  tls: TlsSettings
   onBrokerChange: (url: string) => void
   onManagementChange: (url: string) => void
+  onTlsChange: (tls: TlsSettings) => void
   onConnected: (probe: BrokerProbe) => void
 }
 
 export function Connect({
   broker,
   management,
+  tls,
   onBrokerChange,
   onManagementChange,
+  onTlsChange,
   onConnected,
 }: Props) {
   const [probe, setProbe] = useState<BrokerProbe | null>(null)
@@ -54,7 +58,7 @@ export function Connect({
     setLooking(true)
     setFailure(null)
     try {
-      const found = await api.probe({ broker, management })
+      const found = await api.probe({ broker, management, tls })
       setProbe(found)
     } catch (e) {
       setProbe(null)
@@ -71,7 +75,11 @@ export function Connect({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const reachable = probe?.amqp.reachable ?? false
+  const secure = broker.trim().startsWith('amqps://')
+  const handshake = probe?.tls
+  // A TLS URL that has not completed a handshake is not a connection, whatever the
+  // TCP probe says. Continue would only defer the failure to the first run.
+  const reachable = (probe?.amqp.reachable ?? false) && (!secure || (handshake?.completed ?? false))
   const capabilities = probe?.capabilities
   const supported = capabilities?.queueTypes.filter((t) => t.supported) ?? []
 
@@ -121,6 +129,92 @@ export function Connect({
           </p>
         </div>
 
+        {secure && (
+          <div className="tls-panel">
+            <div className="tls-title">
+              TLS <span className="optional">— this URL says amqps, so a handshake is made</span>
+            </div>
+
+            <div className="field">
+              <label>
+                Certificate authority <span className="optional">— a path, or paste it below</span>
+              </label>
+              <input
+                value={tls.caPath ?? ''}
+                spellCheck={false}
+                placeholder="/etc/rabbitmq/certs/ca.pem"
+                onChange={(e) => onTlsChange({ ...tls, enabled: true, caPath: e.target.value })}
+              />
+              <p className="hint">
+                The authority that signed the broker's certificate. Without it the studio trusts
+                only what this machine already trusts, which is not a privately issued
+                certificate.
+              </p>
+            </div>
+
+            <div className="row">
+              <div className="field">
+                <label>Client certificate <span className="optional">— for mutual TLS</span></label>
+                <input
+                  value={tls.clientCertificatePath ?? ''}
+                  spellCheck={false}
+                  placeholder="client.crt"
+                  onChange={(e) =>
+                    onTlsChange({ ...tls, enabled: true, clientCertificatePath: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Its private key</label>
+                <input
+                  value={tls.clientKeyPath ?? ''}
+                  spellCheck={false}
+                  placeholder="client.key"
+                  onChange={(e) =>
+                    onTlsChange({ ...tls, enabled: true, clientKeyPath: e.target.value })}
+                />
+              </div>
+            </div>
+            <p className="hint">
+              Only needed when the broker asks who you are. PEM as it comes — the studio builds
+              the keystores itself, and the key never leaves this machine.
+            </p>
+
+            <label className="switch" style={{ marginTop: 12 }}>
+              <input
+                type="checkbox"
+                checked={tls.allowDevelopmentCertificates ?? false}
+                onChange={(e) =>
+                  onTlsChange({
+                    ...tls,
+                    enabled: true,
+                    allowDevelopmentCertificates: e.target.checked,
+                  })}
+              />
+              Accept development certificates
+            </label>
+            <p className="hint">
+              The AceMQ generator stamps its certificates as development-only and the library
+              refuses them unless this is on. That refusal is the feature: it is what stops one
+              reaching production.
+            </p>
+
+            <label className="switch" style={{ marginTop: 12 }}>
+              <input
+                type="checkbox"
+                checked={tls.trustAnyCertificate ?? false}
+                onChange={(e) =>
+                  onTlsChange({ ...tls, enabled: true, trustAnyCertificate: e.target.checked })}
+              />
+              Trust any certificate
+            </label>
+            <p className="hint">
+              Encrypts the conversation and proves nothing about who is on the other end. For a
+              first run against a broker whose certificate nobody can find, and not for anything
+              else.
+            </p>
+          </div>
+        )}
+
         {looking && (
           <div className="gate-status" data-state="looking">
             <span className="dot" />
@@ -135,6 +229,24 @@ export function Connect({
               <div>
                 <strong>Found a broker at {hostOf(probe!.amqp.url)}</strong>
                 {probe!.amqp.rewritten && <div className="gate-note">{probe!.amqp.explanation}</div>}
+                {handshake?.completed && (
+                  <div className="gate-note">
+                    {handshake.protocol} · {handshake.trusted
+                      ? 'certificate verified'
+                      : 'certificate NOT verified — encrypted, and proving nothing'}
+                    {handshake.clientCertificateProvided && ' · client certificate accepted'}
+                    {tls.enabled && tls.clientCertificatePath && !handshake.clientCertificateProvided
+                      && ' · the broker did not ask for a client certificate'}
+                  </div>
+                )}
+                {handshake?.chain?.[0] && (
+                  <div className="gate-note">
+                    presented {shortName(handshake.chain[0].subject)}, signed by{' '}
+                    {shortName(handshake.chain[0].issuer)}, expires{' '}
+                    {handshake.chain[0].notAfter.slice(0, 10)}
+                    {handshake.chain[0].development && ' · marked development-only'}
+                  </div>
+                )}
                 {capabilities?.version && (
                   <div className="gate-note">
                     RabbitMQ {capabilities.version} — {supported.map((t) => t.label).join(', ')}
@@ -163,8 +275,22 @@ export function Connect({
             <div className="gate-status" data-state="bad">
               <span className="dot" />
               <div>
-                <strong>Nothing answered</strong>
-                <div className="gate-note">{failure ?? probe?.amqp.explanation}</div>
+                <strong>
+                  {handshake && !handshake.completed
+                    ? 'The TLS handshake failed'
+                    : 'Nothing answered'}
+                </strong>
+                <div className="gate-note">
+                  {handshake && !handshake.completed
+                    ? handshake.problem
+                    : (failure ?? probe?.amqp.explanation)}
+                </div>
+                {handshake?.chain?.[0] && (
+                  <div className="gate-note">
+                    it presented {shortName(handshake.chain[0].subject)}, signed by{' '}
+                    {shortName(handshake.chain[0].issuer)}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -210,6 +336,12 @@ export function Connect({
       </div>
     </div>
   )
+}
+
+/** A distinguished name is unreadable in full; the common name is the part that matters. */
+function shortName(dn: string): string {
+  const match = /CN=([^,]+)/.exec(dn)
+  return match ? match[1] : dn
 }
 
 function hostOf(url: string): string {

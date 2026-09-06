@@ -110,7 +110,33 @@ public class RunStore {
     public void failed(String runId, Throwable failure) {
         jdbc.update("""
                 UPDATE runs SET status = 'failed', finished_at = ?, error = ? WHERE id = ?""",
-                Instant.now().toString(), String.valueOf(failure.getMessage()), runId);
+                Instant.now().toString(), because(failure), runId);
+    }
+
+    /**
+     * The failure, and what actually caused it.
+     *
+     * <p>The top of the chain is usually the least useful sentence in it. "could not connect to
+     * amqps://broker:5671" is what the transport says whether the certificate was refused, the
+     * password was wrong or the port was closed — and the answer somebody needs is three causes
+     * further down, where it says the certificate is marked development-only.
+     *
+     * @param failure what went wrong
+     * @return the message, with the root cause when it says something different
+     */
+    static String because(Throwable failure) {
+        String message = String.valueOf(failure.getMessage());
+
+        Throwable cause = failure;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        String root = String.valueOf(cause.getMessage());
+
+        if (cause == failure || root.equals(message) || root.equals("null")) {
+            return message;
+        }
+        return message + " -- " + root;
     }
 
     /**

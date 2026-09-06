@@ -110,6 +110,19 @@ public class StudioProperties {
         this.database = database;
     }
 
+    /**
+     * Where the keystores built from somebody's PEM files are written.
+     *
+     * <p>Beside the database, because a private key belongs with the rest of the studio's state
+     * and not in a temporary directory that something else might read.
+     *
+     * @return the directory
+     */
+    public Path tlsWorkingDirectory() {
+        Path parent = databasePath().getParent();
+        return (parent == null ? Path.of(".") : parent).resolve("tls");
+    }
+
     private static String generateToken() {
         byte[] bytes = new byte[24];
         new SecureRandom().nextBytes(bytes);
