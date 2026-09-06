@@ -36,10 +36,30 @@ consumers, prefetch, handler time, rate, message size — and the scenario is
 checked as you edit, so a binding to an exchange nothing declares is a red line
 here rather than a channel closure in the middle of a run.
 
-**Presets.** Six scenarios that answer a real question as they stand: quorum
-against classic on the same traffic, one slow consumer in a fan-out, a queue
-nobody is reading, prefetch high and low, a dead-letter path under load, and
-find the ceiling.
+**Presets.** Ten scenarios that answer a real question as they stand, in two
+kinds.
+
+*Measurements* isolate one variable: quorum against classic on the same traffic,
+one slow consumer in a fan-out, a queue nobody is reading, prefetch high and
+low, a dead-letter path under load, find the ceiling.
+
+*Shapes* are whole topologies with the exchange types wired the way a real
+system wires them, and they answer a different question — not "how fast is this
+queue" but "does the routing do what I think, and what does the whole thing cost
+when every path is busy at once":
+
+| | |
+|---|---|
+| **Every routing rule at once** | Direct, topic and fanout side by side: 3 + 4 + 4 queues, and a producer per exchange cycling through the keys |
+| **Event-driven commerce** | Orders broadcast to fulfilment and analytics, payments routed by exact type, shipping subscribed by region and by exception. Nine queues, one deliberately thin consumer |
+| **A trading venue** | A market data feed fanned out to four subscribers including one too slow, instrument subscriptions by pattern, order entry by type. Small messages, 20,000/s |
+| **Many writers, one queue** | Eight services into one queue. A queue is one process on one node, so this is where contention appears |
+
+The routing shapes are worth running for the per-queue counts alone. On a
+12-second run at 3,000/s over six keys, they say plainly that `orders.#` takes
+the bare key `orders` as well as `orders.created.eu`, that `orders.*.eu` takes
+`orders.created.eu` and **not** `orders.created.paid.eu`, and that every fanout
+queue got exactly one copy of everything.
 
 **Import.** Point it at a broker's management API and it reads the topology into
 the designer, with consumers switched off. The fastest way to a useful scenario
