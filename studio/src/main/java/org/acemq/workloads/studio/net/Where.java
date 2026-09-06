@@ -86,4 +86,20 @@ public enum Where {
             case KUBERNETES -> "running inside a Kubernetes pod, so localhost is the pod itself";
         };
     }
+
+    /**
+     * The same fact without the explanation, for a sentence that goes on to give one.
+     *
+     * <p>{@link #describe()} ends with "so localhost is the container itself", which reads badly
+     * in front of a clause that says what localhost is not.
+     *
+     * @return a short description of where this is
+     */
+    public String describeBriefly() {
+        return switch (this) {
+            case HOST -> "running directly on this machine";
+            case CONTAINER -> "running inside a container";
+            case KUBERNETES -> "running inside a Kubernetes pod";
+        };
+    }
 }

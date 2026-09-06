@@ -20,6 +20,17 @@
   </description>
 
   <properties>
+    <!--
+      Not published to the Maven repository.
+
+      Spring Boot's repackage replaces the main artifact with the fat jar, so
+      deploying this module would put 40MB of application into a Git-hosted
+      repository served over GitHub Pages, once per release, for something
+      nobody ever declares as a dependency. The studio is distributed as a
+      release asset; the library is the thing people compile against.
+    -->
+    <maven.deploy.skip>true</maven.deploy.skip>
+
     <spring-boot.version>3.4.1</spring-boot.version>
     <sqlite.version>3.47.1.0</sqlite.version>
     <node.version>v22.11.0</node.version>

@@ -106,12 +106,52 @@ prints at startup unless `ACEMQ_STUDIO_TOKEN` sets one. A tool that can generate
 load against any broker it can reach does not get an open port for free.
 
 ```bash
+# From this repository
+docker build -t acemq-workloads-studio .
+
 docker run -p 8480:8480 \
   -e ACEMQ_STUDIO_TOKEN=something-only-you-know \
-  -e ACEMQ_STUDIO_DATABASE=/data/studio.db \
   -v acemq-studio:/data \
   acemq-workloads-studio
 ```
+
+Leave the token unset and the studio generates one and prints it at startup,
+along with a URL that carries it. The image runs as a non-root user, writes only
+`/data`, sizes its heap from the container's limit rather than the host's
+memory, and its liveness endpoint is open without a token — a container that
+will not answer a probe without a secret is a container that gets restarted for
+ever.
+
+**The studio and a broker together:**
+
+```bash
+docker compose up --build
+# then connect to  amqp://guest:guest@broker:5672
+```
+
+Inside that network the broker is called `broker`. `localhost` is the studio's
+own container, which is exactly what the first screen will tell you if you try
+it.
+
+**In Kubernetes**, the two things worth setting:
+
+```yaml
+    livenessProbe:
+      httpGet: { path: /actuator/health/liveness, port: 8480 }
+    readinessProbe:
+      httpGet: { path: /actuator/health/readiness, port: 8480 }
+    env:
+      - name: ACEMQ_STUDIO_TOKEN
+        valueFrom: { secretKeyRef: { name: acemq-studio, key: token } }
+# and on the pod spec
+terminationGracePeriodSeconds: 45
+```
+
+The grace period matters. A run holds the connection and the broker's queues,
+and on SIGTERM the studio stops it and writes a report for the window it
+measured — verified: a container stopped 20 seconds into a two-minute run exits
+immediately and keeps the report, marked `run-was-stopped`. Killing it instead
+loses the measurement and leaves the broker holding the mess.
 
 ## Configuration
 

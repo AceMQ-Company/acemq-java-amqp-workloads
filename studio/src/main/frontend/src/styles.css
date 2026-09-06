@@ -926,3 +926,196 @@ th.mono {
     padding: 12px;
   }
 }
+
+/* ---- the connect gate ------------------------------------------------- */
+
+/*
+ * The first screen, and for a moment the only one. It is centred and quiet
+ * because there is exactly one thing to do here, and the studio should look
+ * like it knows that.
+ */
+.gate {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: 32px 20px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(61, 220, 151, 0.08), transparent 55%),
+    var(--bg);
+  overflow-y: auto;
+}
+
+.gate-card {
+  width: 100%;
+  max-width: 560px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 28px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.gate-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.gate-brand img {
+  height: 22px;
+  filter: invert(1) brightness(1.6);
+}
+
+.gate-brand span {
+  color: var(--text-faint);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.gate-card h1 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.gate-lead {
+  margin: 0 0 20px;
+  color: var(--text-dim);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.gate-card .field input {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+.optional {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.gate-status {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  margin-top: 18px;
+  padding: 13px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.gate-status .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex: none;
+  background: var(--text-faint);
+}
+
+.gate-status[data-state='looking'] .dot {
+  background: var(--in);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.gate-status[data-state='ok'] {
+  border-color: rgba(61, 220, 151, 0.4);
+  background: linear-gradient(180deg, var(--flow-dim), transparent);
+}
+
+.gate-status[data-state='ok'] .dot {
+  background: var(--flow);
+  box-shadow: 0 0 0 3px var(--flow-dim);
+}
+
+.gate-status[data-state='bad'] {
+  border-color: rgba(255, 107, 107, 0.4);
+  background: rgba(255, 107, 107, 0.08);
+}
+
+.gate-status[data-state='bad'] .dot {
+  background: var(--fail);
+}
+
+.gate-note {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  margin-top: 4px;
+}
+
+.gate-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.gate-actions button {
+  padding: 9px 18px;
+}
+
+/* What was tried, when nothing answered. A list of attempts is the difference
+   between "it does not work" and knowing which name to use. */
+.attempts {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.attempts-title {
+  padding: 8px 12px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--line);
+}
+
+.attempt {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.attempt:last-child {
+  border-bottom: none;
+}
+
+.attempt code {
+  font-family: var(--mono);
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attempt span {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* The broker chip in the top bar is also the way back to the gate. */
+.chip.as-button {
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.chip.as-button:hover:not(:disabled) {
+  border-color: var(--text-faint);
+  background: var(--bg-input);
+}
+
+.chip.as-button:disabled {
+  cursor: default;
+  opacity: 1;
+}

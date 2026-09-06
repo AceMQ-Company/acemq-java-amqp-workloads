@@ -1,0 +1,47 @@
+# The studio and a broker, on one network.
+#
+#   docker compose up --build
+#   open http://localhost:8480      and connect to  amqp://guest:guest@broker:5672
+#
+# The broker is called `broker` here, and that is the name to type into the
+# studio's first screen. Inside this network `localhost` is the studio's own
+# container and nothing is listening on it — which is exactly the confusion the
+# studio detects and explains, but typing the right name is quicker than reading
+# about it.
+services:
+  broker:
+    image: rabbitmq:4-management
+    ports:
+      # Published so the broker is also reachable from the host, for the CLI and
+      # for the management interface.
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  studio:
+    build: .
+    ports:
+      - "8480:8480"
+    environment:
+      # A token, because in a container the studio binds to every interface. On
+      # a laptop behind a compose file this is a formality; leaving it unset
+      # would make the studio generate one and print it, which is fine too.
+      ACEMQ_STUDIO_TOKEN: local-development
+      ACEMQ_STUDIO_DATABASE: /data/workloads-studio.db
+    volumes:
+      # The run history outlives `docker compose down`. Losing a morning of
+      # measurements to a restart is not a lesson anybody needs twice.
+      - studio-data:/data
+    depends_on:
+      broker:
+        condition: service_healthy
+    # A run holds a connection and the broker's queues. Long enough for the
+    # studio to stop the run and write its report before anything is killed.
+    stop_grace_period: 45s
+
+volumes:
+  studio-data:

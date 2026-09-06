@@ -15,6 +15,8 @@
  */
 package org.acemq.workloads.studio.run;
 
+import jakarta.annotation.PreDestroy;
+
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -183,6 +185,40 @@ public class Runs {
 
         run.handle = handle;
         return id;
+    }
+
+    /**
+     * Stops whatever is running when the process is asked to shut down.
+     *
+     * <p>A run holds a non-daemon thread for as long as it lasts, so without this a container
+     * given SIGTERM part way through a ninety-second run sits there until the orchestrator loses
+     * patience and sends SIGKILL — which loses the report as well as the time. Stopping the run
+     * instead produces a report for the window it measured, and the pod exits in seconds.
+     */
+    @PreDestroy
+    void stopEverythingOnShutdown() {
+        for (Active run : active.values()) {
+            log.info("shutting down: stopping run {}, which will report on what it measured",
+                    run.id);
+            if (run.handle != null) {
+                run.handle.stop();
+            }
+        }
+
+        // Long enough for the engine to drain and write its report, short enough to be well
+        // inside a default 30-second termination grace period.
+        long deadline = System.currentTimeMillis() + 15_000;
+        while (!active.isEmpty() && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        if (!active.isEmpty()) {
+            log.warn("a run did not finish stopping in time; its report may be incomplete");
+        }
     }
 
     /**

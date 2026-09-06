@@ -8,7 +8,47 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
-## [Unreleased]
+## 0.1.1 — 2026-09-06
+
+### Added
+- **The studio.** `java -jar acemq-workloads-studio.jar` opens a browser
+  interface for designing a topology, running load against it and watching what
+  happens: a canvas, ten presets, a live view, run history in a SQLite file, and
+  an export that is the same file the command line reads — so a scenario
+  designed on a screen runs unchanged in a pipeline.
+- **`Scenario`** — a whole topology rather than one path: several exchanges,
+  several queues each with their own consumers, and producers aimed at chosen
+  keys. Every node can be switched off without being deleted, because "what
+  happens if this consumer stops" is the question people run these things to
+  answer. Everything is counted per node: a single pair of totals cannot
+  describe a graph, and total throughput looks healthy while one leg of a
+  fan-out falls behind.
+- **Live readings.** `Workload.start` and `ScenarioRunner.start` take a listener
+  and return a handle, reporting about once a second on a thread of their own so
+  the publishers pay nothing for it. Rates are per-interval rather than
+  averages, because an average cannot show a stall.
+- **Stopping a run.** `stop()` ends the measured window early and still reports
+  on what it measured, marked as stopped so nobody reads a twenty-second window
+  as the two minutes that were asked for.
+- **Stream and mirrored-classic queue types**, and `BrokerCapabilities`, which
+  asks a broker which types it will honour. Mirrored classic queues were removed
+  in RabbitMQ 4.0 and a 4.x broker accepts the policy and ignores it, so
+  offering the option unconditionally would measure a classic queue under
+  another name.
+- **A Dockerfile and a compose file.** Non-root, heap sized from the container's
+  limit, an open liveness endpoint, and graceful shutdown that stops a running
+  scenario on SIGTERM and keeps its report.
+- **A connection resolver.** Inside a container `localhost` is the container, so
+  the studio tries `host.docker.internal`, `host.containers.internal` and the
+  default gateway, and says which one answered rather than rewriting silently.
+
+### Changed
+- The repository is two Maven modules, `library/` and `studio/`. The published
+  coordinates are unchanged — `org.acemq:acemq-java-amqp-workloads` — and the
+  studio is distributed as a release asset rather than a Maven artifact, because
+  nobody declares an application as a dependency.
+
+## 0.1.0 — 2026-09-03
 
 ### Added
 - The repository: licence, notice, build, and a README that says what this is

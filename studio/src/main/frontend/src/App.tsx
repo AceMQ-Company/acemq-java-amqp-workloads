@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from './api'
+import { Connect } from './Connect'
 import { Canvas, type Selection } from './designer/Canvas'
 import { Inspector } from './designer/Inspector'
 import { LiveView } from './run/LiveView'
@@ -66,6 +67,9 @@ export default function App() {
   const [broker, setBroker] = useState('amqp://guest:guest@localhost:5672')
   const [management, setManagement] = useState('http://localhost:15672')
   const [probe, setProbe] = useState<BrokerProbe | null>(null)
+  // Nothing here works without a broker, so the connection is established first
+  // and the rest of the application is not reachable until it is.
+  const [connected, setConnected] = useState(false)
 
   const [runId, setRunId] = useState<string | null>(null)
   const [samples, setSamples] = useState<ScenarioSample[]>([])
@@ -83,18 +87,17 @@ export default function App() {
 
   const unwatch = useRef<(() => void) | null>(null)
 
-  // The broker is probed once at startup so the first thing somebody sees is
-  // whether this studio can reach anything -- which, in a container, is the
-  // question that costs an afternoon.
   useEffect(() => {
-    api.probe({ broker, management }).then(setProbe).catch(() => setProbe(null))
     api.presets().then(setPresets).catch(() => {})
     refreshLists()
 
     // A run started before this tab was opened is still going. Attaching to it
     // rather than showing an empty screen is what makes a reload harmless.
+    // A run started before this tab was opened is still going, and somebody
+    // reloading mid-run should land back on it rather than at the gate.
     api.current().then((current) => {
       if (current.running && current.id) {
+        setConnected(true)
         setRunId(current.id)
         setTab('run')
         attach(current.id)
@@ -171,6 +174,24 @@ export default function App() {
     return { state: 'ok', text: hostOf(probe.amqp.url) }
   }, [probe])
 
+  if (!connected) {
+    return (
+      <Connect
+        broker={broker}
+        management={management}
+        onBrokerChange={setBroker}
+        onManagementChange={setManagement}
+        onConnected={(found) => {
+          setProbe(found)
+          // Whatever answered is what the run will use, so the studio keeps the
+          // resolved URL rather than the one that was typed.
+          if (found.amqp.url) setBroker(found.amqp.url)
+          setConnected(true)
+        }}
+      />
+    )
+  }
+
   return (
     <div className="shell">
       <header className="topbar">
@@ -215,10 +236,16 @@ export default function App() {
             onChange={(e) => setManagement(e.target.value)}
             onBlur={() => api.probe({ broker, management }).then(setProbe).catch(() => {})}
           />
-          <span className="chip" data-state={runId ? 'live' : brokerState.state}>
+          <button
+            className="chip as-button"
+            data-state={runId ? 'live' : brokerState.state}
+            disabled={runId != null}
+            title={runId ? 'a run is going' : 'change broker'}
+            onClick={() => setConnected(false)}
+          >
             <span className="dot" />
             {runId ? 'running' : brokerState.text}
-          </span>
+          </button>
         </div>
 
         <button className="primary" disabled={!runnable} onClick={start}>

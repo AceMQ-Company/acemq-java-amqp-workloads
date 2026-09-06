@@ -4,6 +4,10 @@
 # wants to edit a file inside a jar.
 server:
   port: 8480
+  # Let requests in flight finish, and give the run that is going time to stop
+  # and write its report. A container told to stop should not lose the thing it
+  # spent ninety seconds measuring.
+  shutdown: graceful
   # A run holds this connection open for minutes at a time.
   servlet:
     session:
@@ -12,6 +16,10 @@ server:
 spring:
   application:
     name: acemq-workloads-studio
+  lifecycle:
+    # Inside the usual 30-second termination grace period, with room for the
+    # engine to drain what is in flight.
+    timeout-per-shutdown-phase: 20s
   mvc:
     async:
       # Server-sent events for the length of a run. Zero is "no timeout", which

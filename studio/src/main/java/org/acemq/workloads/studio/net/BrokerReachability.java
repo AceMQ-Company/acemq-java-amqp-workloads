@@ -89,7 +89,7 @@ public class BrokerReachability {
         public String explain() {
             if (!isReachable()) {
                 if (where.localhostIsMisleading()) {
-                    return "nothing answered. The studio is " + where.describe()
+                    return "nothing answered. The studio is " + where.describeBriefly()
                             + ", so a broker on your machine is not at localhost -- "
                             + (where == Where.KUBERNETES
                                     ? "use the broker's service name, such as"
@@ -100,7 +100,7 @@ public class BrokerReachability {
                 return "nothing answered at " + requestedUrl;
             }
             if (wasRewritten()) {
-                return "the studio is " + where.describe() + ", so " + hostOf(requestedUrl)
+                return "the studio is " + where.describeBriefly() + ", so " + hostOf(requestedUrl)
                         + " is not your machine. " + hostOf(reachableUrl) + " answered instead";
             }
             return "reachable";

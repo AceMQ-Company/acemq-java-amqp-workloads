@@ -1,0 +1,25 @@
+# Everything the build does not need, which is most of what is here.
+#
+# Without this, `docker build` uploads target/ and node_modules/ as build
+# context on every run: hundreds of megabytes to produce the same image, and a
+# cache that is invalidated by files the build never reads.
+target/
+*/target/
+**/node_modules/
+**/dist/
+
+.git/
+.github/
+.idea/
+.vscode/
+
+docs/
+site/
+examples/
+etc/
+
+*.md
+!studio/README.md
+
+.DS_Store
+*.log
