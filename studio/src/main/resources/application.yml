@@ -1,0 +1,39 @@
+# The studio's defaults. Everything here can be overridden with an environment
+# variable -- ACEMQ_STUDIO_TOKEN, ACEMQ_STUDIO_DATABASE, SERVER_PORT -- because
+# the two places this runs are somebody's laptop and a container, and neither
+# wants to edit a file inside a jar.
+server:
+  port: 8480
+  # A run holds this connection open for minutes at a time.
+  servlet:
+    session:
+      timeout: 8h
+
+spring:
+  application:
+    name: acemq-workloads-studio
+  mvc:
+    async:
+      # Server-sent events for the length of a run. Zero is "no timeout", which
+      # is what a chart that must not stop mid-run needs.
+      request-timeout: 0
+  jackson:
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    org.acemq: INFO
+    # The engine logs a line per consumer as a group starts, which is useful in
+    # a terminal and noise behind a user interface that already shows it.
+    org.acemq.amqp.core.DefaultConsumer: WARN

@@ -1,0 +1,928 @@
+/*
+ * Copyright 2026 AceMQ.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * An instrument panel, not a dashboard.
+ *
+ * The thing being looked at is a live system under load, so the surface is dark
+ * and quiet and the only saturated colour in the room is the data. Everything
+ * else -- panels, rules, labels -- sits within a few percent of the background,
+ * which is what makes a moving line read as movement rather than as decoration.
+ */
+
+@import '@xyflow/react/dist/style.css';
+
+:root {
+  --bg: #08090b;
+  --bg-raised: #0e1013;
+  --bg-panel: #121519;
+  --bg-input: #171b20;
+  --line: #21262d;
+  --line-bright: #2f363d;
+
+  --text: #e7ebef;
+  --text-dim: #9aa4ae;
+  --text-faint: #6b757f;
+
+  /* One accent. Flow is green because flow is the good outcome, and every
+     other colour in the palette is a severity. */
+  --flow: #3ddc97;
+  --flow-dim: rgba(61, 220, 151, 0.16);
+  --in: #63b3ff;
+  --in-dim: rgba(99, 179, 255, 0.16);
+  --warn: #ffb457;
+  --fail: #ff6b6b;
+  --invalid: #c77dff;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- shell ------------------------------------------------------------ */
+
+.shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px 20px;
+  padding: 8px 18px;
+  min-height: 56px;
+  background: linear-gradient(180deg, #0e1013, #0a0c0e);
+  border-bottom: 1px solid var(--line);
+  /* Wraps rather than overflowing. A toolbar that pushes the Run button off the
+     right edge of a narrow window is a tool that cannot be used on a laptop
+     beside a terminal, which is where this will mostly be used. */
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 18px;
+  border-right: 1px solid var(--line);
+  align-self: stretch;
+}
+
+/* The logo is black on transparent, which is invisible here. Inverting keeps
+   one file for both places it is used rather than shipping a second copy. */
+.brand img {
+  height: 20px;
+  filter: invert(1) brightness(1.6);
+}
+
+.brand small {
+  color: var(--text-faint);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.tab {
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+.tab[data-active='true'] {
+  color: var(--text);
+  background: var(--bg-panel);
+  border-color: var(--line-bright);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* ---- broker bar ------------------------------------------------------- */
+
+.broker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Takes the room that is left and gives it back when there is none, and wraps
+     inside itself before it forces the page to scroll sideways. */
+  flex: 1 1 320px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.broker input {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* The management URL is the first thing to go when the window is narrow: it is
+   optional, and the AMQP URL is not. */
+.broker input.secondary {
+  flex: 0 1 190px;
+}
+
+input,
+select,
+textarea {
+  background: var(--bg-input);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font: inherit;
+  outline: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--flow);
+  box-shadow: 0 0 0 3px var(--flow-dim);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-bright);
+  background: var(--bg-panel);
+  color: var(--text);
+  padding: 7px 12px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--bg-input);
+  border-color: var(--text-faint);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--flow);
+  border-color: var(--flow);
+  color: #05130c;
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #4ef0a8;
+  border-color: #4ef0a8;
+}
+
+button.danger {
+  background: transparent;
+  border-color: var(--fail);
+  color: var(--fail);
+}
+
+button.danger:hover:not(:disabled) {
+  background: rgba(255, 107, 107, 0.12);
+}
+
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-dim);
+  padding: 6px 8px;
+}
+
+button.ghost:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+/* ---- status chip ------------------------------------------------------ */
+
+.chip {
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.chip[data-state='ok'] .dot {
+  background: var(--flow);
+  box-shadow: 0 0 0 3px var(--flow-dim);
+}
+
+.chip[data-state='rewritten'] .dot {
+  background: var(--in);
+  box-shadow: 0 0 0 3px var(--in-dim);
+}
+
+.chip[data-state='bad'] .dot {
+  background: var(--fail);
+  box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.16);
+}
+
+/* A run in progress: the one thing on the screen allowed to pulse. */
+.chip[data-state='live'] .dot {
+  background: var(--flow);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--flow-dim);
+  }
+  50% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip[data-state='live'] .dot {
+    animation: none;
+  }
+}
+
+/* ---- layout ----------------------------------------------------------- */
+
+.body {
+  display: grid;
+  grid-template-columns: 1fr minmax(300px, 340px);
+  overflow: hidden;
+  min-height: 0;
+}
+
+.body.wide {
+  grid-template-columns: 1fr;
+}
+
+/*
+ * Under about a laptop's width the inspector stops being a side panel and
+ * becomes a drawer under the canvas. Squeezing a graph into 400px so a form can
+ * keep its 340px is the wrong trade: the graph is the thing being read.
+ */
+@media (max-width: 1100px) {
+  .body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(240px, 1fr) minmax(200px, 45vh);
+  }
+
+  .inspector {
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+}
+
+.canvas {
+  position: relative;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(61, 220, 151, 0.05), transparent 45%),
+    var(--bg);
+  overflow: hidden;
+}
+
+.inspector {
+  border-left: 1px solid var(--line);
+  background: var(--bg-raised);
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.inspector h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.inspector .hint {
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 10px 0 0;
+}
+
+.field {
+  margin: 14px 0;
+}
+
+.field label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 5px;
+}
+
+.field input,
+.field select {
+  width: 100%;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+}
+
+.row > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.switch input {
+  appearance: none;
+  width: 34px;
+  height: 19px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  border: 1px solid var(--line-bright);
+  position: relative;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+  padding: 0;
+}
+
+.switch input::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: transform 140ms ease, background 140ms ease;
+}
+
+.switch input:checked {
+  background: var(--flow-dim);
+  border-color: var(--flow);
+}
+
+.switch input:checked::after {
+  transform: translateX(15px);
+  background: var(--flow);
+}
+
+/* Radio cards: the queue type choice, where the trade-off matters more than
+   the name and an unsupported option has to say why rather than vanish. */
+.choices {
+  display: grid;
+  gap: 8px;
+}
+
+.choice {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  cursor: pointer;
+}
+
+.choice:hover {
+  border-color: var(--line-bright);
+}
+
+.choice[data-selected='true'] {
+  border-color: var(--flow);
+  background: linear-gradient(180deg, var(--flow-dim), transparent);
+}
+
+.choice[data-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.choice input {
+  margin-top: 3px;
+  accent-color: var(--flow);
+}
+
+.choice strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.choice span {
+  display: block;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+/* ---- graph nodes ------------------------------------------------------ */
+
+.node {
+  min-width: 190px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-bright);
+  background: linear-gradient(180deg, var(--bg-panel), var(--bg-raised));
+  padding: 10px 12px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+}
+
+.node[data-selected='true'] {
+  border-color: var(--flow);
+  box-shadow: 0 0 0 3px var(--flow-dim), 0 10px 24px rgba(0, 0, 0, 0.45);
+}
+
+.node[data-off='true'] {
+  opacity: 0.42;
+  border-style: dashed;
+}
+
+.node .kind {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.node .name {
+  font-family: var(--mono);
+  font-size: 13px;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node .meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.pill {
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+}
+
+.pill[data-tone='flow'] {
+  color: var(--flow);
+  border-color: rgba(61, 220, 151, 0.35);
+  background: var(--flow-dim);
+}
+
+.pill[data-tone='in'] {
+  color: var(--in);
+  border-color: rgba(99, 179, 255, 0.35);
+  background: var(--in-dim);
+}
+
+.pill[data-tone='warn'] {
+  color: var(--warn);
+  border-color: rgba(255, 180, 87, 0.35);
+  background: rgba(255, 180, 87, 0.12);
+}
+
+/* The live number on a node while a run is going. Tabular figures so the
+   numbers do not dance as they change. */
+.node .live {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  color: var(--flow);
+}
+
+.node .live small {
+  color: var(--text-faint);
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: var(--line-bright);
+  border: 1px solid var(--bg);
+}
+
+.react-flow__edge-path {
+  stroke: var(--line-bright);
+  stroke-width: 1.5;
+}
+
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke: var(--flow);
+  filter: drop-shadow(0 0 4px rgba(61, 220, 151, 0.4));
+}
+
+.react-flow__controls button {
+  background: var(--bg-panel);
+  border-color: var(--line);
+  color: var(--text);
+  fill: var(--text);
+}
+
+.react-flow__attribution {
+  display: none;
+}
+
+/* ---- live view -------------------------------------------------------- */
+
+.live-grid {
+  display: grid;
+  /* min() so a panel never demands more width than the window has. Without it a
+     300px minimum forces a horizontal scrollbar on a narrow screen. */
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 14px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.panel h4 {
+  margin: 0 0 2px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+
+.panel .big {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+.panel .big small {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-left: 6px;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+  gap: 12px;
+  padding: 16px 16px 0;
+}
+
+.verdict {
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+}
+
+.verdict[data-verdict='passed'] {
+  border-color: rgba(61, 220, 151, 0.4);
+  background: linear-gradient(180deg, var(--flow-dim), transparent);
+}
+
+.verdict[data-verdict='failed'] {
+  border-color: rgba(255, 107, 107, 0.4);
+  background: linear-gradient(180deg, rgba(255, 107, 107, 0.12), transparent);
+}
+
+.verdict[data-verdict='invalid'] {
+  border-color: rgba(199, 125, 255, 0.45);
+  background: linear-gradient(180deg, rgba(199, 125, 255, 0.12), transparent);
+}
+
+.verdict h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+}
+
+.finding {
+  border-left: 2px solid var(--line-bright);
+  padding: 8px 0 8px 12px;
+  margin: 10px 0;
+}
+
+.finding[data-severity='INVALID'] {
+  border-color: var(--invalid);
+}
+
+.finding[data-severity='FAILED'] {
+  border-color: var(--fail);
+}
+
+.finding[data-severity='WARNING'] {
+  border-color: var(--warn);
+}
+
+.finding code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.finding p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.finding p.observation {
+  color: var(--text);
+}
+
+/* ---- tables ----------------------------------------------------------- */
+
+/* A table of percentiles has a width below which it stops being readable, so it
+   scrolls inside its panel rather than squashing its columns or pushing the
+   page sideways. */
+.scrolls {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th {
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 600;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+tr:hover td {
+  background: var(--bg-raised);
+}
+
+td.mono,
+th.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* ---- presets and lists ------------------------------------------------ */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  /* Cards size to their content. Without this every card in a row stretches to
+     the tallest one and a short list looks like an empty page with headings. */
+  align-content: start;
+  align-items: start;
+  gap: 14px;
+  padding: 18px;
+  overflow-y: auto;
+}
+
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  cursor: pointer;
+  transition: border-color 140ms ease, transform 140ms ease;
+}
+
+.card:hover {
+  border-color: var(--flow);
+  transform: translateY(-2px);
+}
+
+.card h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.card p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.card .shape {
+  margin-top: 12px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ---- messages --------------------------------------------------------- */
+
+.banner {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+}
+
+.banner[data-tone='bad'] {
+  border-color: rgba(255, 107, 107, 0.45);
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.banner[data-tone='warn'] {
+  border-color: rgba(255, 180, 87, 0.4);
+  background: rgba(255, 180, 87, 0.08);
+}
+
+.banner[data-tone='info'] {
+  border-color: rgba(99, 179, 255, 0.4);
+  background: rgba(99, 179, 255, 0.08);
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--text-faint);
+  text-align: center;
+  padding: 40px;
+}
+
+.empty h2 {
+  color: var(--text-dim);
+  font-weight: 500;
+  margin: 0 0 8px;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-raised);
+}
+
+.toolbar .title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-bright);
+  border-radius: 999px;
+  border: 3px solid var(--bg);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- narrow windows --------------------------------------------------- */
+
+/*
+ * The broker URLs take their own row before they are squeezed to nothing. An
+ * input showing "amqp://gues" is worse than one on a second line: the whole
+ * point of the field is that somebody can read what they are about to run
+ * against.
+ */
+@media (max-width: 1240px) {
+  .broker {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .broker input {
+    flex: 1 1 240px;
+  }
+
+  .broker input.secondary {
+    flex: 1 1 180px;
+  }
+}
+
+@media (max-width: 720px) {
+  .brand {
+    border-right: none;
+    padding-right: 0;
+  }
+
+  .brand small {
+    display: none;
+  }
+
+  .broker {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .tab {
+    padding: 6px 10px;
+  }
+
+  .live-grid,
+  .cards {
+    padding: 12px;
+  }
+}

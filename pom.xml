@@ -5,15 +5,37 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>org.acemq</groupId>
-  <artifactId>acemq-java-amqp-workloads</artifactId>
+  <artifactId>acemq-workloads-parent</artifactId>
   <version>0.1.0-SNAPSHOT</version>
-  <packaging>jar</packaging>
+  <packaging>pom</packaging>
 
   <name>AceMQ AMQP workloads</name>
   <description>
-    A load generator for AMQP brokers, with an open-loop rate schedule, honest
-    latency percentiles, and an evidence-based report.
+    A load generator for AMQP brokers, and a studio for designing and watching
+    what it runs.
   </description>
+
+  <!--
+    Two modules, one version line.
+
+      library/  the load generator: the DSL, the CLI jar, and the engine.
+                Published as org.acemq:acemq-java-amqp-workloads, which is why
+                its coordinates did not change when it moved into a directory.
+
+      studio/   a Spring Boot application with the designer, the live view and
+                the run history. Its own jar, so the library stays as lean as
+                a pipeline needs it to be — nobody running `java -jar
+                acemq-workload.jar` in CI should be carrying a web server and a
+                front end they will never start.
+
+    They are released together on purpose. A studio that only works against
+    yesterday's library is a support question nobody needs, and separating the
+    version lines would make every change that touches both into two releases.
+  -->
+  <modules>
+    <module>library</module>
+    <module>studio</module>
+  </modules>
 
   <licenses>
     <license>
@@ -24,172 +46,42 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-
-    <!-- 17 rather than the messaging library's 11. This is a tool that is run,
-         not a library embedded in somebody's Java 11 service, so the baseline
-         buys nothing here and costs the newer language features. -->
     <maven.compiler.release>17</maven.compiler.release>
 
-    <acemq.version>0.2.10</acemq.version>
-    <acemq.admin.version>0.1.0</acemq.admin.version>
+    <!--
+      Parameter names survive compilation.
 
-    <!-- Percentiles cannot be averaged, and keeping every sample in a list is
-         not viable at hundreds of thousands per second. HdrHistogram is the
-         only reasonable answer to both. -->
-    <hdrhistogram.version>2.2.2</hdrhistogram.version>
-    <slf4j.version>2.0.16</slf4j.version>
-    <jackson.version>2.18.9</jackson.version>
-
-    <maven.surefire.plugin.version>3.5.2</maven.surefire.plugin.version>
-    <maven.failsafe.plugin.version>3.5.2</maven.failsafe.plugin.version>
-
-    <junit.version>5.11.4</junit.version>
-    <assertj.version>3.27.7</assertj.version>
-    <testcontainers.version>1.21.4</testcontainers.version>
+      Spring reads them to bind @PathVariable and @RequestParam without being
+      told the name twice, and without this every such handler fails at request
+      time with "parameter name information not available" — a runtime failure
+      for a compile-time omission. The Spring Boot parent sets this; this build
+      does not use that parent, so it sets it here.
+    -->
+    <maven.compiler.parameters>true</maven.compiler.parameters>
   </properties>
 
-  <!-- Where the AceMQ artifacts live. Not Maven Central until 1.0; see
-       RELEASING.md in acemq-java-amqp for why. -->
-  <repositories>
-    <repository>
-      <id>acemq</id>
-      <url>https://acemq-company.github.io/maven/</url>
-    </repository>
-  </repositories>
-
-  <dependencies>
-    <dependency>
-      <groupId>org.acemq</groupId>
-      <artifactId>acemq-amqp-core</artifactId>
-      <version>${acemq.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.acemq</groupId>
-      <artifactId>acemq-transport-rabbitmq</artifactId>
-      <version>${acemq.version}</version>
-      <scope>runtime</scope>
-    </dependency>
-
-    <!-- Topology discovery, definitions round-trip, and per-queue depth during
-         a run. This is why the workloads project is a repository of its own:
-         it needs both halves, and acemq-java-amqp may never depend on this
-         one. -->
-    <dependency>
-      <groupId>org.acemq</groupId>
-      <artifactId>acemq-java-rabbitmq-admin</artifactId>
-      <version>${acemq.admin.version}</version>
-    </dependency>
-
-    <dependency>
-      <groupId>org.hdrhistogram</groupId>
-      <artifactId>HdrHistogram</artifactId>
-      <version>${hdrhistogram.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>com.fasterxml.jackson.core</groupId>
-      <artifactId>jackson-databind</artifactId>
-      <version>${jackson.version}</version>
-    </dependency>
-    <!-- YAML for the workload file. A load test's configuration wants comments
-         explaining why the rate is what it is, and JSON has none. -->
-    <dependency>
-      <groupId>com.fasterxml.jackson.dataformat</groupId>
-      <artifactId>jackson-dataformat-yaml</artifactId>
-      <version>${jackson.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-api</artifactId>
-      <version>${slf4j.version}</version>
-    </dependency>
-
-    <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <version>${junit.version}</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.assertj</groupId>
-      <artifactId>assertj-core</artifactId>
-      <version>${assertj.version}</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.testcontainers</groupId>
-      <artifactId>rabbitmq</artifactId>
-      <version>${testcontainers.version}</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.testcontainers</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <version>${testcontainers.version}</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-simple</artifactId>
-      <version>${slf4j.version}</version>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
-
   <build>
-    <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <version>${maven.surefire.plugin.version}</version>
-      </plugin>
-      <!-- The runnable jar: java -jar acemq-workload.jar -f workload.yaml -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-shade-plugin</artifactId>
-        <version>3.6.0</version>
-        <executions>
-          <execution>
-            <phase>package</phase>
-            <goals><goal>shade</goal></goals>
-            <configuration>
-              <finalName>acemq-workload</finalName>
-              <transformers>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                  <mainClass>org.acemq.workloads.cli.Cli</mainClass>
-                </transformer>
-                <!-- The transport is found through the ServiceLoader, and shading
-                     without this drops the provider file and the amqp:// scheme
-                     resolves to nothing. -->
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
-              </transformers>
-              <filters>
-                <filter>
-                  <artifact>*:*</artifact>
-                  <excludes>
-                    <exclude>META-INF/*.SF</exclude>
-                    <exclude>META-INF/*.DSA</exclude>
-                    <exclude>META-INF/*.RSA</exclude>
-                    <exclude>module-info.class</exclude>
-                  </excludes>
-                </filter>
-              </filters>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-failsafe-plugin</artifactId>
-        <version>${maven.failsafe.plugin.version}</version>
-        <executions>
-          <execution>
-            <goals>
-              <goal>integration-test</goal>
-              <goal>verify</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-    </plugins>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <configuration>
+            <!--
+              Parameter names survive compilation.
+
+              Spring reads them to bind @PathVariable and @RequestParam without
+              being told the name twice. Without this every such handler fails
+              at request time with "parameter name information not available",
+              which is a runtime failure for a compile-time omission. The Spring
+              Boot parent sets this; this build does not use that parent, so it
+              sets it here.
+            -->
+            <parameters>true</parameters>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
   </build>
+
 </project>

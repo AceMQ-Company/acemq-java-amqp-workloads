@@ -14,7 +14,7 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'src/main/java/**'
+      - 'library/src/main/java/**'
       - '.github/workflows/docs.yml'
       - '.github/scripts/build-docs-site.sh'
       - 'pom.xml'

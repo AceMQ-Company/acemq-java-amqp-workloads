@@ -51,8 +51,34 @@ jobs:
         # of a customer instead of here. --help exercises the manifest, the
         # shading, and the argument parser in one line.
         run: |
-          test -f target/acemq-workload.jar
-          java -jar target/acemq-workload.jar --help
+          # The CLI jar moved into library/ when the studio became a second
+          # module. Its coordinates did not change; only where it is built.
+          test -f library/target/acemq-workload.jar
+          java -jar library/target/acemq-workload.jar --help
+
+      - name: Verify the studio jar starts and serves the interface
+        if: matrix.java == '17'
+        # The same argument as the CLI check, for a jar that has more to go
+        # wrong: a Spring context that will not start, a front end that was
+        # never built into it, an SQLite driver that is not on the path. All
+        # three are silent until somebody opens a browser.
+        run: |
+          test -f studio/target/acemq-workloads-studio.jar
+          ACEMQ_STUDIO_DATABASE="$RUNNER_TEMP/studio-ci.db" \
+            java -jar studio/target/acemq-workloads-studio.jar &
+          studio=$!
+          for i in $(seq 1 40); do
+            if curl -fs http://localhost:8480/actuator/health > /dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fs http://localhost:8480/actuator/health
+          # The front end is in the jar, not merely built beside it.
+          curl -fs http://localhost:8480/ | grep -q "AceMQ workloads studio"
+          # And the API answers, which means the context came up whole.
+          curl -fs http://localhost:8480/api/presets | grep -q quorum-vs-classic
+          kill $studio
 
       - name: Upload test reports
         if: failure()

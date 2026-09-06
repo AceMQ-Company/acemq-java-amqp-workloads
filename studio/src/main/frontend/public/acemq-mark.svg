@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- The mark from the AceMQ logo: a triangle drawn as two strokes with a
+       lighter overlap, which is what makes it read as folded rather than flat. -->
+  <path d="M50 8 L92 84 A6 6 0 0 1 86 92 L62 92 L50 68 L38 92 L14 92 A6 6 0 0 1 8 84 Z"
+        fill="#f5f6f7"/>
+  <path d="M50 8 L62 30 L44 66 L38 54 Z" fill="#8b9096"/>
+</svg>

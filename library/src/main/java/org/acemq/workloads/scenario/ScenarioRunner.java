@@ -19,6 +19,9 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Starts scenarios.
  *
@@ -33,6 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * }</pre>
  */
 public final class ScenarioRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(ScenarioRunner.class);
 
     private ScenarioRunner() {
     }
@@ -73,14 +78,17 @@ public final class ScenarioRunner {
                 try {
                     listener.onFinished(result);
                 } catch (RuntimeException e) {
-                    // The listener's problem, not the run's.
+                    // The listener's problem, not the run's -- but logged rather than swallowed.
+                    // A listener that throws here is one that will not have recorded the report,
+                    // and silence turns that into a run that looks like it never ended.
+                    log.warn("a listener threw while being told the run finished", e);
                 }
                 report.complete(result);
             } catch (Throwable failure) {
                 try {
                     listener.onFailed(failure);
                 } catch (RuntimeException e) {
-                    // As above.
+                    log.warn("a listener threw while being told the run failed", e);
                 }
                 report.completeExceptionally(failure);
             }
