@@ -40,6 +40,20 @@ export interface Exchange {
   arguments?: Record<string, unknown>
 }
 
+// What a node is asked to prove. Nothing stated is nothing checked, and what is
+// checked here is what the command line's exit code follows -- so a scenario
+// designed on this screen can fail a build on a number.
+export interface Expect {
+  p50Below?: string
+  p99Below?: string
+  p999Below?: string
+  consumeRateAtLeast?: number
+  achievedRateAtLeast?: number
+  withinPercentOfOffered?: number
+  noFailures?: boolean
+  noBacklog?: boolean
+}
+
 export interface Queue {
   name: string
   type?: QueueTypeId
@@ -49,6 +63,7 @@ export interface Queue {
   bindings?: Binding[]
   consumers?: Consumers
   arguments?: Record<string, unknown>
+  expect?: Expect
 }
 
 export interface Producer {
@@ -62,6 +77,7 @@ export interface Producer {
   maxInFlight?: number
   maxMessages?: number
   enabled?: boolean
+  expect?: Expect
 }
 
 export interface Scenario {

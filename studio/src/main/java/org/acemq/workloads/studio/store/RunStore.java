@@ -22,7 +22,7 @@ import java.util.Optional;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.acemq.workloads.scenario.ScenarioSample;
-import org.acemq.workloads.studio.scenario.ScenarioJson;
+import org.acemq.workloads.scenario.ScenarioFile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -70,7 +70,7 @@ public class RunStore {
      * @param scenario what is being run
      * @param broker where
      */
-    public void started(String id, String scenarioId, ScenarioJson scenario, String broker) {
+    public void started(String id, String scenarioId, ScenarioFile scenario, String broker) {
         jdbc.update("""
                 INSERT INTO runs (id, scenario_id, scenario_name, scenario_json, broker,
                                   started_at, status)

@@ -29,6 +29,12 @@ import java.util.Set;
 import org.acemq.workloads.Workload;
 import org.acemq.workloads.WorkloadReport;
 import org.acemq.workloads.report.Reports;
+import org.acemq.workloads.report.ScenarioReports;
+import org.acemq.workloads.scenario.Scenario;
+import org.acemq.workloads.scenario.ScenarioFile;
+import org.acemq.workloads.scenario.ScenarioReader;
+import org.acemq.workloads.scenario.ScenarioReport;
+import org.acemq.workloads.scenario.ScenarioRunner;
 
 /**
  * {@code java -jar acemq-workload.jar -f workload.yaml}
@@ -58,7 +64,8 @@ public final class Cli {
               java -jar acemq-workload.jar -f <file> [options]
 
             options:
-              -f, --file <path>       workload file, .yaml or .json (required)
+              -f, --file <path>       workload or scenario file, .yaml or .json (required)
+                  --broker <url>      the broker to run against, overriding the file
                   --report <dir>      write reports into this directory
                   --format <list>     html, md, json (comma separated; default html,json)
                   --dry-run           resolve and print the configuration, run nothing
@@ -72,6 +79,20 @@ public final class Cli {
               2  a run was invalid: nothing was measured
               3  the workload file is wrong
               4  the broker could not be reached
+
+            a scenario file is what the studio exports, and runs here unchanged:
+              name: monday-morning
+              broker: amqp://guest:${BROKER_PASSWORD}@localhost:5672
+              exchanges: [ { name: orders, type: topic } ]
+              queues:
+                - name: orders.shipping
+                  type: quorum
+                  bindings: [ { exchange: orders, routingKey: "order.*" } ]
+                  consumers: { concurrency: 8, prefetch: 200 }
+              producers:
+                - { name: checkout, exchange: orders, routingKeys: [order.placed], rate: 20000 }
+              warmup: 10s
+              runFor: 2m
 
             a workload file:
               name: orders-peak
@@ -120,6 +141,13 @@ public final class Cli {
         if (options.version) {
             out.println("acemq-workload " + version());
             return OK;
+        }
+
+        // What kind of file this is, decided by what is in it rather than by a flag
+        // somebody has to remember. A scenario names producers, queues and exchanges;
+        // a workload names a topology with publishers and consumers.
+        if (ScenarioReader.isScenario(options.file)) {
+            return runScenario(options, out, err);
         }
 
         WorkloadFile file;
@@ -178,6 +206,123 @@ public final class Cli {
         return OK;
     }
 
+    /**
+     * Runs a scenario file: the thing the studio exports.
+     *
+     * <p>The same exit codes as a workload, because a pipeline should not have to care which
+     * kind of file it was given. A scenario that cannot be run at all -- a binding to an
+     * exchange nothing declares -- is a bad file rather than a failed run, and says so before
+     * anything touches the broker.
+     */
+    private static int runScenario(Options options, PrintStream out, PrintStream err) {
+        ScenarioFile file;
+        try {
+            file = ScenarioReader.read(options.file);
+        } catch (RuntimeException e) {
+            err.println("acemq-workload: " + e.getMessage());
+            return BAD_CONFIG;
+        }
+
+        if (options.dryRun) {
+            out.println(ScenarioReader.describe(file));
+            return OK;
+        }
+
+        Scenario scenario;
+        List<String> problems;
+        try {
+            scenario = file.toScenario();
+            problems = scenario.problems();
+        } catch (RuntimeException e) {
+            err.println("acemq-workload: " + e.getMessage());
+            return BAD_CONFIG;
+        }
+        if (!problems.isEmpty()) {
+            err.println("acemq-workload: this scenario cannot run:");
+            for (String problem : problems) {
+                err.println("  - " + problem);
+            }
+            return BAD_CONFIG;
+        }
+
+        String broker = options.broker != null ? options.broker : file.broker();
+        if (broker == null || broker.isBlank()) {
+            err.println("acemq-workload: no broker. Put one in the file as 'broker:', or pass"
+                    + " --broker amqp://guest:guest@localhost:5672");
+            return BAD_CONFIG;
+        }
+
+        if (!options.quiet) {
+            out.println("running " + scenario.name() + " against "
+                    + ScenarioReader.redact(broker) + " ...");
+            for (String warning : scenario.warnings()) {
+                out.println("  warning: " + warning);
+            }
+        }
+
+        ScenarioReport report;
+        try {
+            report = ScenarioRunner.run(scenario, broker);
+        } catch (RuntimeException e) {
+            err.println("acemq-workload: the run failed: " + e.getMessage());
+            return BROKER_UNREACHABLE;
+        }
+
+        if (!options.quiet) {
+            out.println(report.format());
+        }
+
+        if (options.reportDir != null) {
+            try {
+                writeScenarioReports(report, options, out);
+            } catch (IOException e) {
+                err.println("acemq-workload: could not write the report: " + e.getMessage());
+                return BAD_CONFIG;
+            }
+        }
+
+        if (!report.isValid()) {
+            out.println("INVALID -- this run did not measure what it was asked to");
+            return INVALID_RUN;
+        }
+        if (!report.passed()) {
+            out.println("FAILED -- the run was sound and something it was asked for did not hold");
+            return OBJECTIVE_MISSED;
+        }
+        out.println("PASSED -- " + scenario.name());
+        return OK;
+    }
+
+    private static void writeScenarioReports(ScenarioReport report, Options options,
+            PrintStream out) throws IOException {
+        Files.createDirectories(options.reportDir);
+        String stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+
+        for (String format : options.formats) {
+            String body;
+            String extension;
+            switch (format) {
+                case "html" -> {
+                    body = ScenarioReports.toHtml(report);
+                    extension = "html";
+                }
+                case "md", "markdown" -> {
+                    body = ScenarioReports.toMarkdown(report);
+                    extension = "md";
+                }
+                case "json" -> {
+                    body = ScenarioReports.toJson(report);
+                    extension = "json";
+                }
+                default -> throw new ConfigException("unknown --format '" + format
+                        + "'. Known: html, md, json.");
+            }
+            Path target = options.reportDir.resolve("scenario-" + stamp + "." + extension);
+            Files.writeString(target, body);
+            out.println("wrote " + target);
+        }
+    }
+
     private static void writeReports(List<WorkloadReport> reports, Options options, PrintStream out)
             throws IOException {
         Files.createDirectories(options.reportDir);
@@ -222,6 +367,7 @@ public final class Cli {
 
         Path file;
         Path reportDir;
+        String broker;
         Set<String> formats = new LinkedHashSet<>(List.of("html", "json"));
         boolean dryRun;
         boolean quiet;
@@ -243,6 +389,10 @@ public final class Cli {
                     case "--quiet" -> options.quiet = true;
                     case "-f", "--file" -> options.file = Path.of(value(args, ++i, arg));
                     case "--report" -> options.reportDir = Path.of(value(args, ++i, arg));
+                    // The same file against staging and then production is the ordinary
+                    // way this gets used, and editing the file in between is how the two
+                    // stop being the same test.
+                    case "--broker" -> options.broker = value(args, ++i, arg);
                     case "--format" -> {
                         options.formats = new LinkedHashSet<>();
                         for (String format : value(args, ++i, arg).split(",")) {

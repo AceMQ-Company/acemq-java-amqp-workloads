@@ -80,6 +80,22 @@ line reads. A scenario designed here runs unchanged in a pipeline — that is th
 reason for a designer rather than a nicer form over a YAML file. There is a YAML
 export too, for pipelines that already read one.
 
+**Open file.** The other half of export, and the half that makes the format worth
+having: the scenario that failed in a pipeline last night is opened here, JSON or
+YAML, changed and run again — instead of being read as JSON by somebody who then
+rebuilds it on the canvas. What is wrong with it comes back alongside it rather
+than instead of it, because opening it is how it gets fixed. `${VAR}` is left
+alone: resolving it would read the studio's own environment on behalf of whoever
+opened the file and hand the value back.
+
+**What each node must prove.** Every queue and every producer has a *What it must
+prove* panel — a p99 ceiling, a rate floor, "must not grow", "no failed
+publishes". These travel in the file, and the command line's exit code follows
+them, so a scenario drawn here can fail a build on a number rather than on
+somebody reading a chart. Per node rather than for the whole run, because the
+interesting property is usually asymmetric: the audit leg may lag as much as it
+likes while the fulfilment leg must not. [The fields](../docs/scenario-file.md#objectives).
+
 ## TLS and mutual TLS
 
 An `amqps://` URL turns the TLS section on, and the studio **completes a

@@ -24,7 +24,7 @@ import java.util.List;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import org.acemq.workloads.studio.scenario.ScenarioJson;
+import org.acemq.workloads.scenario.ScenarioFile;
 import org.acemq.workloads.studio.store.RunStore;
 import org.acemq.workloads.studio.store.ScenarioStore;
 import org.junit.jupiter.api.AfterAll;
@@ -84,10 +84,10 @@ class StudioApiTest {
     @Test
     @DisplayName("saves a scenario and reads it back as the same thing")
     void savesAndReadsBack() {
-        ScenarioJson scenario = aScenario();
+        ScenarioFile scenario = aScenario();
 
         String id = scenarios.save(null, scenario);
-        ScenarioJson read = scenarios.find(id).orElseThrow();
+        ScenarioFile read = scenarios.find(id).orElseThrow();
 
         assertThat(read.name()).isEqualTo("saved");
         assertThat(read.queues()).hasSize(1);
@@ -98,13 +98,13 @@ class StudioApiTest {
     @Test
     @DisplayName("refuses a scenario the broker would refuse, and says which part")
     void refusesABadScenarioWithAReason() {
-        ScenarioJson broken = new ScenarioJson("broken", "", null, null,
-                List.of(new ScenarioJson.ExchangeJson("orders", "topic", null, null, null)),
-                List.of(new ScenarioJson.QueueJson("q", "classic", null, null, null,
+        ScenarioFile broken = new ScenarioFile("broken", "", null, null,
+                List.of(new ScenarioFile.ExchangeJson("orders", "topic", null, null, null)),
+                List.of(new ScenarioFile.QueueJson("q", "classic", null, null, null,
                         // Bound to an exchange nothing declares: the broker's own error for this
                         // arrives mid-run as a channel closure that reads like a broker problem.
-                        List.of(new ScenarioJson.BindingJson("odrers", "#")), null, null)),
-                List.of(new ScenarioJson.ProducerJson("p", "orders", List.of("k"), 100L, null,
+                        List.of(new ScenarioFile.BindingJson("odrers", "#")), null, null)),
+                List.of(new ScenarioFile.ProducerJson("p", "orders", List.of("k"), 100L, null,
                         512, null, null, null, null)),
                 "1s", "1s", null, null);
 
@@ -118,12 +118,12 @@ class StudioApiTest {
     @Test
     @DisplayName("warns about a queue nobody consumes rather than refusing it")
     void warnsRatherThanRefusing() {
-        ScenarioJson scenario = new ScenarioJson("backlog", "", null, null,
-                List.of(new ScenarioJson.ExchangeJson("orders", "topic", null, null, null)),
-                List.of(new ScenarioJson.QueueJson("q", "classic", null, null, null,
-                        List.of(new ScenarioJson.BindingJson("orders", "#")),
-                        new ScenarioJson.ConsumersJson(1, 100, null, null, Boolean.FALSE), null)),
-                List.of(new ScenarioJson.ProducerJson("p", "orders", List.of("k"), 100L, null,
+        ScenarioFile scenario = new ScenarioFile("backlog", "", null, null,
+                List.of(new ScenarioFile.ExchangeJson("orders", "topic", null, null, null)),
+                List.of(new ScenarioFile.QueueJson("q", "classic", null, null, null,
+                        List.of(new ScenarioFile.BindingJson("orders", "#")),
+                        new ScenarioFile.ConsumersJson(1, 100, null, null, Boolean.FALSE), null)),
+                List.of(new ScenarioFile.ProducerJson("p", "orders", List.of("k"), 100L, null,
                         512, null, null, null, null)),
                 "1s", "1s", null, null);
 
@@ -145,16 +145,71 @@ class StudioApiTest {
                 .contains("acemq-workload-saved-" + LocalDate.now() + ".json");
 
         // The round trip that matters: what came out is a scenario the engine can build.
-        ScenarioJson read = json.readValue(response.getBody(), ScenarioJson.class);
+        ScenarioFile read = json.readValue(response.getBody(), ScenarioFile.class);
         assertThat(read.toScenario().problems()).isEmpty();
         assertThat(read.toScenario().queues().get(0).consumersNode().prefetch()).isEqualTo(250);
     }
 
     @Test
+    @DisplayName("opens a scenario file it exported, expectations and all")
+    void opensAFileItExported() {
+        ScenarioFile gated = new ScenarioFile("gated", "", null, null,
+                List.of(new ScenarioFile.ExchangeJson("orders", "topic", null, null, null)),
+                List.of(new ScenarioFile.QueueJson("orders.q", "quorum", null, null, null,
+                        List.of(new ScenarioFile.BindingJson("orders", "#")), null, null,
+                        new ScenarioFile.ExpectJson("50ms", null, null, 1_000L, null, null, null,
+                                Boolean.TRUE))),
+                List.of(new ScenarioFile.ProducerJson("checkout", "orders", List.of("k"), 5_000L,
+                        null, 512, null, null, null, null,
+                        new ScenarioFile.ExpectJson(null, null, null, null, null, 5, Boolean.TRUE,
+                                null))),
+                "1s", "10s", null, null);
+
+        String exported = http.postForObject("/api/scenarios/export", gated, String.class);
+        ResponseEntity<String> opened = http.postForEntity(
+                "/api/scenarios/import?fileName=acemq-workload-gated.json", exported, String.class);
+
+        assertThat(opened.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(opened.getBody()).contains("\"runnable\":true").contains("\"consumeRateAtLeast\":1000");
+
+        // And what came back is the same gate, not a description of one: p50 under 50ms survives
+        // the round trip as something the run can fail on.
+        assertThat(opened.getBody()).contains("\"p50Below\":\"50ms\"")
+                .contains("\"withinPercentOfOffered\":5");
+    }
+
+    @Test
+    @DisplayName("says what is wrong with a file it cannot open")
+    void refusesAFileThatIsNotAScenario() {
+        ResponseEntity<String> opened = http.postForEntity(
+                "/api/scenarios/import?fileName=notes.yaml", "just: some notes\n", String.class);
+
+        assertThat(opened.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(opened.getBody()).contains("error");
+    }
+
+    // Resolving these would read the studio's own environment on behalf of whoever uploaded the
+    // file and hand the value back. The placeholder stays a placeholder.
+    @Test
+    @DisplayName("leaves ${VAR} in an opened file alone")
+    void doesNotResolveVariablesFromItsOwnEnvironment() {
+        String file = """
+                {"name": "gated", "broker": "amqp://guest:${PATH}@localhost:5672",
+                 "exchanges": [{"name": "e", "type": "topic"}],
+                 "queues": [{"name": "q", "bindings": [{"exchange": "e", "routingKey": "#"}]}],
+                 "producers": [{"name": "p", "exchange": "e", "routingKeys": ["k"]}]}""";
+
+        ResponseEntity<String> opened =
+                http.postForEntity("/api/scenarios/import?fileName=a.json", file, String.class);
+
+        assertThat(opened.getBody()).contains("${PATH}");
+    }
+
+    @Test
     @DisplayName("offers presets that are runnable as they are")
     void presetsAreRunnableAsTheyStand() {
-        ResponseEntity<ScenarioJson[]> response =
-                http.getForEntity("/api/presets", ScenarioJson[].class);
+        ResponseEntity<ScenarioFile[]> response =
+                http.getForEntity("/api/presets", ScenarioFile[].class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 
         // Read again through the API shape, because a preset that does not survive its own JSON
@@ -175,11 +230,11 @@ class StudioApiTest {
     @Test
     @DisplayName("reads durations the way the workload file does")
     void readsDurations() {
-        ScenarioJson scenario = new ScenarioJson("d", "", null, null,
-                List.of(new ScenarioJson.ExchangeJson("e", "topic", null, null, null)),
-                List.of(new ScenarioJson.QueueJson("q", "classic", null, null, null,
-                        List.of(new ScenarioJson.BindingJson("e", "#")), null, null)),
-                List.of(new ScenarioJson.ProducerJson("p", "e", List.of("k"), 1L, null, 1, null,
+        ScenarioFile scenario = new ScenarioFile("d", "", null, null,
+                List.of(new ScenarioFile.ExchangeJson("e", "topic", null, null, null)),
+                List.of(new ScenarioFile.QueueJson("q", "classic", null, null, null,
+                        List.of(new ScenarioFile.BindingJson("e", "#")), null, null)),
+                List.of(new ScenarioFile.ProducerJson("p", "e", List.of("k"), 1L, null, 1, null,
                         null, null, null)),
                 "500ms", "2m", null, null);
 
@@ -187,13 +242,13 @@ class StudioApiTest {
         assertThat(scenario.toScenario().duration().toMinutes()).isEqualTo(2);
     }
 
-    private static ScenarioJson aScenario() {
-        return new ScenarioJson("saved", "a scenario to keep", null, null,
-                List.of(new ScenarioJson.ExchangeJson("orders", "topic", null, null, null)),
-                List.of(new ScenarioJson.QueueJson("orders.q", "quorum", null, null, null,
-                        List.of(new ScenarioJson.BindingJson("orders", "order.#")),
-                        new ScenarioJson.ConsumersJson(4, 250, "1ms", null, null), null)),
-                List.of(new ScenarioJson.ProducerJson("checkout", "orders", List.of("order.placed"),
+    private static ScenarioFile aScenario() {
+        return new ScenarioFile("saved", "a scenario to keep", null, null,
+                List.of(new ScenarioFile.ExchangeJson("orders", "topic", null, null, null)),
+                List.of(new ScenarioFile.QueueJson("orders.q", "quorum", null, null, null,
+                        List.of(new ScenarioFile.BindingJson("orders", "order.#")),
+                        new ScenarioFile.ConsumersJson(4, 250, "1ms", null, null), null)),
+                List.of(new ScenarioFile.ProducerJson("checkout", "orders", List.of("order.placed"),
                         5000L, null, 512, null, null, null, null)),
                 "5s", "30s", null, null);
     }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import type { Producer, Queue, QueueTypeId, QueueTypeInfo, Scenario } from '../types'
+import type { Expect, Producer, Queue, QueueTypeId, QueueTypeInfo, Scenario } from '../types'
 import type { Selection } from './Canvas'
 
 /**
@@ -24,6 +24,25 @@ import type { Selection } from './Canvas'
  * visible and says why -- hiding it makes the studio look broken to anybody who
  * knows the option exists.
  */
+
+/**
+ * An expectation with one field changed, or none at all.
+ *
+ * An object of nothing but undefined is dropped rather than written, so a
+ * scenario that asks for nothing exports as a file without an empty `expect`
+ * block in it.
+ */
+function withExpect(current: Expect | undefined, changes: Partial<Expect>): Expect | undefined {
+  const merged = { ...current, ...changes }
+  return Object.values(merged).some((value) => value !== undefined && value !== '')
+    ? merged
+    : undefined
+}
+
+/** A number field that is empty rather than zero when it is not being asked for. */
+function number(value: string): number | undefined {
+  return value === '' ? undefined : Number(value)
+}
 
 interface Props {
   scenario: Scenario
@@ -193,6 +212,58 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
             Include in the run
           </label>
         </div>
+
+        <h3 style={{ marginTop: 22 }}>What it must prove</h3>
+        <div className="row">
+          <div className="field">
+            <label>At least, a second</label>
+            <input
+              type="number"
+              min={0}
+              placeholder="—"
+              value={producer.expect?.achievedRateAtLeast ?? ''}
+              onChange={(e) => update({
+                expect: withExpect(producer.expect, {
+                  achievedRateAtLeast: number(e.target.value),
+                }),
+              })}
+            />
+          </div>
+          <div className="field">
+            <label>Within % of the rate</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              placeholder="—"
+              value={producer.expect?.withinPercentOfOffered ?? ''}
+              onChange={(e) => update({
+                expect: withExpect(producer.expect, {
+                  withinPercentOfOffered: number(e.target.value),
+                }),
+              })}
+            />
+          </div>
+        </div>
+        <div className="field">
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={producer.expect?.noFailures === true}
+              onChange={(e) => update({
+                expect: withExpect(producer.expect, {
+                  noFailures: e.target.checked ? true : undefined,
+                }),
+              })}
+            />
+            Every publish must succeed
+          </label>
+        </div>
+        <p className="hint">
+          What is left blank is not checked. Anything set here decides the exit code when this
+          scenario is run from a pipeline, so a build can fail on a number rather than on somebody
+          reading a chart.
+        </p>
 
         <button
           className="danger"
@@ -419,6 +490,65 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
           Include this queue in the run
         </label>
       </div>
+
+      {/* Per queue rather than for the whole run, because the interesting
+          property is usually asymmetric: the audit leg may lag as much as it
+          likes while the fulfilment leg must not, and one overall p99 averages
+          away exactly that distinction. */}
+      <h3 style={{ marginTop: 22 }}>What it must prove</h3>
+      <div className="row">
+        <div className="field">
+          <label>p99 under</label>
+          <input
+            placeholder="50ms"
+            value={queue.expect?.p99Below ?? ''}
+            onChange={(e) => update({
+              expect: withExpect(queue.expect, { p99Below: e.target.value || undefined }),
+            })}
+          />
+        </div>
+        <div className="field">
+          <label>p99.9 under</label>
+          <input
+            placeholder="—"
+            value={queue.expect?.p999Below ?? ''}
+            onChange={(e) => update({
+              expect: withExpect(queue.expect, { p999Below: e.target.value || undefined }),
+            })}
+          />
+        </div>
+      </div>
+      <div className="field">
+        <label>Handles at least, a second</label>
+        <input
+          type="number"
+          min={0}
+          placeholder="—"
+          value={queue.expect?.consumeRateAtLeast ?? ''}
+          onChange={(e) => update({
+            expect: withExpect(queue.expect, { consumeRateAtLeast: number(e.target.value) }),
+          })}
+        />
+      </div>
+      <div className="field">
+        <label className="switch">
+          <input
+            type="checkbox"
+            checked={queue.expect?.noBacklog === true}
+            onChange={(e) => update({
+              expect: withExpect(queue.expect, { noBacklog: e.target.checked ? true : undefined }),
+            })}
+          />
+          Must not be deeper at the end than at the start
+        </label>
+      </div>
+      <p className="hint">
+        {(queue.type ?? 'classic') === 'stream'
+          ? 'A stream keeps what it has served, so its depth is the length of the log rather'
+            + ' than a backlog: this one is not checked for a stream.'
+          : 'What is left blank is not checked. Anything set here decides the exit code when this'
+            + ' scenario is run from a pipeline.'}
+      </p>
 
       <button
         className="danger"

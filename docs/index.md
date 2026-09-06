@@ -88,6 +88,7 @@ a wrong one worse than silence.
 - [Tutorials](tutorials.md) — step by step, five of them
 - [Command line](cli.md) — every option, with examples
 - [Workload file](workload-file.md) — every setting
+- [Scenario file](scenario-file.md) — a whole topology, and objectives per node
 - [API reference](apidocs/index.html) — the Java surface
 
 ## What this is not

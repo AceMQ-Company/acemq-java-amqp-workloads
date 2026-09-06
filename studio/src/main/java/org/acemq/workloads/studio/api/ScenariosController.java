@@ -16,6 +16,7 @@
 package org.acemq.workloads.studio.api;
 
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -23,7 +24,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import org.acemq.workloads.scenario.Scenario;
-import org.acemq.workloads.studio.scenario.ScenarioJson;
+import org.acemq.workloads.scenario.ScenarioFile;
+import org.acemq.workloads.scenario.ScenarioReader;
 import org.acemq.workloads.studio.store.ScenarioStore;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -35,6 +37,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Saving, loading and checking scenarios. */
@@ -59,18 +62,18 @@ public class ScenariosController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ScenarioJson> get(@PathVariable String id) {
+    public ResponseEntity<ScenarioFile> get(@PathVariable String id) {
         return store.find(id).map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PostMapping
-    public Map<String, String> create(@RequestBody ScenarioJson scenario) {
+    public Map<String, String> create(@RequestBody ScenarioFile scenario) {
         return Map.of("id", store.save(null, scenario));
     }
 
     @PutMapping("/{id}")
-    public Map<String, String> update(@PathVariable String id, @RequestBody ScenarioJson scenario) {
+    public Map<String, String> update(@PathVariable String id, @RequestBody ScenarioFile scenario) {
         return Map.of("id", store.save(id, scenario));
     }
 
@@ -91,7 +94,7 @@ public class ScenariosController {
      * @return the problems and the warnings
      */
     @PostMapping("/check")
-    public Map<String, Object> check(@RequestBody ScenarioJson scenario) {
+    public Map<String, Object> check(@RequestBody ScenarioFile scenario) {
         try {
             Scenario built = scenario.toScenario();
             return Map.of(
@@ -107,6 +110,47 @@ public class ScenariosController {
     }
 
     /**
+     * A scenario file somebody already has, opened in the designer.
+     *
+     * <p>The other half of export, and the half that makes the file format worth having: a
+     * scenario that ran in a pipeline and failed can be opened, changed and run again here,
+     * instead of being read as JSON by a person who then rebuilds it on the canvas.
+     *
+     * <p>JSON or YAML, decided by the name and then by the content. What is wrong with it comes
+     * back alongside it rather than instead of it — a file with a binding to a renamed exchange
+     * is still worth opening, because opening it is how it gets fixed.
+     *
+     * @param body the file's contents
+     * @param fileName what it was called, if the browser knew
+     * @return the scenario, its problems and its warnings
+     */
+    @PostMapping(value = "/import", consumes = MediaType.ALL_VALUE)
+    public ResponseEntity<Map<String, Object>> importFile(@RequestBody String body,
+            @RequestParam(required = false) String fileName) {
+        ScenarioFile file;
+        try {
+            file = ScenarioReader.parse(body, fileName);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", String.valueOf(e.getMessage())));
+        }
+
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("scenario", file);
+        try {
+            Scenario built = file.toScenario();
+            answer.put("problems", built.problems());
+            answer.put("warnings", built.warnings());
+            answer.put("runnable", built.problems().isEmpty());
+        } catch (RuntimeException e) {
+            answer.put("problems", List.of(String.valueOf(e.getMessage())));
+            answer.put("warnings", List.of());
+            answer.put("runnable", false);
+        }
+        return ResponseEntity.ok(answer);
+    }
+
+    /**
      * The scenario as a file to keep.
      *
      * <p>The same JSON the command line reads, which is the entire point of the designer: what
@@ -117,9 +161,9 @@ public class ScenariosController {
      * @return the file
      */
     @PostMapping("/export")
-    public ResponseEntity<String> export(@RequestBody ScenarioJson scenario) throws Exception {
+    public ResponseEntity<String> export(@RequestBody ScenarioFile scenario) throws Exception {
         String body = json.writerWithDefaultPrettyPrinter().writeValueAsString(scenario);
-        String fileName = ScenarioJson.fileName(scenario.name(), LocalDate.now());
+        String fileName = ScenarioFile.fileName(scenario.name(), LocalDate.now());
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileName + "\"")
@@ -134,9 +178,9 @@ public class ScenariosController {
      * @return the file
      */
     @PostMapping("/export.yaml")
-    public ResponseEntity<String> exportYaml(@RequestBody ScenarioJson scenario) throws Exception {
+    public ResponseEntity<String> exportYaml(@RequestBody ScenarioFile scenario) throws Exception {
         String body = yaml.writeValueAsString(scenario);
-        String fileName = ScenarioJson.fileName(scenario.name(), LocalDate.now())
+        String fileName = ScenarioFile.fileName(scenario.name(), LocalDate.now())
                 .replace(".json", ".yaml");
 
         return ResponseEntity.ok()

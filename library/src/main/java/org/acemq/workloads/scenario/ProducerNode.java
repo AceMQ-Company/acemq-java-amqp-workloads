@@ -42,6 +42,7 @@ public final class ProducerNode implements Node {
     private boolean enabled = true;
     private long maxMessages = Long.MAX_VALUE;
     private int maxInFlight = 1_000;
+    private final Expect expect = new Expect();
 
     ProducerNode(String name) {
         this.name = Objects.requireNonNull(name, "name");
@@ -160,6 +161,22 @@ public final class ProducerNode implements Node {
     public ProducerNode enabled(boolean enabled) {
         this.enabled = enabled;
         return this;
+    }
+
+    /**
+     * What this producer is asked to prove.
+     *
+     * @param objectives what to require of it
+     * @return this producer
+     */
+    public ProducerNode expect(java.util.function.Consumer<Expect> objectives) {
+        objectives.accept(expect);
+        return this;
+    }
+
+    /** @return what this producer is asked to prove, empty when nothing was asked */
+    public Expect expectations() {
+        return expect;
     }
 
     @Override

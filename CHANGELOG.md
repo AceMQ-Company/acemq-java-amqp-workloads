@@ -8,6 +8,49 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
+## Unreleased
+
+### Added
+- **The command line runs a scenario file.** `-f` takes either kind; which one it
+  is, is decided by what is in the file rather than by a flag somebody has to
+  remember. Until now the studio could export a scenario that nothing but the
+  studio could run, which made the whole pipeline story aspirational.
+- **Objectives per node.** `expect` on a queue — `p50Below`, `p99Below`,
+  `p999Below`, `consumeRateAtLeast`, `noBacklog` — and on a producer —
+  `achievedRateAtLeast`, `withinPercentOfOffered`, `noFailures`. A missed one is
+  a `FAILED` finding naming the node and both numbers, and the process exits `1`,
+  so a scenario can fail a build on a number. Per node rather than for the whole
+  run: the interesting property is usually asymmetric, and an overall p99 averages
+  away exactly the distinction worth keeping. A queue that received nothing fails
+  a latency expectation rather than passing it, because unanswerable is not the
+  same as met.
+- **Scenario reports.** `--report` writes `html`, `md` and `json` for a scenario
+  as well as a workload, with a table of queues and a table of producers. Each
+  node carries what it was asked for alongside what it did.
+- **The studio opens a scenario file**, JSON or YAML, with its problems reported
+  alongside it rather than instead of it. `${VAR}` is deliberately **not**
+  resolved on this path: doing so would read the studio's own environment on
+  behalf of whoever opened the file and hand the value back.
+- **A *What it must prove* panel** on every queue and producer in the designer,
+  so objectives are set where the node is configured and travel in the exported
+  file.
+- **`--broker <url>`** overrides the broker in the file, for running the same
+  scenario against staging and then production.
+- [Scenario file](docs/scenario-file.md) documents the format, the objectives and
+  what is deliberately not checked.
+
+### Fixed
+- **A stream was reported as falling behind.** Consumers move an offset and
+  nothing is removed, so a stream's depth is the length of its log rather than a
+  backlog. Reporting it as one described a stream that kept up perfectly as one
+  whose consumers were losing ground — exactly backwards. Depth now reads
+  "retained" for a stream, and `noBacklog` is not checked for one.
+
+### Changed
+- `ScenarioJson` became `org.acemq.workloads.scenario.ScenarioFile` and moved from
+  the studio into the library, because the file format is the contract between the
+  designer and the command line and cannot live in only one of them.
+
 ## 0.1.2 — 2026-09-06
 
 ### Added

@@ -76,7 +76,8 @@ public final class ScenarioReport {
             long confirmed,
             long failed,
             LatencySummary publishLatency,
-            LatencySummary sendLag) {
+            LatencySummary sendLag,
+            Expect expectations) {
 
         /**
          * @param duration how long the measured window was
@@ -106,7 +107,22 @@ public final class ScenarioReport {
             long consumed,
             LatencySummary endToEnd,
             Long depthAtStart,
-            Long depthAtEnd) {
+            Long depthAtEnd,
+            Expect expectations) {
+
+        /**
+         * Whether this kind of queue keeps messages after they have been read.
+         *
+         * <p>A stream does: consumers move an offset and nothing is removed, so its "depth" is
+         * the length of the log rather than a backlog. Treating that as a backlog reports a
+         * stream that kept up perfectly as one whose consumers fell behind, which is exactly
+         * backwards and was doing so until this existed.
+         *
+         * @return whether depth means retention rather than a queue of unhandled work
+         */
+        public boolean retainsMessages() {
+            return type == QueueType.STREAM;
+        }
 
         /**
          * @param duration how long the measured window was
@@ -117,8 +133,14 @@ public final class ScenarioReport {
             return seconds <= 0 ? 0 : consumed / seconds;
         }
 
-        /** @return whether the queue grew over the measured window */
+        /**
+         * @return whether unhandled work accumulated over the measured window
+         */
         public boolean grew() {
+            if (retainsMessages()) {
+                // A stream always "grows": that is what an append-only log does.
+                return false;
+            }
             return depthAtStart != null && depthAtEnd != null && depthAtEnd > depthAtStart;
         }
     }
@@ -209,6 +231,8 @@ public final class ScenarioReport {
         }
 
         for (QueueResult queue : queues) {
+            // grew() is already false for a stream, so this rule cannot fire on one. Said here
+            // as well because the rule reads as if it were about any queue that got longer.
             if (queue.consumers() > 0 && queue.grew()) {
                 found.add(Finding.of("consumers-kept-up:" + queue.name(), Severity.WARNING,
                         queue.name() + " grew from " + queue.depthAtStart() + " to "
@@ -217,6 +241,8 @@ public final class ScenarioReport {
                                 + " so the backlog was still growing when the run ended"));
             }
         }
+
+        found.addAll(objectives());
 
         if (blockedNanos > 0) {
             found.add(Finding.of("broker-not-blocked", Severity.INVALID,
@@ -240,6 +266,113 @@ public final class ScenarioReport {
         }
 
         return List.copyOf(found);
+    }
+
+    /**
+     * What was asked for, and whether it held.
+     *
+     * <p>Kept apart from the diagnostic rules on purpose. A rule says something about the run
+     * that is true whether or not anybody wanted to know; an objective is a question somebody
+     * asked, and the answer is what a pipeline acts on.
+     *
+     * @return one finding per objective that was not met
+     */
+    private List<Finding> objectives() {
+        List<Finding> found = new ArrayList<>();
+
+        for (QueueResult queue : queues) {
+            Expect expect = queue.expectations();
+            if (expect == null || expect.isEmpty()) {
+                continue;
+            }
+            LatencySummary latency = queue.endToEnd();
+
+            missed(found, queue.name(), "p50", expect.p50BelowValue(),
+                    latency.count() == 0 ? null : latency.p50());
+            missed(found, queue.name(), "p99", expect.p99BelowValue(),
+                    latency.count() == 0 ? null : latency.p99());
+            missed(found, queue.name(), "p99.9", expect.p999BelowValue(),
+                    latency.count() == 0 ? null : latency.p999());
+
+            if (expect.consumeRateAtLeastValue() != null) {
+                double achieved = queue.consumeRate(duration);
+                if (achieved < expect.consumeRateAtLeastValue()) {
+                    found.add(Finding.of("expected-consume-rate:" + queue.name(), Severity.FAILED,
+                            String.format("%s handled %,.0f/s, and was asked for at least %,d/s",
+                                    queue.name(), achieved, expect.consumeRateAtLeastValue()),
+                            "the consumers on this queue did not keep up with what was asked of"
+                                    + " them, whatever the broker was capable of"));
+                }
+            }
+
+            if (expect.requiresNoBacklog() && queue.grew()) {
+                found.add(Finding.of("expected-no-backlog:" + queue.name(), Severity.FAILED,
+                        queue.name() + " went from " + queue.depthAtStart() + " to "
+                                + queue.depthAtEnd() + " messages, and was asked not to grow",
+                        "work arrived faster than it was handled for the whole window"));
+            }
+        }
+
+        for (ProducerResult producer : producers) {
+            Expect expect = producer.expectations();
+            if (expect == null || expect.isEmpty()) {
+                continue;
+            }
+
+            if (expect.requiresNoFailures() && producer.failed() > 0) {
+                found.add(Finding.of("expected-no-failures:" + producer.name(), Severity.FAILED,
+                        producer.name() + " had " + producer.failed()
+                                + " publishes fail, and was asked for none",
+                        "a publish that failed is a message the application would have lost"));
+            }
+
+            double achieved = producer.achievedRate(duration);
+            if (expect.achievedRateAtLeastValue() != null
+                    && achieved < expect.achievedRateAtLeastValue()) {
+                found.add(Finding.of("expected-offered-rate:" + producer.name(), Severity.FAILED,
+                        String.format("%s offered %,.0f/s, and was asked for at least %,d/s",
+                                producer.name(), achieved, expect.achievedRateAtLeastValue()),
+                        "the load this run was supposed to apply was never applied"));
+            }
+
+            if (expect.withinPercentOfOfferedValue() != null && producer.offeredRate() > 0) {
+                double floor = producer.offeredRate()
+                        * (100 - expect.withinPercentOfOfferedValue()) / 100.0;
+                if (achieved < floor) {
+                    found.add(Finding.of("expected-within-percent:" + producer.name(),
+                            Severity.FAILED,
+                            String.format("%s offered %,.0f/s of the %,d/s it was configured for,"
+                                            + " which is short of the %d%% allowed",
+                                    producer.name(), achieved, producer.offeredRate(),
+                                    expect.withinPercentOfOfferedValue()),
+                            "the generator did not apply the load, so this run describes the"
+                                    + " generator rather than the broker"));
+                }
+            }
+        }
+
+        return found;
+    }
+
+    private void missed(List<Finding> found, String queue, String percentile, Duration limit,
+            Duration measured) {
+        if (limit == null) {
+            return;
+        }
+        if (measured == null) {
+            found.add(Finding.of("expected-" + percentile + ":" + queue, Severity.FAILED,
+                    queue + " handled nothing, so its " + percentile + " cannot be compared with"
+                            + " the " + limit.toMillis() + "ms it was asked for",
+                    "an expectation about latency on a queue that received nothing is not met;"
+                            + " it is unanswerable, which is not the same as passing"));
+            return;
+        }
+        if (measured.compareTo(limit) > 0) {
+            found.add(Finding.of("expected-" + percentile + ":" + queue, Severity.FAILED,
+                    String.format("%s %s was %.1fms, and was asked for under %dms",
+                            queue, percentile, measured.toNanos() / 1_000_000.0, limit.toMillis()),
+                    "the queue answered, and answered more slowly than this run required"));
+        }
     }
 
     /** @return the report as text, for a terminal or a log */
@@ -268,7 +401,8 @@ public final class ScenarioReport {
                     queue.consumers(),
                     queue.consumeRate(duration),
                     queue.endToEnd().count() == 0 ? "--" : queue.endToEnd().percentile(99).toMillis() + "ms",
-                    queue.depthAtEnd() == null ? "--" : queue.depthAtEnd().toString()));
+                    queue.depthAtEnd() == null ? "--"
+                            : queue.depthAtEnd() + (queue.retainsMessages() ? " retained" : "")));
         }
 
         if (!findings.isEmpty()) {

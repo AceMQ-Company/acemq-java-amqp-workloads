@@ -103,6 +103,45 @@ worse than what a browser prints. The HTML carries `@media print` rules, so
 printing it to PDF produces a better document with nothing added to the build.
 Passing `--format pdf` says so rather than failing quietly.
 
+## A whole topology, not one path
+
+A workload file describes one path. A **scenario** describes the shape a system
+actually has — several exchanges, several queues with their own bindings and
+their own consumer counts, several producers — and runs all of it at once. It is
+what the [studio](studio/README.md) draws and exports, and the same `-f` reads
+it; which kind of file it is, is decided by what is in it.
+
+```yaml
+name: orders-peak
+exchanges:
+  - { name: orders, type: topic }
+queues:
+  - name: orders.shipping
+    type: quorum
+    bindings: [ { exchange: orders, routingKey: "order.*" } ]
+    consumers: { concurrency: 8, prefetch: 200 }
+    expect: { p99Below: 50ms, noBacklog: true }
+  - name: orders.audit
+    type: stream
+    bindings: [ { exchange: orders, routingKey: "#" } ]
+    consumers: { concurrency: 1 }
+producers:
+  - name: checkout
+    exchange: orders
+    routingKeys: [ order.placed, order.cancelled ]
+    rate: 20000
+    expect: { withinPercentOfOffered: 5, noFailures: true }
+runFor: 2m
+```
+
+**`expect` is per node, and that is the point.** The interesting property is
+usually asymmetric — here the audit stream may lag as much as it likes while the
+fulfilment queue must not, and a single overall p99 would average away exactly
+that distinction. What is not stated is not checked; anything stated produces a
+`FAILED` finding naming the node and both numbers, and exit `1`.
+
+[Every field](docs/scenario-file.md).
+
 ## Why a separate repository
 
 It needs both halves of AceMQ and neither may depend on it:
@@ -241,7 +280,7 @@ Seven guide pages and five tutorials, published at
 | | |
 |---|---|
 | **Start here** | [docs/index.md](docs/index.md) · [Getting started](docs/getting-started.md) |
-| **Reference** | [Command line](docs/cli.md) · [Workload file](docs/workload-file.md) · [Rules](docs/rules.md) · [Reports](docs/reports.md) |
+| **Reference** | [Command line](docs/cli.md) · [Workload file](docs/workload-file.md) · [Scenario file](docs/scenario-file.md) · [Rules](docs/rules.md) · [Reports](docs/reports.md) |
 | **Why the numbers hold** | [Measurement](docs/measurement.md) — the schedule arithmetic and coordinated omission |
 | **Tutorials** | [Five, in order](docs/tutorials.md), each ending with something that runs |
 

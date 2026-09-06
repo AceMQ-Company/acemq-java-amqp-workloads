@@ -39,6 +39,7 @@ public final class QueueNode implements Node {
     private final List<Binding> bindings = new ArrayList<>();
     private final Map<String, Object> arguments = new LinkedHashMap<>();
     private final ConsumerGroupNode consumers = new ConsumerGroupNode(this);
+    private final Expect expect = new Expect();
 
     QueueNode(String name) {
         this.name = Objects.requireNonNull(name, "name");
@@ -163,6 +164,28 @@ public final class QueueNode implements Node {
     /** @return the consumers attached to this queue, whether or not they are switched on */
     public ConsumerGroupNode consumersNode() {
         return consumers;
+    }
+
+    /**
+     * What this queue is asked to prove.
+     *
+     * <pre>{@code
+     * .queue("orders.shipping", q -> q.quorum()
+     *         .boundTo("orders", "order.*")
+     *         .expect(e -> e.p99Below(Duration.ofMillis(50)).noBacklog(true)))
+     * }</pre>
+     *
+     * @param objectives what to require of it
+     * @return this queue
+     */
+    public QueueNode expect(java.util.function.Consumer<Expect> objectives) {
+        objectives.accept(expect);
+        return this;
+    }
+
+    /** @return what this queue is asked to prove, empty when nothing was asked */
+    public Expect expectations() {
+        return expect;
     }
 
     /**

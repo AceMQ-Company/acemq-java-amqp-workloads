@@ -88,6 +88,7 @@ export default function App() {
   const [saved, setSaved] = useState<{ id: string; name: string; description: string }[]>([])
 
   const unwatch = useRef<(() => void) | null>(null)
+  const fileInput = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     api.presets().then(setPresets).catch(() => {})
@@ -295,6 +296,36 @@ export default function App() {
               >
                 Save
               </button>
+              {/* The other half of Export. A scenario that failed in a pipeline
+                  is opened here, changed, and run again -- rather than read as
+                  JSON by somebody who then rebuilds it on the canvas. */}
+              <input
+                ref={fileInput}
+                type="file"
+                accept=".json,.yaml,.yml,application/json,application/yaml,text/plain"
+                style={{ display: 'none' }}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ''
+                  if (!file) return
+                  try {
+                    const opened = await api.importFile(await file.text(), file.name)
+                    setScenario(opened.scenario)
+                    setScenarioId(null)
+                    setSelection(null)
+                    setError(null)
+                  } catch (problem) {
+                    setError((problem as Error).message)
+                  }
+                }}
+              />
+              <button
+                className="ghost"
+                title="Open a scenario file: the one a pipeline runs"
+                onClick={() => fileInput.current?.click()}
+              >
+                Open file
+              </button>
               <button className="ghost" onClick={() => api.download(scenario, 'json')}>
                 Export JSON
               </button>
@@ -319,6 +350,13 @@ export default function App() {
               </button>
             </div>
 
+            {/* A file that would not open says so here, next to the button that
+                was pressed, rather than on the run screen nobody is looking at. */}
+            {error && (
+              <div className="banner" data-tone="bad" onClick={() => setError(null)}>
+                {error}
+              </div>
+            )}
             {check.problems.length > 0 && (
               <div className="banner" data-tone="bad">
                 {check.problems.join(' · ')}

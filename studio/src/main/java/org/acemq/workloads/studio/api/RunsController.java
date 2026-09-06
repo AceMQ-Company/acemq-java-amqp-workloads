@@ -20,7 +20,7 @@ import java.util.Map;
 
 import org.acemq.workloads.studio.net.BrokerReachability;
 import org.acemq.workloads.studio.run.Runs;
-import org.acemq.workloads.studio.scenario.ScenarioJson;
+import org.acemq.workloads.scenario.ScenarioFile;
 import org.acemq.workloads.studio.store.RunStore;
 import org.acemq.workloads.studio.StudioProperties;
 import org.acemq.workloads.studio.tls.TlsSettings;
@@ -60,7 +60,7 @@ public class RunsController {
      * @param broker where to run it
      * @param scenario the scenario itself, so an unsaved design can be run
      */
-    public record StartRequest(String scenarioId, String broker, ScenarioJson scenario,
+    public record StartRequest(String scenarioId, String broker, ScenarioFile scenario,
             TlsSettings tls) {
     }
 

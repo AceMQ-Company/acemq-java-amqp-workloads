@@ -22,7 +22,7 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import org.acemq.workloads.studio.scenario.ScenarioJson;
+import org.acemq.workloads.scenario.ScenarioFile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -68,7 +68,7 @@ public class ScenarioStore {
      * @param id a scenario
      * @return it, if it is there
      */
-    public Optional<ScenarioJson> find(String id) {
+    public Optional<ScenarioFile> find(String id) {
         return jdbc.query("SELECT json FROM scenarios WHERE id = ?",
                         (rs, row) -> read(rs.getString("json")), id)
                 .stream().findFirst();
@@ -81,7 +81,7 @@ public class ScenarioStore {
      * @param scenario what to save
      * @return the identifier it was saved under
      */
-    public String save(String id, ScenarioJson scenario) {
+    public String save(String id, ScenarioFile scenario) {
         String identifier = id == null || id.isBlank() ? UUID.randomUUID().toString() : id;
         String now = Instant.now().toString();
         String body = write(scenario);
@@ -112,15 +112,15 @@ public class ScenarioStore {
         return jdbc.update("DELETE FROM scenarios WHERE id = ?", id) > 0;
     }
 
-    private ScenarioJson read(String body) {
+    private ScenarioFile read(String body) {
         try {
-            return json.readValue(body, ScenarioJson.class);
+            return json.readValue(body, ScenarioFile.class);
         } catch (Exception e) {
             throw new IllegalStateException("a saved scenario could not be read back", e);
         }
     }
 
-    private String write(ScenarioJson scenario) {
+    private String write(ScenarioFile scenario) {
         try {
             return json.writeValueAsString(scenario);
         } catch (Exception e) {

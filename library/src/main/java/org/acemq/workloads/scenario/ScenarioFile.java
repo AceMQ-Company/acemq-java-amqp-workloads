@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.acemq.workloads.studio.scenario;
+package org.acemq.workloads.scenario;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -23,13 +23,6 @@ import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
-import org.acemq.workloads.scenario.Binding;
-import org.acemq.workloads.scenario.ConsumerGroupNode;
-import org.acemq.workloads.scenario.ExchangeNode;
-import org.acemq.workloads.scenario.ProducerNode;
-import org.acemq.workloads.scenario.QueueNode;
-import org.acemq.workloads.scenario.QueueType;
-import org.acemq.workloads.scenario.Scenario;
 
 /**
  * A scenario as a file.
@@ -45,7 +38,7 @@ import org.acemq.workloads.scenario.Scenario;
  * write by hand.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record ScenarioJson(
+public record ScenarioFile(
         String name,
         String description,
         String broker,
@@ -87,7 +80,15 @@ public record ScenarioJson(
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record QueueJson(String name, String type, Boolean durable, Boolean enabled,
             String deadLetterExchange, List<BindingJson> bindings, ConsumersJson consumers,
-            Map<String, Object> arguments) {
+            Map<String, Object> arguments, ExpectJson expect) {
+
+        /** A queue that is asked to prove nothing in particular. */
+        public QueueJson(String name, String type, Boolean durable, Boolean enabled,
+                String deadLetterExchange, List<BindingJson> bindings, ConsumersJson consumers,
+                Map<String, Object> arguments) {
+            this(name, type, durable, enabled, deadLetterExchange, bindings, consumers, arguments,
+                    null);
+        }
     }
 
     /**
@@ -95,6 +96,70 @@ public record ScenarioJson(
      * @param routingKey the pattern they arrive under
      */
     public record BindingJson(String exchange, String routingKey) {
+    }
+
+    /**
+     * What a node is asked to prove, in a file.
+     *
+     * <p>What is not stated is not checked. Durations are written the way the rest of the file
+     * writes them: {@code 50ms}, {@code 2s}.
+     *
+     * @param p50Below the median must stay under this
+     * @param p99Below the 99th percentile must stay under this
+     * @param p999Below the 99.9th percentile must stay under this
+     * @param consumeRateAtLeast this queue must handle at least this many a second
+     * @param achievedRateAtLeast this producer must offer at least this many a second
+     * @param withinPercentOfOffered how far the offered rate may fall short, as a percentage
+     * @param noFailures every publish must succeed
+     * @param noBacklog the queue must not be deeper at the end than at the start
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ExpectJson(String p50Below, String p99Below, String p999Below,
+            Long consumeRateAtLeast, Long achievedRateAtLeast, Integer withinPercentOfOffered,
+            Boolean noFailures, Boolean noBacklog) {
+
+        /** @param expect where to apply this */
+        void applyTo(Expect expect) {
+            if (p50Below != null) {
+                expect.p50Below(parseDuration(p50Below, Duration.ZERO));
+            }
+            if (p99Below != null) {
+                expect.p99Below(parseDuration(p99Below, Duration.ZERO));
+            }
+            if (p999Below != null) {
+                expect.p999Below(parseDuration(p999Below, Duration.ZERO));
+            }
+            if (consumeRateAtLeast != null) {
+                expect.consumeRateAtLeast(consumeRateAtLeast);
+            }
+            if (achievedRateAtLeast != null) {
+                expect.achievedRateAtLeast(achievedRateAtLeast);
+            }
+            if (withinPercentOfOffered != null) {
+                expect.withinPercentOfOffered(withinPercentOfOffered);
+            }
+            if (noFailures != null) {
+                expect.noFailures(noFailures);
+            }
+            if (noBacklog != null) {
+                expect.noBacklog(noBacklog);
+            }
+        }
+
+        static ExpectJson of(Expect expect) {
+            if (expect == null || expect.isEmpty()) {
+                return null;
+            }
+            return new ExpectJson(
+                    format(expect.p50BelowValue()),
+                    format(expect.p99BelowValue()),
+                    format(expect.p999BelowValue()),
+                    expect.consumeRateAtLeastValue(),
+                    expect.achievedRateAtLeastValue(),
+                    expect.withinPercentOfOfferedValue(),
+                    expect.requiresNoFailures() ? Boolean.TRUE : null,
+                    expect.requiresNoBacklog() ? Boolean.TRUE : null);
+        }
     }
 
     /**
@@ -124,7 +189,15 @@ public record ScenarioJson(
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ProducerJson(String name, String exchange, List<String> routingKeys, Long rate,
             Integer threads, Integer messageSize, Boolean confirms, Integer maxInFlight,
-            Long maxMessages, Boolean enabled) {
+            Long maxMessages, Boolean enabled, ExpectJson expect) {
+
+        /** A producer that is asked to prove nothing in particular. */
+        public ProducerJson(String name, String exchange, List<String> routingKeys, Long rate,
+                Integer threads, Integer messageSize, Boolean confirms, Integer maxInFlight,
+                Long maxMessages, Boolean enabled) {
+            this(name, exchange, routingKeys, rate, threads, messageSize, confirms, maxInFlight,
+                    maxMessages, enabled, null);
+        }
     }
 
     /** @return this file as a scenario the engine can run */
@@ -165,6 +238,10 @@ public record ScenarioJson(
                     node.boundTo(binding.exchange(), binding.routingKey());
                 }
                 nullToEmptyMap(queue.arguments()).forEach(node::argument);
+
+                if (queue.expect() != null) {
+                    node.expect(queue.expect()::applyTo);
+                }
 
                 ConsumersJson consumers = queue.consumers();
                 if (consumers != null) {
@@ -218,6 +295,9 @@ public record ScenarioJson(
                 if (producer.enabled() != null) {
                     node.enabled(producer.enabled());
                 }
+                if (producer.expect() != null) {
+                    node.expect(producer.expect()::applyTo);
+                }
             });
         }
 
@@ -231,7 +311,7 @@ public record ScenarioJson(
      * @param ui whatever the designer wants to remember about layout
      * @return the same scenario as a file
      */
-    public static ScenarioJson of(Scenario scenario, String broker, String management,
+    public static ScenarioFile of(Scenario scenario, String broker, String management,
             Map<String, Object> ui) {
         List<ExchangeJson> exchanges = new ArrayList<>();
         for (ExchangeNode exchange : scenario.exchanges()) {
@@ -258,7 +338,8 @@ public record ScenarioJson(
                             format(consumers.handlerTime()),
                             consumers.failureRate() == 0 ? null : consumers.failureRate(),
                             consumers.isEnabled() ? null : Boolean.FALSE),
-                    null));
+                    null,
+                    ExpectJson.of(queue.expectations())));
         }
 
         List<ProducerJson> producers = new ArrayList<>();
@@ -268,10 +349,11 @@ public record ScenarioJson(
                     producer.confirms() ? null : Boolean.FALSE,
                     producer.maxInFlight(),
                     producer.maxMessages() == Long.MAX_VALUE ? null : producer.maxMessages(),
-                    producer.isEnabled() ? null : Boolean.FALSE));
+                    producer.isEnabled() ? null : Boolean.FALSE,
+                    ExpectJson.of(producer.expectations())));
         }
 
-        return new ScenarioJson(scenario.name(), scenario.description(), broker, management,
+        return new ScenarioFile(scenario.name(), scenario.description(), broker, management,
                 exchanges, queues, producers, format(scenario.warmup()),
                 format(scenario.duration()), scenario.shouldDeclare() ? null : Boolean.FALSE, ui);
     }

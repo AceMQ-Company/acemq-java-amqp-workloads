@@ -85,6 +85,16 @@ export const api = {
     body: JSON.stringify(connection),
   }),
 
+  /**
+   * Opens a scenario file somebody already has -- the one a pipeline runs, or
+   * one exported from here a month ago. JSON or YAML; the back end decides.
+   */
+  importFile: (text: string, fileName: string) =>
+    call<{ scenario: Scenario; problems: string[]; warnings: string[]; runnable: boolean }>(
+      `/api/scenarios/import?fileName=${encodeURIComponent(fileName)}`,
+      { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text },
+    ),
+
   importTopology: (connection: {
     broker: string
     management: string

@@ -28,7 +28,7 @@ import org.acemq.workloads.scenario.BrokerCapabilities;
 import org.acemq.workloads.scenario.QueueType;
 import org.acemq.workloads.studio.net.BrokerReachability;
 import org.acemq.workloads.studio.net.Where;
-import org.acemq.workloads.studio.scenario.ScenarioJson;
+import org.acemq.workloads.scenario.ScenarioFile;
 import org.acemq.workloads.studio.StudioProperties;
 import org.acemq.workloads.studio.tls.TlsProbe;
 import org.acemq.workloads.studio.tls.TlsSettings;
@@ -182,38 +182,38 @@ public class BrokerController {
         try (RabbitAdmin admin = RabbitAdmin.connect(http.reachableUrl(), connection.username(),
                 connection.password())) {
 
-            List<ScenarioJson.ExchangeJson> exchanges = new ArrayList<>();
+            List<ScenarioFile.ExchangeJson> exchanges = new ArrayList<>();
             for (ExchangeInfo exchange : admin.exchanges()) {
                 // The default exchange and the amq.* set are the broker's, not the user's, and a
                 // designer full of them is a designer nobody can read.
                 if (exchange.name().isBlank() || exchange.name().startsWith("amq.")) {
                     continue;
                 }
-                exchanges.add(new ScenarioJson.ExchangeJson(exchange.name(), exchange.type(),
+                exchanges.add(new ScenarioFile.ExchangeJson(exchange.name(), exchange.type(),
                         exchange.durable() ? null : Boolean.FALSE, null, null));
             }
 
-            List<ScenarioJson.QueueJson> queues = new ArrayList<>();
+            List<ScenarioFile.QueueJson> queues = new ArrayList<>();
             for (QueueInfo queue : admin.queues()) {
-                List<ScenarioJson.BindingJson> bindings = new ArrayList<>();
+                List<ScenarioFile.BindingJson> bindings = new ArrayList<>();
                 for (BindingInfo binding : admin.bindingsForQueue(queue.name())) {
                     if (binding.source() != null && !binding.source().isBlank()) {
-                        bindings.add(new ScenarioJson.BindingJson(
+                        bindings.add(new ScenarioFile.BindingJson(
                                 binding.source(), binding.routingKey()));
                     }
                 }
-                queues.add(new ScenarioJson.QueueJson(
+                queues.add(new ScenarioFile.QueueJson(
                         queue.name(),
                         queue.type() == null ? "classic" : queue.type(),
                         queue.durable() ? null : Boolean.FALSE,
                         null,
                         null,
                         bindings.isEmpty() ? null : bindings,
-                        new ScenarioJson.ConsumersJson(1, 100, null, null, Boolean.FALSE),
+                        new ScenarioFile.ConsumersJson(1, 100, null, null, Boolean.FALSE),
                         null));
             }
 
-            ScenarioJson scenario = new ScenarioJson(
+            ScenarioFile scenario = new ScenarioFile(
                     "imported", "read from " + BrokerReachability.hostOf(http.reachableUrl()),
                     connection.broker(), connection.management(),
                     exchanges, queues, List.of(), "5s", "30s",

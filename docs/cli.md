@@ -6,7 +6,8 @@ java -jar acemq-workload.jar -f <file> [options]
 
 | Option | |
 |---|---|
-| `-f, --file <path>` | the workload file, `.yaml` or `.json`. Required |
+| `-f, --file <path>` | the workload or [scenario](scenario-file.md) file, `.yaml` or `.json`. Required |
+| `--broker <url>` | run against this broker rather than the one in the file |
 | `--report <dir>` | write reports into this directory |
 | `--format <list>` | `html`, `md`, `json` — comma separated. Default `html,json` |
 | `--dry-run` | resolve and print the configuration, run nothing |
@@ -24,8 +25,12 @@ reads the report.
 | `0` | passed |
 | `1` | a **sound** run missed an objective — the broker's answer is "no" |
 | `2` | a run was **invalid** — nothing was measured |
-| `3` | the workload file is wrong |
+| `3` | the file is wrong |
 | `4` | the broker could not be reached |
+
+Both kinds of file get the same codes. Which kind it is, is decided by what is in
+it: a scenario names `exchanges`, `queues` and `producers`, and a workload names a
+`topology`. There is no flag to remember.
 
 These are genuinely different problems and a build that treats them alike will do
 the wrong thing with each:
@@ -72,6 +77,16 @@ comparing across a week of tuning.
 ```bash
 java -jar acemq-workload.jar -f workload.yaml --report out/ --format json --quiet
 ```
+
+### The same file against staging and then production
+
+```bash
+java -jar acemq-workload.jar -f scenario.json --broker "amqp://guest:$PASSWORD@staging:5672"
+java -jar acemq-workload.jar -f scenario.json --broker "amqp://guest:$PASSWORD@prod:5672"
+```
+
+The ordinary way this gets used, and editing the file in between is how the two
+stop being the same test.
 
 ### Check a file without running it
 

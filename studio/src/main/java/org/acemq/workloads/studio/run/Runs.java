@@ -32,7 +32,7 @@ import org.acemq.workloads.scenario.ScenarioListener;
 import org.acemq.workloads.scenario.ScenarioReport;
 import org.acemq.workloads.scenario.ScenarioRunner;
 import org.acemq.workloads.scenario.ScenarioSample;
-import org.acemq.workloads.studio.scenario.ScenarioJson;
+import org.acemq.workloads.scenario.ScenarioFile;
 import org.acemq.workloads.studio.store.RunStore;
 import org.acemq.workloads.studio.tls.TlsSettings;
 import org.slf4j.Logger;
@@ -86,7 +86,7 @@ public class Runs {
      * @return the run's identifier
      * @throws IllegalStateException if a run is already going
      */
-    public String start(String scenarioId, ScenarioJson file, String brokerUrl) {
+    public String start(String scenarioId, ScenarioFile file, String brokerUrl) {
         return start(scenarioId, file, brokerUrl, null, null);
     }
 
@@ -100,7 +100,7 @@ public class Runs {
      * @param tlsDirectory where generated keystores go
      * @return the run's identifier
      */
-    public String start(String scenarioId, ScenarioJson file, String brokerUrl,
+    public String start(String scenarioId, ScenarioFile file, String brokerUrl,
             TlsSettings tls, java.nio.file.Path tlsDirectory) {
         if (!active.isEmpty()) {
             String running = active.keySet().iterator().next();

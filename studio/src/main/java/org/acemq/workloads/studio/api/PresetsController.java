@@ -18,12 +18,12 @@ package org.acemq.workloads.studio.api;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.acemq.workloads.studio.scenario.ScenarioJson;
-import org.acemq.workloads.studio.scenario.ScenarioJson.BindingJson;
-import org.acemq.workloads.studio.scenario.ScenarioJson.ConsumersJson;
-import org.acemq.workloads.studio.scenario.ScenarioJson.ExchangeJson;
-import org.acemq.workloads.studio.scenario.ScenarioJson.ProducerJson;
-import org.acemq.workloads.studio.scenario.ScenarioJson.QueueJson;
+import org.acemq.workloads.scenario.ScenarioFile;
+import org.acemq.workloads.scenario.ScenarioFile.BindingJson;
+import org.acemq.workloads.scenario.ScenarioFile.ConsumersJson;
+import org.acemq.workloads.scenario.ScenarioFile.ExchangeJson;
+import org.acemq.workloads.scenario.ScenarioFile.ProducerJson;
+import org.acemq.workloads.scenario.ScenarioFile.QueueJson;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -53,7 +53,7 @@ public class PresetsController {
      * @param question the thing it answers, in one line
      * @param scenario the scenario itself
      */
-    public record Preset(String id, String title, String question, ScenarioJson scenario) {
+    public record Preset(String id, String title, String question, ScenarioFile scenario) {
     }
 
     @GetMapping
@@ -112,7 +112,7 @@ public class PresetsController {
      * rate, into both kinds of queue at once. A fanout rather than two runs, so the two queues see
      * the same traffic on the same broker in the same minute.
      */
-    private ScenarioJson quorumAgainstClassic() {
+    private ScenarioFile quorumAgainstClassic() {
         return scenario("quorum-vs-classic",
                 "The same messages into both kinds of queue at once, so the difference is the"
                         + " queue rather than the minute it ran in.",
@@ -124,7 +124,7 @@ public class PresetsController {
                 "10s", "60s");
     }
 
-    private ScenarioJson slowConsumer() {
+    private ScenarioFile slowConsumer() {
         return scenario("slow-consumer",
                 "Two legs of a fan-out, one with a handler ten times slower. Watch which queue"
                         + " grows and what happens to the other one.",
@@ -138,7 +138,7 @@ public class PresetsController {
                 "10s", "60s");
     }
 
-    private ScenarioJson backlog() {
+    private ScenarioFile backlog() {
         return scenario("backlog",
                 "Nothing is consuming. This is what a stopped service costs per minute, in"
                         + " messages and in memory.",
@@ -150,7 +150,7 @@ public class PresetsController {
                 "5s", "60s");
     }
 
-    private ScenarioJson prefetch() {
+    private ScenarioFile prefetch() {
         return scenario("prefetch",
                 "The same handler behind a prefetch of 1 and a prefetch of 500. The gap between"
                         + " the two queues is what prefetch is worth here.",
@@ -164,7 +164,7 @@ public class PresetsController {
                 "10s", "60s");
     }
 
-    private ScenarioJson deadLetter() {
+    private ScenarioFile deadLetter() {
         return scenario("dead-letter",
                 "One in twenty messages is rejected by the handler. The dead-letter queue is"
                         + " where they land, and this is how fast it fills.",
@@ -184,7 +184,7 @@ public class PresetsController {
      * Unthrottled on purpose, and the report will say the latency here means nothing. That is the
      * honest shape of this question: find the ceiling first, then measure latency below it.
      */
-    private ScenarioJson findTheCeiling() {
+    private ScenarioFile findTheCeiling() {
         return scenario("find-the-ceiling",
                 "As fast as the generator can offer. Read the throughput and ignore the latency:"
                         + " an unthrottled generator stalls when the broker stalls.",
@@ -207,7 +207,7 @@ public class PresetsController {
      * {@code orders.created.eu} and not {@code orders.created.paid.eu}, and the queue bound to
      * {@code #} receives everything, including the key with no dots in it.
      */
-    private ScenarioJson routingShapes() {
+    private ScenarioFile routingShapes() {
         List<ExchangeJson> exchanges = List.of(
                 exchange("shapes.direct", "direct"),
                 exchange("shapes.topic", "topic"),
@@ -259,7 +259,7 @@ public class PresetsController {
      * exchange types, nine queues, and consumer counts that differ per queue the way they differ
      * in a real system — the analytics leg is deliberately thinner than the rest.
      */
-    private ScenarioJson eventDrivenCommerce() {
+    private ScenarioFile eventDrivenCommerce() {
         List<ExchangeJson> exchanges = List.of(
                 exchange("orders.broadcast", "fanout"),
                 exchange("payments.direct", "direct"),
@@ -318,7 +318,7 @@ public class PresetsController {
      * one slow subscriber must not be allowed to hold up the others — which is exactly what this
      * scenario shows, queue by queue.
      */
-    private ScenarioJson tradingVenue() {
+    private ScenarioFile tradingVenue() {
         List<ExchangeJson> exchanges = List.of(
                 exchange("market.data", "fanout"),
                 exchange("market.instruments", "topic"),
@@ -373,7 +373,7 @@ public class PresetsController {
      * exchange. Worth running against a classic and a quorum queue in turn — the difference is
      * usually larger here than on a fan-out.
      */
-    private ScenarioJson fanIn() {
+    private ScenarioFile fanIn() {
         List<ProducerJson> producers = new ArrayList<>();
         for (int i = 1; i <= 8; i++) {
             producers.add(producer("service-" + i, "ingest", 2_000, 512, "event"));
@@ -390,10 +390,10 @@ public class PresetsController {
 
     // ---- the small pieces -------------------------------------------------
 
-    private static ScenarioJson scenario(String name, String description,
+    private static ScenarioFile scenario(String name, String description,
             List<ExchangeJson> exchanges, List<QueueJson> queues, List<ProducerJson> producers,
             String warmup, String runFor) {
-        return new ScenarioJson(name, description, null, null, exchanges, queues, producers,
+        return new ScenarioFile(name, description, null, null, exchanges, queues, producers,
                 warmup, runFor, null, null);
     }
 

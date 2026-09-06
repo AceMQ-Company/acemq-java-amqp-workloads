@@ -205,7 +205,8 @@ final class ScenarioRun {
                     counters.publishLatency.summary(),
                     producer.isUnthrottled()
                             ? LatencySummary.empty(producer.name() + " send lag")
-                            : counters.sendLag.summary()));
+                            : counters.sendLag.summary(),
+                    producer.expectations()));
         }
 
         List<ScenarioReport.QueueResult> queueResults = new ArrayList<>();
@@ -218,7 +219,8 @@ final class ScenarioRun {
                     counters.consumed.get(),
                     counters.endToEnd.summary(),
                     counters.depthAtStart,
-                    depthOf(broker, queue.name())));
+                    depthOf(broker, queue.name()),
+                    queue.expectations()));
         }
 
         return new ScenarioReport(scenario, startedAt, measured, producerResults, queueResults,
