@@ -149,6 +149,61 @@ public final class Workload {
         return new WorkloadRun(this, brokerUrl).execute();
     }
 
+    /**
+     * Starts it on a thread of its own, and reports as it goes.
+     *
+     * <p>For anything that cannot block for the length of a run: a user interface drawing it live,
+     * a scheduler, a test that stops the run once it has seen enough.
+     *
+     * <pre>{@code
+     * RunHandle run = workload.start("amqp://localhost", System.out::println);
+     * // ... and later
+     * run.stop();
+     * WorkloadReport report = run.report().join();
+     * }</pre>
+     *
+     * @param brokerUrl an AMQP URL
+     * @param listener told about each reading, or {@link RunListener#NONE}
+     * @return a handle on the run
+     */
+    public RunHandle start(String brokerUrl, RunListener listener) {
+        java.util.Objects.requireNonNull(brokerUrl, "brokerUrl");
+        java.util.Objects.requireNonNull(listener, "listener");
+
+        java.util.concurrent.atomic.AtomicBoolean stopRequested =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        java.util.concurrent.CompletableFuture<WorkloadReport> report =
+                new java.util.concurrent.CompletableFuture<>();
+
+        Thread thread = new Thread(() -> {
+            try {
+                WorkloadReport result =
+                        new WorkloadRun(this, brokerUrl, listener, stopRequested).execute();
+                // The listener is told before the future completes, so anything watching sees the
+                // readings and the report in the order they happened.
+                try {
+                    listener.onFinished(result);
+                } catch (RuntimeException e) {
+                    // Its problem, not the run's.
+                }
+                report.complete(result);
+            } catch (Throwable failure) {
+                try {
+                    listener.onFailed(failure);
+                } catch (RuntimeException e) {
+                    // As above.
+                }
+                report.completeExceptionally(failure);
+            }
+        }, "workload-" + name);
+        // Not a daemon: a run holds a connection and a broker's queues, and letting the JVM exit
+        // through the middle of one leaves the broker holding the mess.
+        thread.setDaemon(false);
+        thread.start();
+
+        return new RunHandle(this, report, stopRequested);
+    }
+
     @Override
     public String toString() {
         return "Workload{" + name + ", " + topology + ", " + publishers + ", " + consumers
