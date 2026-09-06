@@ -48,13 +48,17 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc
 
       - name: Build the Javadoc
-        # javadoc:javadoc rather than javadoc:aggregate -- this is a single
-        # module, and the aggregate goal produces nothing here.
+        # The library only. The studio is an application rather than an API
+        # anybody compiles against, and asking the reactor for it would need the
+        # library installed first -- a longer build for pages nobody reads.
+        #
+        # javadoc:javadoc rather than javadoc:aggregate: one documented module,
+        # and the aggregate goal produces nothing here.
         #
         # -DskipTests: this job documents the code, it does not verify it. CI
         # already ran the full suite on this commit, and the integration tests
         # need Docker.
-        run: mvn -B --no-transfer-progress -DskipTests javadoc:javadoc
+        run: mvn -B --no-transfer-progress -pl library -DskipTests javadoc:javadoc
 
       - name: Render the pages
         run: bash .github/scripts/build-docs-site.sh

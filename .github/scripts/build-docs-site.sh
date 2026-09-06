@@ -139,17 +139,19 @@ done
 
 rm -f "$OUT/.nav.html" "$OUT/.foot.html"
 
-# Javadoc. This is a single module, so the goal is javadoc:javadoc rather than
-# javadoc:aggregate. The plugin has written to target/site/apidocs historically
-# and to target/reports/apidocs in recent versions, so both are accepted -- and a
-# missing one is fatal rather than silently shipping a site whose API reference
-# 404s.
+# Javadoc. The library is the documented module -- the studio is an application
+# rather than an API anybody compiles against -- so the goal runs there and the
+# output is under library/. The plugin has written to target/site/apidocs
+# historically and to target/reports/apidocs in recent versions, so both are
+# accepted, and a missing one is fatal rather than silently shipping a site whose
+# API reference 404s.
 APIDOCS=""
-for candidate in target/reports/apidocs target/site/apidocs; do
+for candidate in library/target/reports/apidocs library/target/site/apidocs \
+                 target/reports/apidocs target/site/apidocs; do
   [ -d "$candidate" ] && APIDOCS="$candidate" && break
 done
 if [ -z "$APIDOCS" ]; then
-  echo "no javadoc found; run: mvn -DskipTests javadoc:javadoc" >&2
+  echo "no javadoc found; run: mvn -pl library -DskipTests javadoc:javadoc" >&2
   exit 1
 fi
 mkdir -p "$OUT/apidocs"
