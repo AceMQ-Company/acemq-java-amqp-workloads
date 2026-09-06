@@ -29,6 +29,17 @@ the messaging library's release train.
 - **`ScenarioRunner.run` and `start` take a `Security`**, so a scenario can be
   run against a broker that needs TLS from the library as well as the studio.
 
+### Fixed
+- **The published pom declared only its test dependencies**, in 0.1.0 and 0.1.1.
+  The shade plugin writes a "dependency-reduced" pom on the assumption that
+  whatever it bundled no longer needs declaring — but this build shades into a
+  separately named CLI jar and still publishes the ordinary thin jar as the
+  artifact people depend on. Anybody who resolved
+  `org.acemq:acemq-java-amqp-workloads` from Maven got a jar with no
+  `acemq-amqp-core` behind it and a `NoClassDefFoundError` the first time they
+  called anything. The CLI jar attached to those releases was always complete;
+  only the Maven artifact was affected.
+
 ### Changed
 - A failed run reports its root cause as well as its message. "could not connect
   to amqps://broker:5671" is what the transport says whether the certificate was

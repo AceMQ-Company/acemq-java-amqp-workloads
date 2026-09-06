@@ -159,6 +159,21 @@
             <goals><goal>shade</goal></goals>
             <configuration>
               <finalName>acemq-workload</finalName>
+
+              <!--
+                Keep the real pom.
+
+                Shade writes a "dependency-reduced" pom by default, on the
+                assumption that whatever it bundled no longer needs declaring.
+                That assumption is wrong here: this build shades into a
+                separately named CLI jar and still publishes the ordinary thin
+                jar as the artifact people depend on. With the reduced pom, that
+                artifact was published declaring nothing but its test
+                dependencies, so anybody resolving it from Maven got a jar
+                with no acemq-amqp-core behind it and a NoClassDefFoundError the
+                first time they called run(). 0.1.0 and 0.1.1 shipped that way.
+              -->
+              <createDependencyReducedPom>false</createDependencyReducedPom>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                   <mainClass>org.acemq.workloads.cli.Cli</mainClass>
