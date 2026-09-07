@@ -8,6 +8,11 @@
 # On a tag, and on request. Not on every push to main: an image for every commit
 # is a registry nobody prunes, and the thing people want is the version they can
 # name.
+#
+# Each architecture is built on its own machine and the two are joined into one
+# tag afterwards. The alternative -- one machine building both under QEMU -- took
+# six minutes for the emulated half, and the emulated half is a JVM and a Node
+# toolchain, which is close to the worst thing to run under emulation.
 name: image
 
 on:
@@ -22,6 +27,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  IMAGE: ghcr.io/acemq-company/acemq-workloads-studio
 
 jobs:
   # What gets checked out and what the image is called both come from this, so it
@@ -47,9 +55,22 @@ jobs:
           # not the same string.
           echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
 
-  publish:
+  build:
     needs: guard
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            name: amd64
+          # A real arm64 machine rather than an emulated one.
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            name: arm64
+
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       # The only elevated privilege here, and the reason it is declared on the
@@ -69,32 +90,36 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      # Pushed by digest, with no tag. A tag pushed from two machines would have
+      # each overwrite the other, and whichever finished last would be the whole
+      # image -- one architecture, quietly. The tags are applied once, below,
+      # when both digests exist.
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          # arm64 as well as amd64: half the people who will run this are on a
-          # laptop whose emulated x86 JVM would measure the emulator.
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ghcr.io/acemq-company/acemq-workloads-studio:${{ needs.guard.outputs.version }}
-            ghcr.io/acemq-company/acemq-workloads-studio:latest
+          platforms: ${{ matrix.platform }}
           labels: |
             org.opencontainers.image.title=AceMQ workloads studio
             org.opencontainers.image.description=Design an AMQP topology, run load against it, and watch what happens
             org.opencontainers.image.version=${{ needs.guard.outputs.version }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.licenses=Apache-2.0
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          # Per architecture, so the two do not overwrite each other's cache.
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
-      # An image that was pushed and cannot start is worse than no image: it is
-      # discovered by whoever trusted the release notes.
-      - name: Check the image starts and serves the interface
+      # An image that was built and cannot start is worse than no image: it is
+      # discovered by whoever trusted the release notes. Checked here, on the
+      # machine whose architecture it is, which is the only place each half can
+      # actually be run.
+      - name: Check it starts and serves the interface
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           docker run -d --name studio -p 8480:8480 \
-            -e ACEMQ_STUDIO_TOKEN=preflight \
-            "ghcr.io/acemq-company/acemq-workloads-studio:${{ needs.guard.outputs.version }}"
+            -e ACEMQ_STUDIO_TOKEN=preflight "$IMAGE@$DIGEST"
 
           for _ in $(seq 1 40); do
             if curl -fsS -H 'Authorization: Bearer preflight' http://localhost:8480/ -o page.html; then
@@ -104,4 +129,69 @@ jobs:
           done
 
           grep -q '<div id="root"' page.html
+          # And the API answers, which means the context came up whole rather
+          # than serving a static page in front of a broken application.
+          curl -fsS -H 'Authorization: Bearer preflight' http://localhost:8480/api/presets \
+            | grep -q quorum-vs-classic
           docker rm -f studio
+
+      - name: Keep the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.name }}
+          path: /tmp/digests/*
+          retention-days: 1
+          if-no-files-found: error
+
+  # One tag pointing at both architectures. Until this runs there are two
+  # untagged images in the registry and nothing anybody can pull by name, which
+  # is the right order: a half-published tag is worse than an unpublished one.
+  join:
+    needs: [guard, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create the tags
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            -t "$IMAGE:$VERSION" -t "$IMAGE:latest" \
+            $(printf "$IMAGE@sha256:%s " *)
+
+      - name: Check both architectures are there, under the tag
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          docker buildx imagetools inspect "$IMAGE:$VERSION" --raw > index.json
+          # The index is what a `docker pull` reads to choose a platform, so a
+          # tag missing one is a tag that silently fails for half its users.
+          for want in amd64 arm64; do
+            grep -q "\"architecture\":\"$want\"" index.json \
+              || { echo "$IMAGE:$VERSION has no $want"; cat index.json; exit 1; }
+          done
+          echo "$IMAGE:$VERSION carries amd64 and arm64"
