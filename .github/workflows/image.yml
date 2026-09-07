@@ -188,10 +188,24 @@ jobs:
           VERSION: ${{ needs.guard.outputs.version }}
         run: |
           docker buildx imagetools inspect "$IMAGE:$VERSION" --raw > index.json
+
+          # Parsed rather than grepped: the raw index is pretty-printed, so
+          # "architecture": "amd64" has a space in it that a pattern without one
+          # will never match -- which is how the first version of this check
+          # failed a tag that was in fact correct.
+          #
+          # The attestation entries are platform "unknown" and are dropped: they
+          # are signatures about the image, not architectures of it.
+          jq -e '
+            [.manifests[].platform
+             | select(.architecture != "unknown")
+             | .os + "/" + .architecture]
+            | sort == ["linux/amd64", "linux/arm64"]' index.json > /dev/null || {
+            echo "$IMAGE:$VERSION does not carry both architectures:" >&2
+            jq '[.manifests[].platform]' index.json >&2
+            exit 1
+          }
+
           # The index is what a `docker pull` reads to choose a platform, so a
-          # tag missing one is a tag that silently fails for half its users.
-          for want in amd64 arm64; do
-            grep -q "\"architecture\":\"$want\"" index.json \
-              || { echo "$IMAGE:$VERSION has no $want"; cat index.json; exit 1; }
-          done
-          echo "$IMAGE:$VERSION carries amd64 and arm64"
+          # tag missing one silently fails for half the people who use it.
+          echo "$IMAGE:$VERSION carries linux/amd64 and linux/arm64"
