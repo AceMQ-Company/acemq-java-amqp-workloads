@@ -218,6 +218,53 @@ class StudioApiTest {
         assertThat(body).contains("quorum-vs-classic", "slow-consumer", "find-the-ceiling");
     }
 
+    // A feature nobody meets is a feature nobody has. The presets are where somebody first sees
+    // that a scenario can be asked to prove something.
+    @Test
+    @DisplayName("ships presets that carry objectives, and survive their own JSON with them")
+    void presetsCarryObjectives() throws Exception {
+        String body = http.getForObject("/api/presets", String.class);
+
+        ScenarioFile comparison = preset(body, "quorum-vs-classic");
+        assertThat(comparison.producers().get(0).expect().withinPercentOfOffered()).isEqualTo(5);
+        assertThat(comparison.queues()).allSatisfy(queue ->
+                assertThat(queue.expect().noBacklog()).isTrue());
+
+        // Through the file and back, because a preset whose objectives are lost in transit gates
+        // nothing the moment somebody exports it.
+        ScenarioFile read = json.readValue(json.writeValueAsString(comparison), ScenarioFile.class);
+        assertThat(read.toScenario().producers().get(0).expectations().isEmpty()).isFalse();
+        assertThat(read.toScenario().queues().get(0).expectations().requiresNoBacklog()).isTrue();
+
+        // The slow leg is expected to fall behind, so it is asked for nothing; the fast one is the
+        // claim being made.
+        ScenarioFile slow = preset(body, "slow-consumer");
+        assertThat(queue(slow, "orders.fast").expect().p99Below()).isEqualTo("250ms");
+        assertThat(queue(slow, "orders.slow").expect()).isNull();
+
+        // Unthrottled: the latency means nothing and no objective pretends otherwise.
+        assertThat(preset(body, "find-the-ceiling").queues().get(0).expect()).isNull();
+    }
+
+    /**
+     * @param body the presets as the API returns them
+     * @param id which one
+     * @return its scenario
+     */
+    private ScenarioFile preset(String body, String id) throws Exception {
+        for (com.fasterxml.jackson.databind.JsonNode entry : json.readTree(body)) {
+            if (id.equals(entry.path("id").asText())) {
+                return json.treeToValue(entry.path("scenario"), ScenarioFile.class);
+            }
+        }
+        throw new AssertionError("no preset called " + id);
+    }
+
+    private static ScenarioFile.QueueJson queue(ScenarioFile scenario, String name) {
+        return scenario.queues().stream().filter(q -> name.equals(q.name())).findFirst()
+                .orElseThrow(() -> new AssertionError("no queue called " + name));
+    }
+
     @Test
     @DisplayName("keeps the broker's password out of the history")
     void doesNotStorePasswords() {

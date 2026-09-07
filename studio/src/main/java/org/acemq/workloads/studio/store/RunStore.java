@@ -95,12 +95,34 @@ public class RunStore {
      * @param runId the run
      * @param verdict passed, failed or invalid
      * @param report the report, as JSON
+     * @param html the same report as a page, for somebody to read or attach to a ticket
+     * @param markdown the same report for a pull request or an issue
      */
-    public void finished(String runId, String verdict, Object report) {
+    public void finished(String runId, String verdict, Object report, String html,
+            String markdown) {
         jdbc.update("""
-                UPDATE runs SET status = 'finished', finished_at = ?, verdict = ?, report_json = ?
+                UPDATE runs SET status = 'finished', finished_at = ?, verdict = ?,
+                    report_json = ?, report_html = ?, report_md = ?
                 WHERE id = ?""",
-                Instant.now().toString(), verdict, write(report), runId);
+                Instant.now().toString(), verdict, write(report), html, markdown, runId);
+    }
+
+    /**
+     * The report in the form somebody asked for it.
+     *
+     * @param runId the run
+     * @param format {@code json}, {@code html} or {@code md}
+     * @return it, if that run finished
+     */
+    public Optional<String> report(String runId, String format) {
+        String column = switch (format) {
+            case "html" -> "report_html";
+            case "md", "markdown" -> "report_md";
+            default -> "report_json";
+        };
+        return jdbc.query("SELECT " + column + " AS body FROM runs WHERE id = ?",
+                        (rs, row) -> rs.getString("body"), runId)
+                .stream().filter(body -> body != null).findFirst();
     }
 
     /**

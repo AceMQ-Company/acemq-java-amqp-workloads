@@ -193,7 +193,69 @@ expect:
 Note the comments. In six months the question will be "why 18,000?", and the file
 is the only place that can answer.
 
-## Step 6 — Keeping the JSON
+## Step 6 — Gating a whole topology, not one path
+
+Everything above gates a workload: one exchange, one queue, one set of
+publishers. A [scenario](scenario-file.md) gates the shape a system actually
+has, and the same command runs it — which kind of file it is, is decided by what
+is in it.
+
+The reason to bother is that the interesting property is nearly always
+asymmetric:
+
+```yaml
+name: orders-peak
+exchanges:
+  - { name: orders, type: topic }
+queues:
+  - name: orders.shipping
+    type: quorum
+    bindings: [ { exchange: orders, routingKey: "order.*" } ]
+    consumers: { concurrency: 8, prefetch: 200 }
+    expect:
+      p99Below: 50ms        # measured 31ms worst of ten
+      noBacklog: true
+  - name: orders.audit
+    type: stream
+    bindings: [ { exchange: orders, routingKey: "#" } ]
+    consumers: { concurrency: 1 }
+    # Nothing. Audit is allowed to lag; that is the whole point of putting it
+    # behind its own queue.
+producers:
+  - name: checkout
+    exchange: orders
+    routingKeys: [ order.placed, order.cancelled ]
+    rate: 20000
+    expect:
+      withinPercentOfOffered: 5
+      noFailures: true
+runFor: 2m
+```
+
+A single overall p99 across both legs would average the audit stream's lag into
+the fulfilment queue's number and pass a build that should have failed.
+
+```
+[FAILED] expected-p99:orders.shipping
+    observed:  orders.shipping p99 was 91.4ms, and was asked for under 50ms
+    means:     the queue answered, and answered more slowly than this run required
+```
+
+Exit `1`, and the finding names the queue. Two things worth knowing before you
+rely on it:
+
+- **`withinPercentOfOffered` on the producer is the guard against a lying gate.**
+  It is the same distinction as exit 1 against exit 2, expressed per producer: if
+  the load was never applied, the queue numbers describe the generator.
+- **A queue that received nothing fails a latency expectation** rather than
+  passing it. A binding typo would otherwise be a green build.
+
+The studio can draw this and export it, so the file a pipeline runs is the file
+somebody designed rather than one they transcribed. Its presets ship with their
+objectives set, which is the quickest way to see what a gated scenario looks
+like.
+
+## Step 7 — Keeping the JSON
 
 ```bash
 java -jar acemq-workload.jar -f perf/nightly.yaml --report reports/ --format json --quiet

@@ -36,8 +36,23 @@ the messaging library's release train.
   file.
 - **`--broker <url>`** overrides the broker in the file, for running the same
   scenario against staging and then production.
+- **The report as a file, from the studio.** A finished run offers HTML, Markdown
+  and JSON, written by the library's own writers so it is the same document the
+  command line produces for the same run. A run watched here and then described
+  from memory in a ticket is a run nobody else can check.
+- **Presets ship with their objectives set**, so the gate is something somebody
+  meets rather than something they read about. The comparison presets assert that
+  both legs kept up and that the generator offered its load; the slow-consumer
+  preset asserts it of the fast leg only, because the slow one is there to fall
+  behind. `find-the-ceiling` deliberately asserts nothing: it is unthrottled, and
+  its latency means nothing.
+- **The studio's own integration test.** Start a run through the API against a
+  real broker, watch readings arrive, get a verdict, find it in the history and
+  take the report away as a file. Pressing Run is the product, and until now a
+  broken Run button could have been released without anything noticing.
 - [Scenario file](docs/scenario-file.md) documents the format, the objectives and
-  what is deliberately not checked.
+  what is deliberately not checked, and [tutorial 4](docs/tutorial-ci-gate.md)
+  now gates a whole topology rather than one path.
 
 ### Fixed
 - **A stream was reported as falling behind.** Consumers move an offset and
@@ -47,6 +62,10 @@ the messaging library's release train.
   "retained" for a stream, and `noBacklog` is not checked for one.
 
 ### Changed
+- **The studio keeps each finished run's report as HTML and Markdown** as well as
+  JSON. Two nullable columns, added to an existing database on start, because
+  the renderer needs the report object and that exists only while the run is in
+  memory.
 - `ScenarioJson` became `org.acemq.workloads.scenario.ScenarioFile` and moved from
   the studio into the library, because the file format is the contract between the
   designer and the command line and cannot live in only one of them.

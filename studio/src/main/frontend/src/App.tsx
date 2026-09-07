@@ -74,6 +74,10 @@ export default function App() {
   const [connected, setConnected] = useState(false)
 
   const [runId, setRunId] = useState<string | null>(null)
+  // Which run the report on screen belongs to. Separate from runId, which goes
+  // back to null the moment a run ends -- and a finished run is exactly when
+  // somebody wants to save its report.
+  const [reportId, setReportId] = useState<string | null>(null)
   const [samples, setSamples] = useState<ScenarioSample[]>([])
   const [phase, setPhase] = useState('STARTING')
   const [report, setReport] = useState<Report | null>(null)
@@ -102,6 +106,7 @@ export default function App() {
       if (current.running && current.id) {
         setConnected(true)
         setRunId(current.id)
+        setReportId(current.id)
         setTab('run')
         attach(current.id)
       }
@@ -150,6 +155,7 @@ export default function App() {
     try {
       const started = await api.start(scenarioId, scenario, broker, tls.enabled ? tls : undefined)
       setRunId(started.id)
+      setReportId(started.id)
       if (started.rewritten) {
         setError(null)
       }
@@ -414,6 +420,7 @@ export default function App() {
               samples={samples}
               phase={phase}
               report={report}
+              reportId={reportId}
               error={error}
               running={runId != null}
               onStop={stop}
@@ -526,6 +533,7 @@ export default function App() {
                               ])
                               setReport(loaded)
                               setSamples(taken)
+                              setReportId(run.id)
                               setError(null)
                               setTab('run')
                             }}

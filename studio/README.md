@@ -43,6 +43,14 @@ kinds.
 one slow consumer in a fan-out, a queue nobody is reading, prefetch high and
 low, a dead-letter path under load, find the ceiling.
 
+Most of them arrive with their objectives already set, so what a gated scenario
+looks like is visible on the first click rather than in this file. The choices
+are deliberate: the comparison presets assert that both legs kept up and that the
+generator offered its load, since a comparison where the load was never applied
+describes the generator; the slow-consumer preset asserts it of the fast leg
+only, because the slow one is there to fall behind; and `find-the-ceiling`
+asserts nothing at all, because it is unthrottled and its latency means nothing.
+
 *Shapes* are whole topologies with the exchange types wired the way a real
 system wires them, and they answer a different question — not "how fast is this
 queue" but "does the routing do what I think, and what does the whole thing cost
@@ -74,6 +82,11 @@ measured rather than throwing the work away.
 **Keep.** Scenarios and every run are kept in one SQLite file under `~/.acemq`,
 readings included, so a finished run can be drawn again exactly as it was
 watched.
+
+**Save the report.** A finished run hands over HTML, Markdown or JSON, written by
+the same code the command line uses, so what goes into a ticket is the document
+rather than somebody's memory of it. The HTML embeds the JSON, so a report mailed
+to somebody is still re-analysable rather than a picture of numbers.
 
 **Export.** `acemq-workload-<name>-<date>.json`, which is the file the command
 line reads. A scenario designed here runs unchanged in a pipeline — that is the

@@ -32,6 +32,7 @@
     <maven.deploy.skip>true</maven.deploy.skip>
 
     <spring-boot.version>3.4.1</spring-boot.version>
+    <testcontainers.version>1.21.4</testcontainers.version>
     <sqlite.version>3.47.1.0</sqlite.version>
     <node.version>v22.11.0</node.version>
     <npm.version>10.9.0</npm.version>
@@ -50,6 +51,17 @@
 
   <dependencyManagement>
     <dependencies>
+      <!-- Before Boot's own list, deliberately. Boot pins an older Testcontainers whose client
+           asks for a Docker API version below what Docker Desktop now accepts, and the failure
+           reads as "Could not find a valid Docker environment" rather than as a version. First
+           import wins in Maven, so this has to come first. -->
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>testcontainers-bom</artifactId>
+        <version>${testcontainers.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
       <dependency>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-dependencies</artifactId>
@@ -208,6 +220,30 @@
             <configuration>
               <arguments>run build</arguments>
             </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- The studio's own integration test drives a real broker through the API, so it belongs
+           to `verify` rather than `test`: pressing Run is the product, and until this ran nothing
+           but a person clicking would have noticed it break. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <version>3.5.2</version>
+        <configuration>
+          <!-- The plain classes, not the artifact. By the time the integration tests run, Boot's
+               repackage goal has turned the jar into an executable one whose classes live under
+               BOOT-INF/, where Spring's test support cannot find the @SpringBootConfiguration.
+               It then says so in a message that sounds like a missing annotation. -->
+          <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
           </execution>
         </executions>
       </plugin>

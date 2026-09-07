@@ -25,6 +25,7 @@ import {
   YAxis,
 } from 'recharts'
 
+import { api } from '../api'
 import type { Report, ScenarioSample } from '../types'
 
 /**
@@ -41,6 +42,8 @@ interface Props {
   samples: ScenarioSample[]
   phase: string
   report: Report | null
+  /** Which run the report belongs to, so it can be saved. */
+  reportId: string | null
   error: string | null
   onStop: () => void
   running: boolean
@@ -48,7 +51,7 @@ interface Props {
 
 const AXIS = { stroke: '#6b757f', fontSize: 11 }
 
-export function LiveView({ samples, phase, report, error, onStop, running }: Props) {
+export function LiveView({ samples, phase, report, reportId, error, onStop, running }: Props) {
   const series = samples.map((sample) => {
     const seconds = Math.round(durationSeconds(sample.elapsed))
     const row: Record<string, number | string> = {
@@ -91,6 +94,25 @@ export function LiveView({ samples, phase, report, error, onStop, running }: Pro
           </span>
         )}
         <div className="spacer" />
+        {/* The same document the command line writes. Without this a run watched
+            here can only be described from memory in a ticket, which is a run
+            nobody else can check. */}
+        {report && reportId && !running && (
+          <>
+            <span className="hint" style={{ color: 'var(--text-faint)', fontSize: 12 }}>
+              save the report
+            </span>
+            <button className="ghost" onClick={() => api.downloadReport(reportId, 'html')}>
+              HTML
+            </button>
+            <button className="ghost" onClick={() => api.downloadReport(reportId, 'md')}>
+              Markdown
+            </button>
+            <button className="ghost" onClick={() => api.downloadReport(reportId, 'json')}>
+              JSON
+            </button>
+          </>
+        )}
         {running && (
           <button className="danger" onClick={onStop}>
             Stop, and report on what it measured

@@ -18,6 +18,7 @@ package org.acemq.workloads.studio.store;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import javax.sql.DataSource;
 
@@ -113,9 +114,32 @@ public class Database {
                     phase       TEXT NOT NULL,
                     json        TEXT NOT NULL
                 )""");
+        // The report as a person reads it, written when the run finishes. Kept rather than
+        // rendered on demand because the renderer takes the report object, which exists only while
+        // the run is in memory -- and a report nobody can hand to somebody else is half a feature.
+        // SQLite has no ADD COLUMN IF NOT EXISTS, so a database written by an earlier version is
+        // brought up to date by asking it what it has.
+        addColumnIfMissing(template, "runs", "report_html", "TEXT");
+        addColumnIfMissing(template, "runs", "report_md", "TEXT");
+
         template.execute("CREATE INDEX IF NOT EXISTS samples_by_run ON samples (run_id)");
         template.execute("CREATE INDEX IF NOT EXISTS runs_by_started ON runs (started_at DESC)");
 
         return template;
+    }
+
+    /**
+     * @param template the database
+     * @param table which table
+     * @param column the column it should have
+     * @param type its type
+     */
+    private static void addColumnIfMissing(JdbcTemplate template, String table, String column,
+            String type) {
+        List<String> existing = template.query("PRAGMA table_info(" + table + ")",
+                (rs, row) -> rs.getString("name"));
+        if (!existing.contains(column)) {
+            template.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + type);
+        }
     }
 }

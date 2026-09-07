@@ -15,6 +15,7 @@
  */
 package org.acemq.workloads.studio.api;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -24,6 +25,8 @@ import org.acemq.workloads.scenario.ScenarioFile;
 import org.acemq.workloads.studio.store.RunStore;
 import org.acemq.workloads.studio.StudioProperties;
 import org.acemq.workloads.studio.tls.TlsSettings;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -153,6 +156,68 @@ public class RunsController {
     public ResponseEntity<String> report(@PathVariable String id) {
         return store.report(id).map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * The report as a file to keep.
+     *
+     * <p>A run watched in the studio and then described from memory in a ticket is a run nobody
+     * can check. This is the same document the command line writes, named for the run.
+     *
+     * @param id a run
+     * @param format json, html or md
+     * @return the file
+     */
+    @GetMapping("/{id}/report.{format}")
+    public ResponseEntity<String> download(@PathVariable String id, @PathVariable String format) {
+        String extension = switch (format) {
+            case "html" -> "html";
+            case "md", "markdown" -> "md";
+            case "json" -> "json";
+            default -> null;
+        };
+        if (extension == null) {
+            return ResponseEntity.badRequest()
+                    .body("{\"error\": \"a report is json, html or md\"}");
+        }
+
+        return store.report(id, extension)
+                .map(body -> ResponseEntity.ok()
+                        .header(HttpHeaders.CONTENT_DISPOSITION,
+                                "attachment; filename=\"" + fileName(id, extension) + "\"")
+                        .contentType(mediaType(extension))
+                        .body(body))
+                // A run recorded before this version kept only the JSON, and a bare 404 would
+                // read as a missing run rather than a missing form of one.
+                .orElseGet(() -> store.report(id).isPresent()
+                        ? ResponseEntity.status(HttpStatus.NOT_FOUND)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .body("{\"error\": \"this run was recorded before the studio kept"
+                                        + " reports as " + extension + "; its JSON is still here\"}")
+                        : ResponseEntity.notFound().build());
+    }
+
+    /**
+     * @param id the run
+     * @param extension what kind of file
+     * @return what to call it: the scenario and the day, the way an exported scenario is named
+     */
+    private String fileName(String id, String extension) {
+        String name = store.recent(500).stream()
+                .filter(run -> run.id().equals(id))
+                .map(RunStore.Summary::scenarioName)
+                .findFirst()
+                .orElse("run");
+        return "acemq-report-" + name.replaceAll("[^A-Za-z0-9._-]", "-") + "-"
+                + LocalDate.now() + "." + extension;
+    }
+
+    private static MediaType mediaType(String extension) {
+        return switch (extension) {
+            case "html" -> MediaType.TEXT_HTML;
+            case "md" -> MediaType.parseMediaType("text/markdown");
+            default -> MediaType.APPLICATION_JSON;
+        };
     }
 
     /**

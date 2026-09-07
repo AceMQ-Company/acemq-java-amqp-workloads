@@ -26,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.acemq.workloads.Sample;
+import org.acemq.workloads.report.ScenarioReports;
 import org.acemq.workloads.scenario.Scenario;
 import org.acemq.workloads.scenario.ScenarioHandle;
 import org.acemq.workloads.scenario.ScenarioListener;
@@ -158,7 +159,10 @@ public class Runs {
                     String verdict = !report.isValid() ? "invalid"
                             : report.passed() ? "passed" : "failed";
                     ReportJson body = ReportJson.of(report);
-                    store.finished(id, verdict, body);
+                    // The library's own writers, so what the studio hands over is the same
+                    // document the command line writes for the same run.
+                    store.finished(id, verdict, body,
+                            ScenarioReports.toHtml(report), ScenarioReports.toMarkdown(report));
                     if (finished != null) {
                         broadcast(finished, "finished", body);
                     }

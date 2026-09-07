@@ -22,6 +22,7 @@ import org.acemq.workloads.scenario.ScenarioFile;
 import org.acemq.workloads.scenario.ScenarioFile.BindingJson;
 import org.acemq.workloads.scenario.ScenarioFile.ConsumersJson;
 import org.acemq.workloads.scenario.ScenarioFile.ExchangeJson;
+import org.acemq.workloads.scenario.ScenarioFile.ExpectJson;
 import org.acemq.workloads.scenario.ScenarioFile.ProducerJson;
 import org.acemq.workloads.scenario.ScenarioFile.QueueJson;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -118,9 +119,14 @@ public class PresetsController {
                         + " queue rather than the minute it ran in.",
                 List.of(exchange("bench", "fanout")),
                 List.of(
-                        queue("bench.classic", "classic", consumers(4, 200), bind("bench", "")),
-                        queue("bench.quorum", "quorum", consumers(4, 200), bind("bench", ""))),
-                List.of(producer("load", "bench", 10_000, 1024, "")),
+                        // Neither queue is given a latency ceiling: what a laptop's container does
+                        // is not a number worth failing a build on. What is asserted is the thing
+                        // the comparison depends on -- that both legs kept up with the same load.
+                        proving(queue("bench.classic", "classic", consumers(4, 200),
+                                bind("bench", "")), keptUp()),
+                        proving(queue("bench.quorum", "quorum", consumers(4, 200),
+                                bind("bench", "")), keptUp())),
+                List.of(proving(producer("load", "bench", 10_000, 1024, ""), offeredItsLoad(5))),
                 "10s", "60s");
     }
 
@@ -130,11 +136,16 @@ public class PresetsController {
                         + " grows and what happens to the other one.",
                 List.of(exchange("orders", "fanout")),
                 List.of(
-                        queue("orders.fast", "classic",
-                                new ConsumersJson(4, 100, "1ms", null, null), bind("orders", "")),
+                        // The claim worth making: the slow leg backing up must not drag the fast
+                        // one down with it. The slow queue is asked for nothing, because falling
+                        // behind is what it is here to do.
+                        proving(queue("orders.fast", "classic",
+                                        new ConsumersJson(4, 100, "1ms", null, null),
+                                        bind("orders", "")),
+                                keptUpUnder("250ms")),
                         queue("orders.slow", "classic",
                                 new ConsumersJson(1, 100, "10ms", null, null), bind("orders", ""))),
-                List.of(producer("orders", "orders", 2_000, 512, "")),
+                List.of(proving(producer("orders", "orders", 2_000, 512, ""), offeredItsLoad(5))),
                 "10s", "60s");
     }
 
@@ -146,7 +157,10 @@ public class PresetsController {
                 List.of(queue("events.parked", "classic",
                         new ConsumersJson(1, 100, null, null, Boolean.FALSE),
                         bind("events", "#"))),
-                List.of(producer("events", "events", 5_000, 1024, "event.happened")),
+                // Nothing to ask of a queue nobody reads. The publisher is another matter: a
+                // broker that blocks under a growing backlog shows up here as a failed publish.
+                List.of(proving(producer("events", "events", 5_000, 1024, "event.happened"),
+                        offeredItsLoad(5))),
                 "5s", "60s");
     }
 
@@ -170,13 +184,14 @@ public class PresetsController {
                         + " where they land, and this is how fast it fills.",
                 List.of(exchange("payments", "topic"), exchange("payments.dead", "fanout")),
                 List.of(
-                        deadLettering("payments.in", "quorum",
+                        proving(deadLettering("payments.in", "quorum",
                                 new ConsumersJson(4, 100, "1ms", 0.05, null), "payments.dead",
-                                bind("payments", "#")),
+                                bind("payments", "#")), keptUp()),
                         queue("payments.parked", "classic",
                                 new ConsumersJson(1, 100, null, null, Boolean.FALSE),
                                 bind("payments.dead", ""))),
-                List.of(producer("payments", "payments", 2_000, 512, "payment.taken")),
+                List.of(proving(producer("payments", "payments", 2_000, 512, "payment.taken"),
+                        offeredItsLoad(5))),
                 "10s", "60s");
     }
 
@@ -410,6 +425,56 @@ public class PresetsController {
             String deadLetterExchange, BindingJson... bindings) {
         return new QueueJson(name, type, null, null, deadLetterExchange, List.of(bindings),
                 consumers, null);
+    }
+
+    /**
+     * The same queue, with something to prove.
+     *
+     * @param queue the queue
+     * @param expect what it must hold to
+     * @return the queue, gated
+     */
+    private static QueueJson proving(QueueJson queue, ExpectJson expect) {
+        return new QueueJson(queue.name(), queue.type(), queue.durable(), queue.enabled(),
+                queue.deadLetterExchange(), queue.bindings(), queue.consumers(), queue.arguments(),
+                expect);
+    }
+
+    /**
+     * @param producer the producer
+     * @param expect what it must hold to
+     * @return the producer, gated
+     */
+    private static ProducerJson proving(ProducerJson producer, ExpectJson expect) {
+        return new ProducerJson(producer.name(), producer.exchange(), producer.routingKeys(),
+                producer.rate(), producer.threads(), producer.messageSize(), producer.confirms(),
+                producer.maxInFlight(), producer.maxMessages(), producer.enabled(), expect);
+    }
+
+    /**
+     * A generator that did its job: it offered what it was asked for, and lost nothing.
+     *
+     * <p>The precondition for every other number in a run. A comparison between two queues means
+     * nothing if the load was never applied to either.
+     *
+     * @param percent how far short of the configured rate is allowed
+     * @return the expectation
+     */
+    private static ExpectJson offeredItsLoad(int percent) {
+        return new ExpectJson(null, null, null, null, null, percent, Boolean.TRUE, null);
+    }
+
+    /** @return an expectation that the queue is no deeper at the end than at the start */
+    private static ExpectJson keptUp() {
+        return new ExpectJson(null, null, null, null, null, null, null, Boolean.TRUE);
+    }
+
+    /**
+     * @param p99 the ceiling for the 99th percentile, as the file writes it
+     * @return an expectation that the queue kept up and stayed under that
+     */
+    private static ExpectJson keptUpUnder(String p99) {
+        return new ExpectJson(null, p99, null, null, null, null, null, Boolean.TRUE);
     }
 
     private static BindingJson bind(String exchange, String routingKey) {

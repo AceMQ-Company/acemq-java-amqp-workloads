@@ -156,27 +156,55 @@ export const api = {
     return () => source.close()
   },
 
+  /**
+   * Saves a finished run's report: the same document the command line writes.
+   *
+   * A run watched here and then described from memory in a ticket is a run
+   * nobody can check.
+   */
+  async downloadReport(id: string, format: 'json' | 'html' | 'md') {
+    await save(`/api/runs/${id}/report.${format}`, `acemq-report.${format}`)
+  },
+
   /** Downloads the scenario as the file the command line reads. */
   async download(scenario: Scenario, format: 'json' | 'yaml') {
-    const response = await fetch(
+    await save(
       format === 'json' ? '/api/scenarios/export' : '/api/scenarios/export.yaml',
+      `acemq-workload.${format}`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(scenario),
       },
     )
-    const blob = await response.blob()
-    const disposition = response.headers.get('Content-Disposition') ?? ''
-    const match = /filename="([^"]+)"/.exec(disposition)
-
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = match?.[1] ?? `acemq-workload.${format}`
-    link.click()
-    URL.revokeObjectURL(link.href)
   },
+}
+
+/**
+ * Fetches something and hands it to the browser as a file.
+ *
+ * The name comes from the server's Content-Disposition when it sent one, since
+ * the server knows what the thing is called; the fallback is only for a
+ * response that did not say.
+ */
+async function save(path: string, fallbackName: string, init?: RequestInit) {
+  const response = await fetch(path, {
+    ...init,
+    headers: {
+      ...(init?.headers ?? {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`)
+  }
+
+  const blob = await response.blob()
+  const match = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')
+
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = match?.[1] ?? fallbackName
+  link.click()
+  URL.revokeObjectURL(link.href)
 }
