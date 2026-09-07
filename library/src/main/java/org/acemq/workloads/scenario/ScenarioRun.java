@@ -342,7 +342,7 @@ final class ScenarioRun {
     private void publishLoop(ProducerNode producer, ProducerCounters counters,
             List<DefaultPublisher<byte[]>> publishers, long perThreadRate, int index,
             AtomicBoolean stop) {
-        Payload payload = Payload.ofBytes(producer.messageSize());
+        Payload payload = producer.payload();
         long intervalNanos = perThreadRate == 0 ? 0 : 1_000_000_000L / perThreadRate;
         long start = System.nanoTime() + index;
         long sequence = 0;

@@ -63,8 +63,32 @@ public final class ScenarioRunner {
      * @return what happened
      */
     public static ScenarioReport run(Scenario scenario, String brokerUrl, Security security) {
-        return new ScenarioRun(scenario, brokerUrl, security, ScenarioListener.NONE,
-                new AtomicBoolean()).execute();
+        return run(scenario, brokerUrl, security, ScenarioListener.NONE, new AtomicBoolean());
+    }
+
+    /**
+     * Runs it on this thread, reporting as it goes and stopping when asked.
+     *
+     * <p>Everything {@link #start} offers without the thread: a command line that prints progress
+     * and ends the run on an interrupt wants exactly this, and spawning a thread only to wait on
+     * its future is a worse way to get it.
+     *
+     * @param scenario what to run
+     * @param brokerUrl an AMQP URL
+     * @param security the TLS policy, or null for what the URL implies
+     * @param listener told about each reading
+     * @param stopRequested set it to end the measured window early; the report still describes
+     *     what was measured up to that point
+     * @return what happened
+     */
+    public static ScenarioReport run(Scenario scenario, String brokerUrl, Security security,
+            ScenarioListener listener, AtomicBoolean stopRequested) {
+        Objects.requireNonNull(scenario, "scenario");
+        Objects.requireNonNull(brokerUrl, "brokerUrl");
+        Objects.requireNonNull(listener, "listener");
+        Objects.requireNonNull(stopRequested, "stopRequested");
+
+        return new ScenarioRun(scenario, brokerUrl, security, listener, stopRequested).execute();
     }
 
     /**

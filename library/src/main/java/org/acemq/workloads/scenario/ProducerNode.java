@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+import org.acemq.workloads.Payload;
+
 /**
  * One source of load, aimed at one exchange.
  *
@@ -42,6 +44,7 @@ public final class ProducerNode implements Node {
     private boolean enabled = true;
     private long maxMessages = Long.MAX_VALUE;
     private int maxInFlight = 1_000;
+    private Payload payload;
     private final Expect expect = new Expect();
 
     ProducerNode(String name) {
@@ -229,6 +232,30 @@ public final class ProducerNode implements Node {
 
     public int messageSize() {
         return messageSize;
+    }
+
+    /**
+     * What the messages are made of.
+     *
+     * <p>The size is enough for nearly everything, and this is for the case where it is not:
+     * {@link Payload#ofRandomBytes(int)} gives every message a different body, which is what to
+     * use when a broker, a filesystem or a link between them might be compressing or
+     * deduplicating identical bodies and flattering the result.
+     *
+     * @param payload the payload, or null for the plain one of {@link #messageSize(int)} bytes
+     * @return this producer
+     */
+    public ProducerNode payload(Payload payload) {
+        this.payload = payload;
+        if (payload != null) {
+            this.messageSize = payload.size();
+        }
+        return this;
+    }
+
+    /** @return what the messages are made of */
+    public Payload payload() {
+        return payload != null ? payload : Payload.ofBytes(messageSize);
     }
 
     public boolean confirms() {

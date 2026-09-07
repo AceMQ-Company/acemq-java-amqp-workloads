@@ -15,53 +15,37 @@
  */
 package org.acemq.workloads;
 
-import java.time.Duration;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.LockSupport;
 
-import org.acemq.amqp.core.AceMq;
-import org.acemq.amqp.core.ConsumerGroup;
-import org.acemq.amqp.core.DefaultPublisher;
 import org.acemq.rabbitmq.admin.RabbitAdmin;
-import org.acemq.workloads.metrics.LatencyRecorder;
 import org.acemq.workloads.metrics.LatencySummary;
+import org.acemq.workloads.scenario.Scenario;
+import org.acemq.workloads.scenario.ScenarioListener;
+import org.acemq.workloads.scenario.ScenarioReport;
+import org.acemq.workloads.scenario.ScenarioRunner;
+import org.acemq.workloads.scenario.ScenarioSample;
 
 /**
- * Executes one {@link Workload}.
+ * Executes one {@link Workload}, as the scenario it is.
  *
- * <p>Not public. A run is started through {@link Workload#run(String)}, which is the only order
- * of operations that produces a valid measurement: declare, warm up, reset, measure, drain.
+ * <p>A workload is one exchange, one queue and one set of publishers — which is a scenario with a
+ * single node of each kind. This used to be its own engine: its own publisher loop, its own open
+ * loop schedule, its own sampler, its own block watcher, its own drain, four hundred and fifty
+ * lines beside four hundred and fifty nearly identical ones. Two copies of a measurement engine is
+ * two places for the measurement to be subtly wrong, and only one of them gets fixed — the trap
+ * this project has already been caught by once, in another language.
+ *
+ * <p>So there is one engine, and this is the translation either side of it: a workload in, a
+ * {@link WorkloadReport} out.
+ *
+ * <p>Not public. A run is started through {@link Workload#run(String)}.
  */
 final class WorkloadRun {
 
     private final Workload workload;
     private final String brokerUrl;
-
-    private final LatencyRecorder endToEnd = new LatencyRecorder("end-to-end");
-    private final LatencyRecorder publishLatency = new LatencyRecorder("publish");
-    private final LatencyRecorder sendLag = new LatencyRecorder("send lag");
-
-    private final AtomicLong published = new AtomicLong();
-    private final AtomicLong confirmed = new AtomicLong();
-    private final AtomicLong failed = new AtomicLong();
-    private final AtomicLong consumed = new AtomicLong();
-
-    private final AtomicBoolean measuring = new AtomicBoolean(false);
-    private final AtomicLong blockedNanos = new AtomicLong();
-    private final AtomicReference<String> blockedReason = new AtomicReference<>();
-
     private final RunListener listener;
     private final AtomicBoolean stopRequested;
-    private final AtomicReference<Sample.Phase> phase =
-            new AtomicReference<>(Sample.Phase.STARTING);
 
     WorkloadRun(Workload workload, String brokerUrl) {
         this(workload, brokerUrl, RunListener.NONE, new AtomicBoolean(false));
@@ -76,412 +60,161 @@ final class WorkloadRun {
     }
 
     WorkloadReport execute() {
-        try (AceMq broker = AceMq.connect(brokerUrl)) {
-            declareTopology(broker);
-
-            ConsumerGroup consumerGroup = startConsumers(broker);
-            AtomicBoolean stop = new AtomicBoolean(false);
-            Thread blockWatcher = startBlockWatcher(broker, stop);
-            Thread sampler = startSampler(broker, stop);
-
-            try {
-                List<Thread> publishers = startPublishers(broker, stop);
-
-                // Warm-up runs the whole workload and throws the numbers away. Class loading,
-                // JIT compilation, channel setup and the first collection all land here rather
-                // than in the p99.
-                enter(Sample.Phase.WARMUP);
-                awaitOrStop(workload.warmup());
-                resetMeasurements();
-
-                Instant startedAt = Instant.now();
-                long startNanos = System.nanoTime();
-                measuring.set(true);
-                enter(Sample.Phase.MEASURING);
-
-                awaitOrStop(workload.duration());
-
-                measuring.set(false);
-                Duration measured = Duration.ofNanos(System.nanoTime() - startNanos);
-                enter(Sample.Phase.DRAINING);
-                stop.set(true);
-                join(publishers);
-
-                // Give the consumers a moment to finish what is already in flight, so the
-                // consumed count is not short by whatever was mid-delivery when time ran out.
-                if (consumerGroup != null) {
-                    consumerGroup.drain(Duration.ofSeconds(5));
-                }
-
-                return new WorkloadReport(workload, startedAt, measured,
-                        published.get(), confirmed.get(), failed.get(), consumed.get(),
-                        summary(endToEnd, workload.consumers().isEnabled()),
-                        publishLatency.summary(),
-                        workload.publishers().isUnthrottled()
-                                ? LatencySummary.empty("send lag")
-                                : sendLag.summary(),
-                        readQueueDepth(broker),
-                        blockedNanos.get(), blockedReason.get());
-            } finally {
-                stop.set(true);
-                blockWatcher.interrupt();
-                sampler.interrupt();
-                if (consumerGroup != null) {
-                    consumerGroup.close();
-                }
-            }
-        }
-    }
-
-    private void enter(Sample.Phase next) {
-        phase.set(next);
-        try {
-            listener.onPhase(next);
-        } catch (RuntimeException e) {
-            // A run is an expensive thing to lose, and losing one because a progress bar threw
-            // would be a poor trade.
-        }
+        ScenarioReport report = ScenarioRunner.run(asScenario(), brokerUrl, null,
+                new Adapter(listener), stopRequested);
+        return translate(report);
     }
 
     /**
-     * Sleeps, unless somebody asks the run to stop.
+     * The workload as a one-node scenario.
      *
-     * <p>Checked on a short tick rather than by interrupting the thread: interrupting the thread
-     * that owns the connection risks tearing down the AMQP client mid-publish, and a run stopped
-     * early is supposed to report what it measured rather than to abort.
-     */
-    private void awaitOrStop(Duration duration) {
-        long deadline = System.nanoTime() + Math.max(0, duration.toNanos());
-        while (System.nanoTime() < deadline) {
-            if (stopRequested.get()) {
-                return;
-            }
-            long remaining = deadline - System.nanoTime();
-            try {
-                Thread.sleep(Math.min(50, Math.max(1, remaining / 1_000_000)));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("the workload was interrupted", e);
-            }
-        }
-    }
-
-    /**
-     * Takes a reading a second, for anything watching.
+     * <p>The names matter only in the report the engine builds, which is then translated away, so
+     * they are the workload's own: a failure that escapes with a node name in it should still read
+     * as the workload it came from.
      *
-     * <p>Its own thread, because the publishers must not pay for it: reading a histogram and a
-     * queue depth is cheap but not free, and doing it on a publishing thread would show up in the
-     * numbers it is reporting on.
+     * @return the scenario to run
      */
-    private Thread startSampler(AceMq broker, AtomicBoolean stop) {
-        Thread sampler = new Thread(() -> {
-            Instant startedAt = Instant.now();
-            long previousNanos = System.nanoTime();
-            long previousPublished = 0;
-            long previousConsumed = 0;
-
-            while (!stop.get()) {
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-                if (stop.get()) {
-                    return;
-                }
-
-                long now = System.nanoTime();
-                double seconds = (now - previousNanos) / 1_000_000_000.0;
-                long publishedNow = published.get();
-                long consumedNow = consumed.get();
-
-                // Per-interval rates, not averages since the start. An average cannot show a
-                // stall: it dips a little and recovers, where the interval rate goes to zero and
-                // back, which is what the trough in the chart is for.
-                double publishRate = seconds <= 0 ? 0 : (publishedNow - previousPublished) / seconds;
-                double consumeRate = seconds <= 0 ? 0 : (consumedNow - previousConsumed) / seconds;
-
-                previousNanos = now;
-                previousPublished = publishedNow;
-                previousConsumed = consumedNow;
-
-                Sample sample = new Sample(
-                        Instant.now(),
-                        Duration.between(startedAt, Instant.now()),
-                        phase.get(),
-                        publishedNow,
-                        confirmed.get(),
-                        failed.get(),
-                        consumedNow,
-                        Math.max(0, publishRate),
-                        Math.max(0, consumeRate),
-                        endToEnd.summary(),
-                        sendLag.summary(),
-                        sampleQueueDepth(broker),
-                        broker.isBlocked());
-
-                try {
-                    listener.onSample(sample);
-                } catch (RuntimeException e) {
-                    // As above: a listener that throws does not take the run with it.
-                }
-            }
-        }, "workload-sampler");
-        sampler.setDaemon(true);
-        sampler.start();
-        return sampler;
-    }
-
-    /**
-     * The queue depth, if it can be had cheaply.
-     *
-     * <p>Only over AMQP, never through the management API: the management call opens an HTTP
-     * connection, and doing that every second for the length of a run adds load to the broker
-     * being measured. The final depth in the report is still read whichever way is available.
-     */
-    private Long sampleQueueDepth(AceMq broker) {
-        try {
-            return broker.messageCount(workload.topology().queue());
-        } catch (RuntimeException e) {
-            return null;
-        }
-    }
-
-    private LatencySummary summary(LatencyRecorder recorder, boolean enabled) {
-        return enabled ? recorder.summary() : LatencySummary.empty(recorder.toString());
-    }
-
-    private void declareTopology(AceMq broker) {
+    private Scenario asScenario() {
         TopologySpec topology = workload.topology();
+        PublisherSpec publishers = workload.publishers();
+        ConsumerSpec consumers = workload.consumers();
+
+        Scenario scenario = Scenario.named(workload.name())
+                .warmup(workload.warmup())
+                .runFor(workload.duration());
         if (!topology.shouldDeclare()) {
-            return;
+            scenario.useExisting();
         }
+
+        // The default exchange is not declared and not bound to: publishing to it with the queue's
+        // name as the key is how a queue is addressed directly, and declaring an exchange called
+        // "" is refused by every broker.
         if (!topology.usesDefaultExchange()) {
-            broker.declareExchange(topology.exchange(), topology.exchangeType());
+            scenario.exchange(topology.exchange(), topology.exchangeType());
         }
-        broker.declareQueue(topology.queue());
-        if (!topology.usesDefaultExchange()) {
-            broker.bind(topology.queue(), topology.exchange(), topology.routingKey());
-        }
-    }
 
-    private ConsumerGroup startConsumers(AceMq broker) {
-        ConsumerSpec spec = workload.consumers();
-        if (!spec.isEnabled()) {
-            return null;
-        }
-        long handlerNanos = spec.handlerTime().toNanos();
-
-        return broker.consumeGroup(workload.topology().queue(), byte[].class, message -> {
-            byte[] body = message.payload();
-            if (measuring.get() && Payload.isWorkloadMessage(body)) {
-                // The whole point of the exercise: latency from when the message was DUE,
-                // not from when it was actually sent.
-                endToEnd.record(System.nanoTime() - Payload.intendedSendNanos(body));
-                consumed.incrementAndGet();
+        scenario.queue(topology.queue(), queue -> {
+            if (!topology.usesDefaultExchange()) {
+                queue.boundTo(topology.exchange(), topology.routingKey());
             }
-            if (handlerNanos > 0) {
-                LockSupport.parkNanos(handlerNanos);
+            queue.consumers(group -> group
+                    .concurrency(consumers.concurrency())
+                    .prefetch(consumers.prefetch())
+                    .handlerTime(consumers.handlerTime())
+                    .failureRate(consumers.failureRate())
+                    .enabled(consumers.isEnabled()));
+        });
+
+        scenario.producer(workload.name(), producer -> {
+            producer.to(topology.exchange(), topology.routingKey())
+                    .threads(publishers.threadCount())
+                    .confirms(publishers.confirms())
+                    .maxInFlight(publishers.maxInFlight())
+                    .maxMessages(publishers.maxMessages())
+                    .payload(publishers.payload());
+            if (publishers.isUnthrottled()) {
+                producer.unthrottled();
+            } else {
+                producer.rate(publishers.rate());
             }
-            if (spec.failureRate() > 0
-                    && java.util.concurrent.ThreadLocalRandom.current().nextDouble() < spec.failureRate()) {
-                throw new IllegalStateException("simulated handler failure");
-            }
-        }).concurrency(spec.concurrency()).prefetch(spec.prefetch()).start();
-    }
+        });
 
-    private List<Thread> startPublishers(AceMq broker, AtomicBoolean stop) {
-        PublisherSpec spec = workload.publishers();
-        List<Thread> threads = new ArrayList<>();
-        CountDownLatch ready = new CountDownLatch(spec.threadCount());
-
-        // The offered rate is for the workload, so each thread takes its share. A thread's
-        // schedule is offset by its index so they do not all fire on the same instant.
-        long perThreadRate = spec.isUnthrottled() ? 0 : Math.max(1, spec.rate() / spec.threadCount());
-
-        for (int i = 0; i < spec.threadCount(); i++) {
-            int index = i;
-            Thread thread = new Thread(() -> {
-                DefaultPublisher<byte[]> publisher = broker
-                        .publisher(workload.topology().exchange(), workload.topology().routingKey(),
-                                byte[].class)
-                        .asBytes();
-                ready.countDown();
-                publishLoop(publisher, spec, perThreadRate, index, stop);
-            }, "workload-publisher-" + i);
-            thread.setDaemon(true);
-            threads.add(thread);
-            thread.start();
-        }
-
-        try {
-            ready.await(30, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        return threads;
+        return scenario;
     }
 
     /**
-     * The open-loop schedule.
-     *
-     * <p>Message <em>n</em> is due at {@code start + n * interval}, computed from the start
-     * rather than from the previous send. Adding the interval to "now" after each publish is the
-     * mistake that makes this a closed loop: every millisecond the broker takes pushes the whole
-     * remaining schedule back, the offered rate silently drops to whatever the broker allows,
-     * and the latency recorded is the broker's service time rather than the client's wait.
+     * @param report what the engine measured
+     * @return the same run, said the way a workload says it
      */
-    private void publishLoop(DefaultPublisher<byte[]> publisher, PublisherSpec spec,
-            long perThreadRate, int index, AtomicBoolean stop) {
-        Payload payload = spec.payload();
-        long intervalNanos = perThreadRate == 0 ? 0 : 1_000_000_000L / perThreadRate;
-        long start = System.nanoTime() + index;
-        long sequence = 0;
+    private WorkloadReport translate(ScenarioReport report) {
+        ScenarioReport.ProducerResult producer = report.producers().isEmpty()
+                ? null : report.producers().get(0);
+        ScenarioReport.QueueResult queue = report.queues().isEmpty()
+                ? null : report.queues().get(0);
 
-        // Publishes go out asynchronously, with a window of outstanding confirms. Waiting for
-        // each confirm before sending the next caps a thread at one message per network round
-        // trip -- around 550 a second against a broker under 2ms away, whatever the broker can
-        // actually take. The window keeps the offered rate independent of the round trip while
-        // still applying back-pressure when the broker stops confirming.
-        Semaphore window = new Semaphore(spec.maxInFlight());
+        return new WorkloadReport(workload, report.startedAt(), report.duration(),
+                producer == null ? 0 : producer.published(),
+                producer == null ? 0 : producer.confirmed(),
+                producer == null ? 0 : producer.failed(),
+                queue == null ? 0 : queue.consumed(),
+                queue == null ? LatencySummary.empty("end-to-end") : queue.endToEnd(),
+                producer == null ? LatencySummary.empty("publish") : producer.publishLatency(),
+                producer == null ? LatencySummary.empty("send lag") : producer.sendLag(),
+                depthAtEnd(queue),
+                report.blockedFor().toNanos(), report.blockedReason());
+    }
 
-        while (!stop.get() && sequence < spec.maxMessages()) {
-            long intended = intervalNanos == 0 ? System.nanoTime() : start + sequence * intervalNanos;
-
-            if (intervalNanos > 0) {
-                long waitFor = intended - System.nanoTime();
-                if (waitFor > 0) {
-                    LockSupport.parkNanos(waitFor);
-                }
-            }
-
-            try {
-                // Blocking here is real back-pressure: the broker is not confirming fast enough
-                // to keep the window open. It shows up as send lag below, which is exactly where
-                // it belongs.
-                window.acquire();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-
-            long actualSend = System.nanoTime();
-            boolean record = measuring.get();
-            if (record && intervalNanos > 0) {
-                // How far behind its own schedule this publish went out. If this is large the
-                // configured rate was never offered, and every other number is about the client.
-                sendLag.record(actualSend - intended);
-            }
-
-            try {
-                publisher.sendAsync(payload.build(intended, sequence))
-                        .whenComplete((result, error) -> {
-                            window.release();
-                            if (!record) {
-                                return;
-                            }
-                            if (error != null) {
-                                failed.incrementAndGet();
-                            } else {
-                                // With confirms on this is the round trip to the broker's
-                                // acknowledgement; with them off it is the handover to the
-                                // socket, which is why the report says which was in force.
-                                publishLatency.record(System.nanoTime() - actualSend);
-                                confirmed.incrementAndGet();
-                            }
-                        });
-                if (record) {
-                    published.incrementAndGet();
+    /**
+     * The queue depth when it ended.
+     *
+     * <p>The engine reads this over AMQP, which is right during a run: the management API opens an
+     * HTTP connection, and doing that every second would add load to the broker being measured. A
+     * workload given a management URL asked for the more accurate answer at the end, though, and
+     * it still gets it.
+     *
+     * @param queue what the engine saw
+     * @return the depth, or null if it could not be had
+     */
+    private Long depthAtEnd(ScenarioReport.QueueResult queue) {
+        if (workload.managementUrl() != null) {
+            try (RabbitAdmin admin = RabbitAdmin.connect(workload.managementUrl(),
+                    workload.managementUser(), workload.managementPassword())) {
+                Long depth = admin.queue(workload.topology().queue())
+                        .map(q -> q.messagesReady())
+                        .orElse(null);
+                if (depth != null) {
+                    return depth;
                 }
             } catch (RuntimeException e) {
-                window.release();
-                if (record) {
-                    failed.incrementAndGet();
-                }
+                // A depth that cannot be read is one fewer line in the report, not a failed run.
             }
-            sequence++;
         }
-
-        // Let the outstanding confirms land, so the confirmed count is not short by whatever
-        // was in the window when time ran out.
-        try {
-            window.tryAcquire(spec.maxInFlight(), 10, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        return queue == null ? null : queue.depthAtEnd();
     }
 
     /**
-     * Watches for the broker blocking publishers.
+     * Turns the engine's per-node readings back into the workload's single-path ones.
      *
-     * <p>Polled rather than event-driven because the measurement wanted is "how much of the run
-     * was spent blocked", and a run that begins already blocked would never see an event.
+     * <p>A workload has one producer and one queue, so the sum over the nodes is that node.
      */
-    private Thread startBlockWatcher(AceMq broker, AtomicBoolean stop) {
-        Thread watcher = new Thread(() -> {
-            long lastSeen = System.nanoTime();
-            while (!stop.get()) {
-                long now = System.nanoTime();
-                if (broker.isBlocked()) {
-                    if (measuring.get()) {
-                        blockedNanos.addAndGet(now - lastSeen);
-                    }
-                    broker.blockedReason().ifPresent(blockedReason::set);
-                }
-                lastSeen = now;
-                LockSupport.parkNanos(Duration.ofMillis(200).toNanos());
-            }
-        }, "workload-block-watcher");
-        watcher.setDaemon(true);
-        watcher.start();
-        return watcher;
-    }
+    private static final class Adapter implements ScenarioListener {
 
-    private Long readQueueDepth(AceMq broker) {
-        try {
-            if (workload.managementUrl() != null) {
-                try (RabbitAdmin admin = RabbitAdmin.connect(workload.managementUrl(),
-                        workload.managementUser(), workload.managementPassword())) {
-                    return admin.queue(workload.topology().queue())
-                            .map(q -> q.messagesReady())
-                            .orElse(null);
-                }
-            }
-            return broker.messageCount(workload.topology().queue());
-        } catch (RuntimeException e) {
-            // A depth that cannot be read is one fewer line in the report, not a failed run.
-            return null;
+        private final RunListener listener;
+
+        Adapter(RunListener listener) {
+            this.listener = listener;
         }
-    }
 
-    private void resetMeasurements() {
-        endToEnd.reset();
-        publishLatency.reset();
-        sendLag.reset();
-        published.set(0);
-        confirmed.set(0);
-        failed.set(0);
-        consumed.set(0);
-        blockedNanos.set(0);
-    }
+        @Override
+        public void onSample(ScenarioSample sample) {
+            ScenarioSample.ProducerSample producer = sample.producers().isEmpty()
+                    ? null : sample.producers().get(0);
+            ScenarioSample.QueueSample queue = sample.queues().isEmpty()
+                    ? null : sample.queues().get(0);
 
-    private static void sleep(Duration duration) {
-        try {
-            Thread.sleep(Math.max(0, duration.toMillis()));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("the workload was interrupted", e);
+            listener.onSample(new Sample(
+                    sample.at(),
+                    sample.elapsed(),
+                    sample.phase(),
+                    producer == null ? 0 : producer.published(),
+                    producer == null ? 0 : producer.confirmed(),
+                    producer == null ? 0 : producer.failed(),
+                    queue == null ? 0 : queue.consumed(),
+                    producer == null ? 0 : producer.publishRate(),
+                    queue == null ? 0 : queue.consumeRate(),
+                    queue == null ? LatencySummary.empty("end-to-end") : queue.endToEnd(),
+                    producer == null ? LatencySummary.empty("send lag") : producer.sendLag(),
+                    queue == null ? null : queue.depth(),
+                    sample.blocked()));
         }
-    }
 
-    private static void join(List<Thread> threads) {
-        for (Thread thread : threads) {
-            try {
-                thread.join(TimeUnit.SECONDS.toMillis(30));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+        @Override
+        public void onPhase(Sample.Phase phase) {
+            listener.onPhase(phase);
         }
+
+        // onFinished and onFailed are deliberately not forwarded: they carry a ScenarioReport, and
+        // whoever started a workload is told with a WorkloadReport by Workload.start once this
+        // returns. Forwarding both would tell a listener twice, in two currencies.
     }
 }
