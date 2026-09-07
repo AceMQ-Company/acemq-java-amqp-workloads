@@ -1,0 +1,105 @@
+# Says that a version is out.
+#
+# The repository had two notifications and both were about failure, so every
+# release since 0.1.0 has gone out in silence. A channel that only ever carries
+# bad news trains people to dread it and tells them nothing about what shipped.
+#
+# On the release being published, and on request — the latter so a release that
+# went out before this existed can still be announced.
+name: release-notify
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to announce, for example v0.1.4'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # What is actually there, rather than what the release process is supposed to
+  # leave behind. A notification that names an artifact nobody can download is
+  # worse than no notification: it sends somebody looking for a thing that is
+  # not there and makes them distrust the next one.
+  what-shipped:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.look.outputs.version }}
+      tag: ${{ steps.look.outputs.tag }}
+      artifacts: ${{ steps.look.outputs.artifacts }}
+    steps:
+      - id: look
+        env:
+          # Everything reaches the shell through the environment. A token or a
+          # name interpolated into a script is a command somebody else can
+          # write, and this job holds a webhook one step further on.
+          GH_TOKEN: ${{ github.token }}
+          REGISTRY_TOKEN: ${{ github.token }}
+          REGISTRY_USER: ${{ github.actor }}
+          REF: ${{ inputs.tag || github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if ! printf '%s' "$REF" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "not a version tag: $REF" >&2
+            exit 1
+          fi
+          VERSION="${REF#v}"
+          echo "tag=$REF" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # The jars, as the release page has them.
+          ASSETS="$(gh release view "$REF" --repo "$REPO" --json assets \
+            --jq '[.assets[].name] | join(", ")' 2>/dev/null || echo '')"
+
+          # The image, if its build has finished. It is triggered by the same tag
+          # and takes several minutes for two architectures, so this is a real
+          # question rather than a formality.
+          IMAGE="ghcr.io/${REPO%%/*}/acemq-workloads-studio"
+          IMAGE="$(printf '%s' "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
+          if docker manifest inspect "$IMAGE:$VERSION" > /dev/null 2>&1; then
+            HAS_IMAGE="yes"
+          else
+            HAS_IMAGE="no"
+          fi
+
+          {
+            if [ -n "$ASSETS" ]; then
+              printf 'On the release page: %s. ' "$ASSETS"
+            fi
+            printf 'The library is on the Maven repository as `org.acemq:acemq-java-amqp-workloads:%s`' "$VERSION"
+            if [ "$HAS_IMAGE" = "yes" ]; then
+              printf ', and the studio runs from `docker run -p 8480:8480 %s:%s`' "$IMAGE" "$VERSION"
+            fi
+            printf '.'
+          } > artifacts.txt
+
+          # A newline in an output would end the value early, so it goes as one
+          # line and Slack wraps it.
+          echo "artifacts=$(cat artifacts.txt)" >> "$GITHUB_OUTPUT"
+
+  notify:
+    needs: what-shipped
+    uses: AceMQ-Company/acemq-java-amqp/.github/workflows/slack-notify.yml@main
+    with:
+      status: success
+      # A rocket rather than the tick a passing job gets. This channel also
+      # carries builds, and "a thing passed" and "a version is out" should not
+      # look alike at a glance.
+      icon: ':rocket:'
+      title: >-
+        AceMQ AMQP Studio (workloads project) released ${{ needs.what-shipped.outputs.tag }}
+      message: ${{ needs.what-shipped.outputs.artifacts }}
+      url: https://github.com/AceMQ-Company/acemq-java-amqp-workloads/releases/tag/${{ needs.what-shipped.outputs.tag }}
+    secrets:
+      # Explicit, not `inherit`. A reusable workflow in another repository does
+      # not receive inherited secrets, and the shared workflow treats a missing
+      # webhook as "nothing to notify" and succeeds — so `inherit` here would be
+      # a green job that announced nothing, which is the state this whole
+      # workflow exists to end.
+      SLACK_DELIVERY_WEBHOOK: ${{ secrets.SLACK_DELIVERY_WEBHOOK }}
