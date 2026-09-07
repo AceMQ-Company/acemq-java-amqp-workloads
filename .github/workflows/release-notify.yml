@@ -28,6 +28,13 @@ jobs:
   # not there and makes them distrust the next one.
   what-shipped:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # To ask the registry whether the image is there. Without it the question
+      # is answered "no" for a private package that exists, and the notification
+      # quietly leaves out an artifact it should have named -- which is how this
+      # was found: 0.1.4 went out with the image unmentioned.
+      packages: read
     outputs:
       version: ${{ steps.look.outputs.version }}
       tag: ${{ steps.look.outputs.tag }}
