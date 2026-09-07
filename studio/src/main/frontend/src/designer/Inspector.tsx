@@ -12,7 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import type { Expect, Producer, Queue, QueueTypeId, QueueTypeInfo, Scenario } from '../types'
+import type {
+  Binding,
+  Expect,
+  Producer,
+  Queue,
+  QueueTypeId,
+  QueueTypeInfo,
+  Scenario,
+} from '../types'
 import type { Selection } from './Canvas'
 
 /**
@@ -368,6 +376,38 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
   const updateConsumers = (changes: Partial<typeof consumers>) =>
     update({ consumers: { ...consumers, ...changes } })
 
+  const updateBinding = (index: number, changes: Partial<Binding>) =>
+    update({
+      bindings: (queue.bindings ?? []).map((binding, at) =>
+        (at === index ? { ...binding, ...changes } : binding)),
+    })
+
+  /**
+   * A queue argument, kept as a number when it reads as one.
+   *
+   * `x-max-length: "1000"` and `x-max-length: 1000` are not the same declaration
+   * to a broker: the first is refused. Everything typed into a text box is a
+   * string, so the conversion happens here rather than in whoever reads it.
+   */
+  const setArgument = (key: string, value: string) => {
+    const numeric = value.trim() !== '' && !Number.isNaN(Number(value))
+    update({ arguments: { ...(queue.arguments ?? {}), [key]: numeric ? Number(value) : value } })
+  }
+
+  const removeArgument = (key: string) => {
+    const rest = { ...(queue.arguments ?? {}) }
+    delete rest[key]
+    update({ arguments: Object.keys(rest).length ? rest : undefined })
+  }
+
+  /** Renaming keeps the position, so a list does not reorder itself under the cursor. */
+  const renameArgument = (from: string, to: string) => {
+    const renamed = Object.fromEntries(
+      Object.entries(queue.arguments ?? {}).map(([key, value]) => [key === from ? to : key, value]),
+    )
+    update({ arguments: renamed })
+  }
+
   return (
     <aside className="inspector">
       <h3>Queue</h3>
@@ -419,6 +459,103 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
           ))}
         </select>
       </div>
+
+      {/* Dragging on the canvas makes a binding. Everything after that -- a key
+          that was wrong, a binding to the exchange somebody has since renamed --
+          has to happen here, and until it did the only way to change a routing
+          key was to delete the queue and draw it again. */}
+      <h3 style={{ marginTop: 22 }}>Bound to</h3>
+      {(queue.bindings ?? []).length === 0 && (
+        <p className="hint">
+          Nothing. Drag from an exchange to this queue on the canvas, or add one below.
+        </p>
+      )}
+      {(queue.bindings ?? []).map((binding, index) => (
+        <div className="row" key={index}>
+          <div className="field">
+            <label>Exchange</label>
+            <select
+              value={binding.exchange}
+              onChange={(e) => updateBinding(index, { exchange: e.target.value })}
+            >
+              {scenario.exchanges?.map((exchange) => (
+                <option key={exchange.name} value={exchange.name}>{exchange.name}</option>
+              ))}
+              {/* A binding left pointing at a renamed exchange stays visible and
+                  selected, because hiding it is how it survives to the run. */}
+              {!scenario.exchanges?.some((e) => e.name === binding.exchange) && (
+                <option value={binding.exchange}>{binding.exchange} (no such exchange)</option>
+              )}
+            </select>
+          </div>
+          <div className="field">
+            <label>Routing key</label>
+            <input
+              value={binding.routingKey}
+              placeholder="order.*"
+              onChange={(e) => updateBinding(index, { routingKey: e.target.value })}
+            />
+          </div>
+          <div className="field" style={{ flex: '0 0 auto', alignSelf: 'end' }}>
+            <button
+              className="ghost"
+              title="Remove this binding"
+              onClick={() => update({
+                bindings: (queue.bindings ?? []).filter((_, at) => at !== index),
+              })}
+            >
+              Unbind
+            </button>
+          </div>
+        </div>
+      ))}
+      <button
+        className="ghost"
+        disabled={!scenario.exchanges?.length}
+        onClick={() => update({
+          bindings: [
+            ...(queue.bindings ?? []),
+            { exchange: scenario.exchanges?.[0]?.name ?? '', routingKey: '#' },
+          ],
+        })}
+      >
+        + binding
+      </button>
+
+      <h3 style={{ marginTop: 22 }}>Arguments</h3>
+      <p className="hint">
+        What the broker is told when this queue is declared, beyond its type:{' '}
+        <code>x-max-length</code>, <code>x-message-ttl</code>,{' '}
+        <code>x-max-age</code> on a stream. Numbers are sent as numbers; anything else as text.
+      </p>
+      {Object.entries(queue.arguments ?? {}).map(([key, value], index) => (
+        <div className="row" key={index}>
+          <div className="field">
+            <label>Name</label>
+            <input
+              value={key}
+              spellCheck={false}
+              onChange={(e) => renameArgument(key, e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label>Value</label>
+            <input
+              value={String(value ?? '')}
+              spellCheck={false}
+              onChange={(e) => setArgument(key, e.target.value)}
+            />
+          </div>
+          <div className="field" style={{ flex: '0 0 auto', alignSelf: 'end' }}>
+            <button className="ghost" title="Remove" onClick={() => removeArgument(key)}>
+              Remove
+            </button>
+          </div>
+        </div>
+      ))}
+      <button className="ghost" onClick={() => setArgument('x-max-length', '')}>
+        + argument
+      </button>
 
       <h3 style={{ marginTop: 22 }}>Consumers</h3>
       <div className="row">

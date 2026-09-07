@@ -2,21 +2,42 @@
 
 [![ci](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/ci.yml)
 [![authorship guard](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/attribution-guard.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/attribution-guard.yml)
-[![version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/releases)
+[![version](https://img.shields.io/badge/version-0.1.3-blue)](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/releases)
 [![artifacts](https://img.shields.io/badge/artifacts-acemq.org%2Fmaven-blue)](https://acemq.org/maven/)
 [![docs](https://img.shields.io/badge/docs-acemq.org-blue)](https://acemq.org/acemq-java-amqp-workloads/)
 [![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-17%2B-orange)](#requirements)
 [![brokers](https://img.shields.io/badge/broker-RabbitMQ-lightgrey)](#requirements)
 
-A load generator for AMQP brokers: a Java DSL, an **open-loop** rate schedule,
-honest latency percentiles, and a report that says what it measured rather than
-what you should do about it.
+A load generator for AMQP brokers, in three shapes: **a studio** you design a
+topology in and watch it run, **a command line** a pipeline calls, and **a Java
+DSL** a test uses. One open-loop rate schedule under all three, honest latency
+percentiles, and a report that says what it measured rather than what you should
+do about it.
 
-> **Status: `0.1.0`, published.** 39 unit tests and 5 integration tests against a
-> real broker. The library is on the
-> [Maven repository](https://acemq-company.github.io/maven/); the CLI jar is
-> attached to the [release](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/releases/tag/v0.1.0).
+> **Status: `0.1.3`, published.** 95 unit tests and integration tests against a
+> real broker, on JDK 17, 21 and 25. The library is on the
+> [Maven repository](https://acemq-company.github.io/maven/); both jars are
+> attached to the [release](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/releases/latest).
+
+## The studio
+
+```bash
+java -jar acemq-workloads-studio.jar     # then open http://localhost:8480
+```
+
+Draw the topology, or read an existing one off a broker. Pick the queue types —
+it asks the broker which it honours. Say how many producers, at what rate, and
+how many consumers per queue. Press Run and watch published against consumed on
+one chart, with the queue depths underneath. Ten presets answer a real question
+as they stand, most of them with their objectives already set.
+
+What comes out is a file: `acemq-workload-<name>-<date>.json`, which is what the
+command line reads. A scenario designed on a screen runs unchanged in a pipeline
+— that is the reason for a designer rather than a nicer form over a YAML file.
+**[How to use it](studio/USAGE.md).**
+
+## From Java
 
 ```java
 WorkloadReport report = Workload.named("orders-peak")
@@ -273,13 +294,13 @@ the pauses being measured. `HdrHistogram` solves both.
 
 ## Documentation
 
-Seven guide pages and five tutorials, published at
+Nine guide pages and five tutorials, published at
 **<https://acemq.org/acemq-java-amqp-workloads/>**. They read as markdown in
 [docs/](docs/) too, and render with `.github/scripts/build-docs-site.sh`.
 
 | | |
 |---|---|
-| **Start here** | [docs/index.md](docs/index.md) · [Getting started](docs/getting-started.md) |
+| **Start here** | [docs/index.md](docs/index.md) · [The studio](docs/studio.md) · [Getting started](docs/getting-started.md) |
 | **Reference** | [Command line](docs/cli.md) · [Workload file](docs/workload-file.md) · [Scenario file](docs/scenario-file.md) · [Rules](docs/rules.md) · [Reports](docs/reports.md) |
 | **Why the numbers hold** | [Measurement](docs/measurement.md) — the schedule arithmetic and coordinated omission |
 | **Tutorials** | [Five, in order](docs/tutorials.md), each ending with something that runs |

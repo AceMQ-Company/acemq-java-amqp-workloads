@@ -34,6 +34,7 @@ import org.acemq.workloads.scenario.ScenarioReport;
 import org.acemq.workloads.scenario.ScenarioRunner;
 import org.acemq.workloads.scenario.ScenarioSample;
 import org.acemq.workloads.scenario.ScenarioFile;
+import org.acemq.workloads.studio.StudioProperties;
 import org.acemq.workloads.studio.store.RunStore;
 import org.acemq.workloads.studio.tls.TlsSettings;
 import org.slf4j.Logger;
@@ -59,10 +60,12 @@ public class Runs {
     private static final Logger log = LoggerFactory.getLogger(Runs.class);
 
     private final RunStore store;
+    private final StudioProperties properties;
     private final Map<String, Active> active = new ConcurrentHashMap<>();
 
-    public Runs(RunStore store) {
+    public Runs(RunStore store, StudioProperties properties) {
         this.store = store;
+        this.properties = properties;
     }
 
     /** A run in progress, with whoever is watching it. */
@@ -163,6 +166,10 @@ public class Runs {
                     // document the command line writes for the same run.
                     store.finished(id, verdict, body,
                             ScenarioReports.toHtml(report), ScenarioReports.toMarkdown(report));
+                    // Pruned when a run ends rather than on a timer: this is the only moment the
+                    // history grows, and a background thread trimming a database nobody is
+                    // looking at is a scheduled surprise.
+                    store.pruneTo(properties.keepRuns());
                     if (finished != null) {
                         broadcast(finished, "finished", body);
                     }

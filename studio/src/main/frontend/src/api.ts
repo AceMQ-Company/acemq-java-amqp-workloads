@@ -16,6 +16,7 @@ import type {
   BrokerProbe,
   Preset,
   Report,
+  RunComparison,
   RunSummary,
   Scenario,
   ScenarioSample,
@@ -118,6 +119,12 @@ export const api = {
   recentRuns: () => call<RunSummary[]>('/api/runs'),
 
   report: (id: string) => call<Report>(`/api/runs/${id}/report`),
+
+  deleteRun: (id: string) => call<void>(`/api/runs/${id}`, { method: 'DELETE' }),
+
+  /** Two runs, side by side: the reason every reading is kept. */
+  compare: (a: string, b: string) =>
+    call<RunComparison>(`/api/runs/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
 
   samples: (id: string) => call<ScenarioSample[]>(`/api/runs/${id}/samples`),
 

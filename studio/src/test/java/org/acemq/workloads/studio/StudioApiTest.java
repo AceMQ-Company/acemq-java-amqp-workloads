@@ -265,6 +265,52 @@ class StudioApiTest {
                 .orElseThrow(() -> new AssertionError("no queue called " + name));
     }
 
+    // A studio left open takes a reading a second for every run and keeps them. That is what
+    // makes a finished run drawable again, and also what makes the file grow without limit.
+    @Test
+    @DisplayName("keeps only the most recent runs, and forgets their readings with them")
+    void prunesOldRuns() {
+        for (int i = 0; i < 5; i++) {
+            runs.started(java.util.UUID.randomUUID().toString(), null, named("pruned-" + i),
+                    "amqp://broker:5672");
+        }
+
+        assertThat(runs.recent(50)).hasSizeGreaterThanOrEqualTo(5);
+        int forgotten = runs.pruneTo(2);
+
+        assertThat(forgotten).isGreaterThanOrEqualTo(3);
+        assertThat(runs.recent(50)).hasSize(2);
+        // The readings go with the run rather than being left behind as rows nothing points at.
+        assertThat(runs.samples(runs.recent(50).get(0).id())).isNotNull();
+    }
+
+    @Test
+    @DisplayName("forgets one run when asked, and says so when there was none")
+    void deletesARun() {
+        String id = java.util.UUID.randomUUID().toString();
+        runs.started(id, null, named("to-forget"), "amqp://broker:5672");
+
+        assertThat(http.getForObject("/api/runs", String.class)).contains("to-forget");
+
+        http.delete("/api/runs/" + id);
+
+        assertThat(http.getForObject("/api/runs", String.class)).doesNotContain("to-forget");
+        assertThat(runs.delete(id)).isFalse();
+    }
+
+    @Test
+    @DisplayName("refuses to compare a run that has no report")
+    void refusesToCompareARunThatNeverFinished() {
+        String unfinished = java.util.UUID.randomUUID().toString();
+        runs.started(unfinished, null, named("still-going"), "amqp://broker:5672");
+
+        ResponseEntity<String> response = http.getForEntity(
+                "/api/runs/compare?a=" + unfinished + "&b=" + unfinished, String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).contains("both runs need a report");
+    }
+
     @Test
     @DisplayName("keeps the broker's password out of the history")
     void doesNotStorePasswords() {
@@ -287,6 +333,15 @@ class StudioApiTest {
 
         assertThat(scenario.toScenario().warmup().toMillis()).isEqualTo(500);
         assertThat(scenario.toScenario().duration().toMinutes()).isEqualTo(2);
+    }
+
+    /**
+     * @param name what to call it
+     * @return the smallest scenario the store will accept
+     */
+    private static ScenarioFile named(String name) {
+        return new ScenarioFile(name, "", null, null, List.of(), List.of(), List.of(),
+                null, null, null, null);
     }
 
     private static ScenarioFile aScenario() {

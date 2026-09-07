@@ -8,6 +8,51 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
+## Unreleased
+
+### Added
+- **Two runs, side by side.** Tick two in the history and press Compare. Every
+  measurement they have in common, with the direction made explicit: a latency
+  that went up is worse, a rate that went up is better, and the table says which
+  rather than leaving the reader to work it out from the sign at the moment they
+  are least likely to. Anything inside 5% is reported as the same run, because
+  two runs of one configuration differ by a few percent on ordinary hardware.
+  This is the reason every reading was being kept, and until now nothing could
+  read them back.
+- **Runs can be deleted, and old ones are dropped.** The 200 most recent are
+  kept — `acemq.studio.keep-runs` — and the rest go as new runs finish. A studio
+  left open takes a reading a second for every run it has ever made, which is
+  what makes a finished run drawable again and also what made the file grow
+  without limit.
+- **Bindings can be edited and removed** in the designer, and queue arguments
+  can be set: `x-max-length`, `x-message-ttl`, `x-max-age` on a stream. Dragging
+  on the canvas made a binding and nothing could change one afterwards, so a
+  wrong routing key meant deleting the queue and drawing it again.
+- **The studio's image is published** to `ghcr.io/acemq-company/acemq-workloads-studio`
+  on every version tag, for amd64 and arm64, and the workflow refuses to finish
+  until the image it pushed has started and served its interface. The Dockerfile
+  had been in the repository since the studio existed with nothing publishing
+  what it describes.
+- **[studio/USAGE.md](studio/USAGE.md)**, every screen in the order somebody
+  meets it, and [a studio page](docs/studio.md) on the documentation site, which
+  had fifteen pages and none about the thing with the interface.
+- `ProducerNode.payload(Payload)`, so a scenario can use random message bodies.
+  Identical bodies can be compressed or deduplicated somewhere in the path and
+  flatter the result.
+- `ScenarioRunner.run` taking a listener and a stop flag: a synchronous run with
+  live readings, which is what a command line printing progress wants.
+
+### Changed
+- **One measurement engine.** `WorkloadRun` and `ScenarioRun` were 487 and 544
+  lines of the same thing — an open-loop publisher schedule, a sampler, a block
+  watcher, a drain. A workload is a scenario with one node of each kind, so the
+  workload path is now the translation either side of the scenario engine, and
+  the second copy is gone. Two copies of a measurement engine is two places for
+  the measurement to be subtly wrong and only one of them gets fixed; this
+  project was caught by exactly that in the Go library.
+- The README led with the Java DSL and said `0.1.0` with a test count three
+  releases old. It leads with the studio, and says what is actually true.
+
 ## 0.1.3 — 2026-09-06
 
 ### Added

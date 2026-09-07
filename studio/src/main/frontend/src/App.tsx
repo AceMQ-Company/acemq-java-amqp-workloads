@@ -18,10 +18,12 @@ import { api } from './api'
 import { Connect } from './Connect'
 import { Canvas, type Selection } from './designer/Canvas'
 import { Inspector } from './designer/Inspector'
+import { Comparison } from './run/Comparison'
 import { LiveView } from './run/LiveView'
 import type {
   BrokerProbe,
   Preset,
+  RunComparison,
   QueueTypeInfo,
   Report,
   RunSummary,
@@ -86,6 +88,11 @@ export default function App() {
     problems: [],
     warnings: [],
   })
+
+  // Which runs are ticked for comparison. Two at a time: a table of three runs
+  // is a spreadsheet, and the question people ask is "is this better than that".
+  const [picked, setPicked] = useState<string[]>([])
+  const [comparison, setComparison] = useState<RunComparison | null>(null)
 
   const [presets, setPresets] = useState<Preset[]>([])
   const [runs, setRuns] = useState<RunSummary[]>([])
@@ -502,10 +509,43 @@ export default function App() {
 
             <div className="panel">
               <h4>Runs</h4>
+              {/* Two ticks and a button. The readings for every run are already
+                  kept; without this, answering "is this better than last week"
+                  meant opening two reports in two tabs and reading numbers off. */}
+              <div className="toolbar" style={{ padding: '0 0 10px', border: 'none' }}>
+                <span className="hint" style={{ color: 'var(--text-faint)', fontSize: 12 }}>
+                  {picked.length === 0 && 'Tick two runs to compare them.'}
+                  {picked.length === 1 && 'One more.'}
+                  {picked.length === 2 && 'Ready.'}
+                </span>
+                <button
+                  className="ghost"
+                  disabled={picked.length !== 2}
+                  onClick={async () => {
+                    try {
+                      setComparison(await api.compare(picked[0], picked[1]))
+                      setError(null)
+                    } catch (e) {
+                      setError((e as Error).message)
+                    }
+                  }}
+                >
+                  Compare
+                </button>
+                {comparison && (
+                  <button className="ghost" onClick={() => setComparison(null)}>
+                    Close
+                  </button>
+                )}
+              </div>
+
+              {comparison && <Comparison comparison={comparison} />}
+
               <div className="scrolls">
               <table>
                 <thead>
                   <tr>
+                    <th />
                     <th>Scenario</th>
                     <th>Broker</th>
                     <th>Started</th>
@@ -516,6 +556,21 @@ export default function App() {
                 <tbody>
                   {runs.map((run) => (
                     <tr key={run.id}>
+                      <td style={{ width: 1 }}>
+                        <input
+                          type="checkbox"
+                          disabled={run.status !== 'finished'}
+                          checked={picked.includes(run.id)}
+                          title={run.status === 'finished'
+                            ? 'compare this run'
+                            : 'a run that did not finish has nothing to compare'}
+                          onChange={(e) => setPicked((current) => (e.target.checked
+                            // The oldest tick drops off rather than refusing the third:
+                            // being told "untick one first" is a worse answer than doing it.
+                            ? [...current, run.id].slice(-2)
+                            : current.filter((id) => id !== run.id)))}
+                        />
+                      </td>
                       <td className="mono">{run.scenarioName}</td>
                       <td className="mono" style={{ color: 'var(--text-faint)' }}>{run.broker}</td>
                       <td>{new Date(run.startedAt).toLocaleString()}</td>
@@ -541,6 +596,24 @@ export default function App() {
                             Open
                           </button>
                         )}
+                      </td>
+                      <td style={{ width: 1 }}>
+                        <button
+                          className="ghost"
+                          title="Forget this run and its readings"
+                          onClick={async () => {
+                            await api.deleteRun(run.id).catch(() => {})
+                            setPicked((current) => current.filter((id) => id !== run.id))
+                            if (reportId === run.id) {
+                              setReport(null)
+                              setSamples([])
+                              setReportId(null)
+                            }
+                            refreshLists()
+                          }}
+                        >
+                          Delete
+                        </button>
                       </td>
                     </tr>
                   ))}

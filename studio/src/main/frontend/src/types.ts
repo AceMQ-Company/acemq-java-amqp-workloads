@@ -198,6 +198,24 @@ export interface RunSummary {
   error: string | null
 }
 
+/** One measurement in two runs, and which way it moved. */
+export interface ComparisonRow {
+  node: string
+  metric: string
+  a: number | null
+  b: number | null
+  unit: string
+  higherIsBetter: boolean
+  change: number | null
+  verdict: 'better' | 'worse' | 'same' | 'missing'
+}
+
+export interface RunComparison {
+  a: RunSummary | null
+  b: RunSummary | null
+  rows: ComparisonRow[]
+}
+
 export interface QueueTypeInfo {
   id: QueueTypeId
   label: string

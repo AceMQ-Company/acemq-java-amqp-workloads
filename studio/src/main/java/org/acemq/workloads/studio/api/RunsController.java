@@ -16,10 +16,15 @@
 package org.acemq.workloads.studio.api;
 
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.acemq.workloads.studio.net.BrokerReachability;
+import org.acemq.workloads.studio.run.Comparison;
 import org.acemq.workloads.studio.run.Runs;
 import org.acemq.workloads.scenario.ScenarioFile;
 import org.acemq.workloads.studio.store.RunStore;
@@ -29,6 +34,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,13 +53,15 @@ public class RunsController {
     private final RunStore store;
     private final BrokerReachability reachability;
     private final StudioProperties properties;
+    private final ObjectMapper json;
 
     public RunsController(Runs runs, RunStore store, BrokerReachability reachability,
-            StudioProperties properties) {
+            StudioProperties properties, ObjectMapper json) {
         this.runs = runs;
         this.store = store;
         this.reachability = reachability;
         this.properties = properties;
+        this.json = json;
     }
 
     /**
@@ -156,6 +164,58 @@ public class RunsController {
     public ResponseEntity<String> report(@PathVariable String id) {
         return store.report(id).map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Two runs, side by side.
+     *
+     * <p>The reason every reading is kept. "Is this better than last week" is what people are
+     * actually asking, and answering it by opening two reports in two tabs is how a regression
+     * goes unnoticed.
+     *
+     * @param a the earlier run
+     * @param b the later one
+     * @return every measurement they have in common, and which way each moved
+     */
+    @GetMapping("/compare")
+    public ResponseEntity<Map<String, Object>> compare(@RequestParam String a,
+            @RequestParam String b) {
+        Optional<String> left = store.report(a);
+        Optional<String> right = store.report(b);
+        if (left.isEmpty() || right.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "both runs need a report; a run that failed has none"));
+        }
+
+        try {
+            Map<String, Object> answer = new LinkedHashMap<>();
+            answer.put("a", summaryOf(a));
+            answer.put("b", summaryOf(b));
+            answer.put("rows", Comparison.of(json.readTree(left.get()), json.readTree(right.get())));
+            return ResponseEntity.ok(answer);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "a stored report could not be read: " + e.getMessage()));
+        }
+    }
+
+    private RunStore.Summary summaryOf(String id) {
+        return store.recent(500).stream()
+                .filter(run -> run.id().equals(id))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Forgets a run and its readings.
+     *
+     * @param id the run
+     * @return whether there was one
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable String id) {
+        return store.delete(id) ? ResponseEntity.noContent().build()
+                : ResponseEntity.notFound().build();
     }
 
     /**

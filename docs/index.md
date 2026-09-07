@@ -1,8 +1,14 @@
 # AceMQ AMQP workloads
 
-A load generator for AMQP brokers. A Java DSL, a command line, an **open-loop**
-rate schedule, honest latency percentiles, and a report that says what it
-measured rather than what you should do about it.
+A load generator for AMQP brokers, in three shapes: a **studio** you design a
+topology in and watch it run, a **command line** a pipeline calls, and a **Java
+DSL** a test uses. One open-loop rate schedule under all three, honest latency
+percentiles, and a report that says what it measured rather than what you should
+do about it.
+
+```bash
+java -jar acemq-workloads-studio.jar     # then open http://localhost:8480
+```
 
 ```bash
 java -jar acemq-workload.jar -f workload.yaml --report reports/ --format html,json
@@ -84,6 +90,7 @@ a wrong one worse than silence.
 
 ## Where to start
 
+- [The studio](studio.md) — design a topology, run it, watch it
 - [Getting started](getting-started.md) — build it and run something
 - [Tutorials](tutorials.md) — step by step, five of them
 - [Command line](cli.md) — every option, with examples

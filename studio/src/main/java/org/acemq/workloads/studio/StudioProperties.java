@@ -39,9 +39,28 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class StudioProperties {
 
     private String address;
+    private int keepRuns = 200;
     private String token;
     private String database;
     private boolean allowRemoteWithoutToken;
+
+    /**
+     * How many finished runs to keep.
+     *
+     * <p>Every run keeps a reading a second, which is what makes a finished one drawable again
+     * and also what makes the file grow without limit. Two hundred is more than anybody scrolls
+     * through and small enough that the database stays a file rather than a problem.
+     *
+     * @return how many runs to keep
+     */
+    public int keepRuns() {
+        return keepRuns;
+    }
+
+    /** @param keepRuns how many finished runs to keep */
+    public void setKeepRuns(int keepRuns) {
+        this.keepRuns = keepRuns;
+    }
 
     /** @return the address to bind to */
     public String address() {

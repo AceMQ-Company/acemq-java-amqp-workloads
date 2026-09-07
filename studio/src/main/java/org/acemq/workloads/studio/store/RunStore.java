@@ -185,6 +185,39 @@ public class RunStore {
     }
 
     /**
+     * Forgets a run and every reading it took.
+     *
+     * @param runId the run to forget
+     * @return whether there was one
+     */
+    public boolean delete(String runId) {
+        jdbc.update("DELETE FROM samples WHERE run_id = ?", runId);
+        return jdbc.update("DELETE FROM runs WHERE id = ?", runId) > 0;
+    }
+
+    /**
+     * Drops the oldest runs, keeping the most recent.
+     *
+     * <p>A studio left open takes a reading a second for the length of every run and keeps them,
+     * which is what makes a finished run drawable again — and also what makes the file grow
+     * without limit. The interesting runs are the recent ones and the ones somebody exported; the
+     * hundred before those are not worth a database nobody prunes.
+     *
+     * @param keep how many runs to keep
+     * @return how many were forgotten
+     */
+    public int pruneTo(int keep) {
+        List<String> old = jdbc.query("""
+                SELECT id FROM runs ORDER BY started_at DESC LIMIT -1 OFFSET ?""",
+                (rs, row) -> rs.getString("id"), Math.max(0, keep));
+
+        for (String id : old) {
+            delete(id);
+        }
+        return old.size();
+    }
+
+    /**
      * @param runId a run
      * @return its report, as stored
      */
