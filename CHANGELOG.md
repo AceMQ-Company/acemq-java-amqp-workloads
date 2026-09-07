@@ -55,6 +55,11 @@ the messaging library's release train.
   now gates a whole topology rather than one path.
 
 ### Fixed
+- **The command line jar could not name its own version.** `--version` answered
+  "acemq-workload (from source)" in 0.1.0, 0.1.1 and 0.1.2: the shaded jar's
+  manifest carried a main class and nothing else, so the version somebody quotes
+  in a bug report was never the version they were running. Found by the new
+  release preflight, on the release it was about to sign off.
 - **A stream was reported as falling behind.** Consumers move an offset and
   nothing is removed, so a stream's depth is the length of its log rather than a
   backlog. Reporting it as one described a stream that kept up perfectly as one

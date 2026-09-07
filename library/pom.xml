@@ -177,6 +177,16 @@
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                   <mainClass>org.acemq.workloads.cli.Cli</mainClass>
+                  <!-- What the version flag prints. Without these the jar answers
+                       "(from source)", which is what 0.1.0, 0.1.1 and 0.1.2 all
+                       shipped doing: the version somebody quotes in a bug report
+                       is whatever the jar says, and a jar that cannot name
+                       itself makes every report ambiguous. -->
+                  <manifestEntries>
+                    <Implementation-Title>${project.artifactId}</Implementation-Title>
+                    <Implementation-Version>${project.version}</Implementation-Version>
+                    <Implementation-Vendor>AceMQ</Implementation-Vendor>
+                  </manifestEntries>
                 </transformer>
                 <!-- The transport is found through the ServiceLoader, and shading
                      without this drops the provider file and the amqp:// scheme
