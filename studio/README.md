@@ -243,6 +243,35 @@ npm install
 npm run dev          # http://localhost:5173, API proxied to 8480
 ```
 
+## Testing it
+
+Three layers, because they catch different things.
+
+```bash
+mvn test                                   # Java, and the interface in jsdom
+./scripts/e2e.sh                           # a real browser, a real broker
+./scripts/e2e.sh --grep "scrolls"          # one of them
+```
+
+**Java** — the API without a broker, and `StudioRunIT` with one: starting a run,
+watching readings arrive, getting a verdict, taking the report away.
+
+**Component tests** run in jsdom as part of `mvn test`, and cover the parts of
+the interface that are decisions rather than pictures — whether a queue argument
+survives as a number, whether an objective is dropped when the last field is
+cleared, which way a comparison says a measurement moved.
+
+**End-to-end tests** run in headless Chromium against the real jar and a real
+broker, started by `scripts/e2e.sh` (it starts a broker in Docker unless you
+give it one). This layer exists because jsdom has no layout, and every interface
+bug this project has had was about layout: a run view that would not scroll,
+charts squeezed into two hundred pixels by a media query meant for the designer.
+Each test is one of those bugs.
+
+They run on every push — `mvn test` inside the build matrix, the browser tests in
+their own job with a RabbitMQ service container. A failure uploads the Playwright
+trace, which replays the run step by step with the DOM at each one.
+
 ## What it does not do
 
 **It does not tell you what to change.** Every finding carries the measurement

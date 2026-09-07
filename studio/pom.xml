@@ -221,6 +221,23 @@
               <arguments>run build</arguments>
             </configuration>
           </execution>
+          <!-- The interface's own tests, in the same phase as everybody else's.
+               They run in jsdom and take a second, so there is no reason for
+               them to live outside the build: half the studio is TypeScript,
+               and until this existed none of it was covered by anything. The
+               browser tests need a broker and a jar, so those are the `ui` job
+               in CI and scripts/e2e.sh by hand. -->
+          <execution>
+            <id>npm-test</id>
+            <goals>
+              <goal>npm</goal>
+            </goals>
+            <phase>test</phase>
+            <configuration>
+              <arguments>run test</arguments>
+              <skip>${skipTests}</skip>
+            </configuration>
+          </execution>
         </executions>
       </plugin>
 

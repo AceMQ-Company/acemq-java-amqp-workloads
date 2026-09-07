@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { useId } from 'react'
+
 import type {
   Binding,
   Expect,
@@ -61,20 +63,26 @@ interface Props {
 }
 
 export function Inspector({ scenario, selection, queueTypes, onChange, onSelect }: Props) {
+  // Labels are associated with their controls rather than merely sitting above
+  // them. Without this a screen reader announces an unlabelled box, and the
+  // field name on screen is decoration — which is also why the end-to-end tests
+  // could not find a single field by the name printed next to it.
+  const fieldId = useId()
+
   if (!selection) {
     return (
       <aside className="inspector">
         <h3>The scenario</h3>
         <div className="field">
-          <label>Name</label>
-          <input
+          <label htmlFor={fieldId + '-name'}>Name</label>
+          <input id={fieldId + '-name'}
             value={scenario.name}
             onChange={(e) => onChange({ ...scenario, name: e.target.value })}
           />
         </div>
         <div className="field">
-          <label>What it is for</label>
-          <textarea
+          <label htmlFor={fieldId + '-what-it-is-for'}>What it is for</label>
+          <textarea id={fieldId + '-what-it-is-for'}
             rows={3}
             style={{ width: '100%', resize: 'vertical' }}
             value={scenario.description ?? ''}
@@ -84,15 +92,15 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
         </div>
         <div className="row">
           <div className="field">
-            <label>Warm-up</label>
-            <input
+            <label htmlFor={fieldId + '-warm-up'}>Warm-up</label>
+            <input id={fieldId + '-warm-up'}
               value={scenario.warmup ?? '5s'}
               onChange={(e) => onChange({ ...scenario, warmup: e.target.value })}
             />
           </div>
           <div className="field">
-            <label>Measure for</label>
-            <input
+            <label htmlFor={fieldId + '-measure-for'}>Measure for</label>
+            <input id={fieldId + '-measure-for'}
               value={scenario.runFor ?? '30s'}
               onChange={(e) => onChange({ ...scenario, runFor: e.target.value })}
             />
@@ -138,8 +146,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
       <aside className="inspector">
         <h3>Producer</h3>
         <div className="field">
-          <label>Name</label>
-          <input value={producer.name} onChange={(e) => {
+          <label htmlFor={fieldId + '-name'}>Name</label>
+          <input id={fieldId + '-name'} value={producer.name} onChange={(e) => {
             const name = e.target.value
             update({ name })
             onSelect({ kind: 'producer', name })
@@ -147,8 +155,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
         </div>
 
         <div className="field">
-          <label>Publishes to</label>
-          <select
+          <label htmlFor={fieldId + '-publishes-to'}>Publishes to</label>
+          <select id={fieldId + '-publishes-to'}
             value={producer.exchange}
             onChange={(e) => update({ exchange: e.target.value })}
           >
@@ -160,8 +168,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
         </div>
 
         <div className="field">
-          <label>Routing keys, comma separated</label>
-          <input
+          <label htmlFor={fieldId + '-routing-keys-comma-separated'}>Routing keys, comma separated</label>
+          <input id={fieldId + '-routing-keys-comma-separated'}
             value={producer.routingKeys?.join(', ') ?? ''}
             placeholder="order.placed, order.cancelled"
             onChange={(e) => update({
@@ -176,8 +184,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
 
         <div className="row">
           <div className="field">
-            <label>Rate, messages a second</label>
-            <input
+            <label htmlFor={fieldId + '-rate-messages-a-second'}>Rate, messages a second</label>
+            <input id={fieldId + '-rate-messages-a-second'}
               type="number"
               min={0}
               value={producer.rate ?? 1000}
@@ -185,8 +193,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
             />
           </div>
           <div className="field">
-            <label>Message size, bytes</label>
-            <input
+            <label htmlFor={fieldId + '-message-size-bytes'}>Message size, bytes</label>
+            <input id={fieldId + '-message-size-bytes'}
               type="number"
               min={1}
               value={producer.messageSize ?? 1024}
@@ -224,8 +232,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
         <h3 style={{ marginTop: 22 }}>What it must prove</h3>
         <div className="row">
           <div className="field">
-            <label>At least, a second</label>
-            <input
+            <label htmlFor={fieldId + '-at-least-a-second'}>At least, a second</label>
+            <input id={fieldId + '-at-least-a-second'}
               type="number"
               min={0}
               placeholder="—"
@@ -238,8 +246,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
             />
           </div>
           <div className="field">
-            <label>Within % of the rate</label>
-            <input
+            <label htmlFor={fieldId + '-within-of-the-rate'}>Within % of the rate</label>
+            <input id={fieldId + '-within-of-the-rate'}
               type="number"
               min={0}
               max={100}
@@ -303,8 +311,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
       <aside className="inspector">
         <h3>Exchange</h3>
         <div className="field">
-          <label>Name</label>
-          <input value={exchange.name} onChange={(e) => {
+          <label htmlFor={fieldId + '-name'}>Name</label>
+          <input id={fieldId + '-name'} value={exchange.name} onChange={(e) => {
             const name = e.target.value
             update({ name })
             onSelect({ kind: 'exchange', name })
@@ -412,8 +420,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
     <aside className="inspector">
       <h3>Queue</h3>
       <div className="field">
-        <label>Name</label>
-        <input value={queue.name} onChange={(e) => {
+        <label htmlFor={fieldId + '-name'}>Name</label>
+        <input id={fieldId + '-name'} value={queue.name} onChange={(e) => {
           const name = e.target.value
           update({ name })
           onSelect({ kind: 'queue', name })
@@ -448,8 +456,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
       </div>
 
       <div className="field">
-        <label>Dead-letter exchange</label>
-        <select
+        <label htmlFor={fieldId + '-dead-letter-exchange'}>Dead-letter exchange</label>
+        <select id={fieldId + '-dead-letter-exchange'}
           value={queue.deadLetterExchange ?? ''}
           onChange={(e) => update({ deadLetterExchange: e.target.value || undefined })}
         >
@@ -473,8 +481,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
       {(queue.bindings ?? []).map((binding, index) => (
         <div className="row" key={index}>
           <div className="field">
-            <label>Exchange</label>
-            <select
+            <label htmlFor={fieldId + '-exchange'}>Exchange</label>
+            <select id={fieldId + '-exchange'}
               value={binding.exchange}
               onChange={(e) => updateBinding(index, { exchange: e.target.value })}
             >
@@ -489,8 +497,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
             </select>
           </div>
           <div className="field">
-            <label>Routing key</label>
-            <input
+            <label htmlFor={fieldId + '-routing-key'}>Routing key</label>
+            <input id={fieldId + '-routing-key'}
               value={binding.routingKey}
               placeholder="order.*"
               onChange={(e) => updateBinding(index, { routingKey: e.target.value })}
@@ -531,16 +539,16 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
       {Object.entries(queue.arguments ?? {}).map(([key, value], index) => (
         <div className="row" key={index}>
           <div className="field">
-            <label>Name</label>
-            <input
+            <label htmlFor={fieldId + '-name'}>Name</label>
+            <input id={fieldId + '-name'}
               value={key}
               spellCheck={false}
               onChange={(e) => renameArgument(key, e.target.value)}
             />
           </div>
           <div className="field">
-            <label>Value</label>
-            <input
+            <label htmlFor={fieldId + '-value'}>Value</label>
+            <input id={fieldId + '-value'}
               value={String(value ?? '')}
               spellCheck={false}
               onChange={(e) => setArgument(key, e.target.value)}
@@ -560,8 +568,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
       <h3 style={{ marginTop: 22 }}>Consumers</h3>
       <div className="row">
         <div className="field">
-          <label>How many</label>
-          <input
+          <label htmlFor={fieldId + '-how-many'}>How many</label>
+          <input id={fieldId + '-how-many'}
             type="number"
             min={0}
             value={consumers.concurrency ?? 1}
@@ -569,8 +577,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
           />
         </div>
         <div className="field">
-          <label>Prefetch</label>
-          <input
+          <label htmlFor={fieldId + '-prefetch'}>Prefetch</label>
+          <input id={fieldId + '-prefetch'}
             type="number"
             min={0}
             value={consumers.prefetch ?? 100}
@@ -581,16 +589,16 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
 
       <div className="row">
         <div className="field">
-          <label>Handler takes</label>
-          <input
+          <label htmlFor={fieldId + '-handler-takes'}>Handler takes</label>
+          <input id={fieldId + '-handler-takes'}
             value={consumers.handlerTime ?? ''}
             placeholder="1ms"
             onChange={(e) => updateConsumers({ handlerTime: e.target.value || undefined })}
           />
         </div>
         <div className="field">
-          <label>Fails this often</label>
-          <input
+          <label htmlFor={fieldId + '-fails-this-often'}>Fails this often</label>
+          <input id={fieldId + '-fails-this-often'}
             type="number"
             min={0}
             max={1}
@@ -635,8 +643,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
       <h3 style={{ marginTop: 22 }}>What it must prove</h3>
       <div className="row">
         <div className="field">
-          <label>p99 under</label>
-          <input
+          <label htmlFor={fieldId + '-p99-under'}>p99 under</label>
+          <input id={fieldId + '-p99-under'}
             placeholder="50ms"
             value={queue.expect?.p99Below ?? ''}
             onChange={(e) => update({
@@ -645,8 +653,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
           />
         </div>
         <div className="field">
-          <label>p99.9 under</label>
-          <input
+          <label htmlFor={fieldId + '-p99-9-under'}>p99.9 under</label>
+          <input id={fieldId + '-p99-9-under'}
             placeholder="—"
             value={queue.expect?.p999Below ?? ''}
             onChange={(e) => update({
@@ -656,8 +664,8 @@ export function Inspector({ scenario, selection, queueTypes, onChange, onSelect 
         </div>
       </div>
       <div className="field">
-        <label>Handles at least, a second</label>
-        <input
+        <label htmlFor={fieldId + '-handles-at-least-a-second'}>Handles at least, a second</label>
+        <input id={fieldId + '-handles-at-least-a-second'}
           type="number"
           min={0}
           placeholder="—"

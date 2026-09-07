@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import { api } from './api'
 import type { BrokerProbe, TlsSettings } from './types'
@@ -50,6 +50,10 @@ export function Connect({
   onTlsChange,
   onConnected,
 }: Props) {
+  // Associated with their inputs, so the name beside a box is the box's name
+  // to anything that is not a pair of eyes.
+  const fieldId = useId()
+
   const [probe, setProbe] = useState<BrokerProbe | null>(null)
   const [looking, setLooking] = useState(true)
   const [failure, setFailure] = useState<string | null>(null)
@@ -98,8 +102,8 @@ export function Connect({
         </p>
 
         <div className="field">
-          <label>Broker (AMQP)</label>
-          <input
+          <label htmlFor={fieldId + '-broker-amqp'}>Broker (AMQP)</label>
+          <input id={fieldId + '-broker-amqp'}
             value={broker}
             spellCheck={false}
             autoFocus
@@ -164,8 +168,8 @@ export function Connect({
                 />
               </div>
               <div className="field">
-                <label>Its private key</label>
-                <input
+                <label htmlFor={fieldId + '-its-private-key'}>Its private key</label>
+                <input id={fieldId + '-its-private-key'}
                   value={tls.clientKeyPath ?? ''}
                   spellCheck={false}
                   placeholder="client.key"

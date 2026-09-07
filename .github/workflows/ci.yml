@@ -90,14 +90,60 @@ jobs:
             **/target/failsafe-reports/**
           retention-days: 7
 
+  # The interface, in a real browser, against a real broker.
+  #
+  # Separate from `build` because it needs a jar, a broker and a browser, and
+  # because the matrix would run it three times to learn the same thing. The
+  # component tests in jsdom are part of the Maven build and run on all three
+  # JDKs; this is the layer that catches what jsdom cannot see, which is
+  # everything to do with layout.
+  ui:
+    name: the interface, in a browser
+    runs-on: ubuntu-latest
+    services:
+      broker:
+        image: rabbitmq:4-alpine
+        ports: ['5679:5672']
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run the end-to-end tests
+        run: ./scripts/e2e.sh amqp://guest:guest@localhost:5679
+        env:
+          CI: 'true'
+          E2E_REBUILD: '1'
+
+      # The run that failed is the one worth looking at, and a trace is the whole
+      # story: every step, the DOM at each one, and a screenshot.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            studio/src/main/frontend/playwright-report/**
+            studio/src/main/frontend/test-results/**
+          retention-days: 7
+
   notify:
-    needs: build
+    needs: [build, ui]
     # Only when main breaks, and only on main -- a failing pull request is
     # already in front of the person who wrote it.
-    if: always() && needs.build.result == 'failure' && github.ref == 'refs/heads/main'
+    if: >-
+      always() && github.ref == 'refs/heads/main'
+      && (needs.build.result == 'failure' || needs.ui.result == 'failure')
     uses: AceMQ-Company/acemq-java-amqp/.github/workflows/slack-notify.yml@main
     with:
-      status: ${{ needs.build.result }}
+      status: failure
       title: "AceMQ AMQP workloads: main is failing"
       message: "The build on main did not pass. Artifacts from it should not be trusted."
       # Work in progress rather than a dead build. main breaking is somebody's

@@ -11,6 +11,14 @@ the messaging library's release train.
 ## Unreleased
 
 ### Added
+- **The interface has tests.** Two layers: component tests in jsdom that run
+  inside `mvn test` on every JDK, and end-to-end tests in headless Chromium
+  against the real jar and a real broker, in their own CI job with a RabbitMQ
+  service container. Half the studio is TypeScript and none of it was covered by
+  anything; every interface bug this project has had was found by somebody
+  clicking, and each end-to-end test is one of those bugs. `./scripts/e2e.sh`
+  runs the browser layer by hand, starting a broker in Docker if it is not given
+  one.
 - **Two runs, side by side.** Tick two in the history and press Compare. Every
   measurement they have in common, with the direction made explicit: a latency
   that went up is worse, a rate that went up is better, and the table says which
@@ -41,6 +49,13 @@ the messaging library's release train.
   flatter the result.
 - `ScenarioRunner.run` taking a listener and a stop flag: a synchronous run with
   live readings, which is what a command line printing progress wants.
+
+### Fixed
+- **Labels in the designer were not attached to their fields.** They sat above
+  the box and said nothing to anything that was not a pair of eyes: a screen
+  reader announced an unlabelled text box, and nothing could find a field by the
+  name printed beside it. Found by the end-to-end tests, which could not fill in
+  "Warm-up".
 
 ### Changed
 - **One measurement engine.** `WorkloadRun` and `ScenarioRun` were 487 and 544
