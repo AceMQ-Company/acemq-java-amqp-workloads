@@ -67,7 +67,12 @@ export function LiveView({ samples, phase, report, error, onStop, running }: Pro
   const depthColours = ['#3ddc97', '#63b3ff', '#ffb457', '#c77dff', '#ff6b6b']
 
   return (
-    <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr', overflow: 'hidden' }}>
+    // The toolbar stays put and everything below it scrolls as one document.
+    // A row template here would divide the height between the verdict and the
+    // charts, and a run with several findings would squeeze the charts into a
+    // couple of hundred pixels -- cut off, with a scrollbar nested inside a page
+    // that does not scroll.
+    <div className="run-view">
       <div className="toolbar">
         <span className="chip" data-state={running ? 'live' : 'ok'}>
           <span className="dot" />
@@ -93,15 +98,16 @@ export function LiveView({ samples, phase, report, error, onStop, running }: Pro
         )}
       </div>
 
-      {error && (
-        <div className="banner" data-tone="bad">
-          {error}
-        </div>
-      )}
+      <div className="run-scroll">
+        {error && (
+          <div className="banner" data-tone="bad">
+            {error}
+          </div>
+        )}
 
-      {report && <Verdict report={report} />}
+        {report && <Verdict report={report} />}
 
-      <div className="live-grid">
+        <div className="live-grid">
         <div className="panel" style={{ gridColumn: '1 / -1' }}>
           <h4>Published against consumed</h4>
           <p className="hint" style={{ margin: '0 0 10px', color: 'var(--text-faint)', fontSize: 12 }}>
@@ -193,6 +199,7 @@ export function LiveView({ samples, phase, report, error, onStop, running }: Pro
             </div>
           </div>
         ))}
+        </div>
       </div>
     </div>
   )

@@ -329,7 +329,10 @@ button.ghost:hover:not(:disabled) {
  * keep its 340px is the wrong trade: the graph is the thing being read.
  */
 @media (max-width: 1100px) {
-  .body {
+  /* The designer only. `.body.wide` has one child and no inspector, and giving
+     it these two rows left the run view in the first of them -- a 240px slot
+     with the charts inside it, on a screen with room for both. */
+  .body:not(.wide) {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(240px, 1fr) minmax(200px, 45vh);
   }
@@ -608,6 +611,24 @@ button.ghost:hover:not(:disabled) {
 
 /* ---- live view -------------------------------------------------------- */
 
+/* The toolbar keeps its place; everything under it is one scrolling document.
+   Charts have a height in pixels because a chart squeezed into whatever is left
+   over is unreadable, and a run with several findings leaves very little over --
+   so the page scrolls rather than the charts shrinking. */
+.run-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.run-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .live-grid {
   display: grid;
   /* min() so a panel never demands more width than the window has. Without it a
@@ -615,7 +636,6 @@ button.ghost:hover:not(:disabled) {
   grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
   gap: 14px;
   padding: 16px;
-  overflow-y: auto;
 }
 
 .panel {
