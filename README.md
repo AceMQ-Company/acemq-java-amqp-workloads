@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/ci.yml)
 [![authorship guard](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/attribution-guard.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/attribution-guard.yml)
-[![version](https://img.shields.io/badge/version-0.1.3-blue)](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/releases)
+[![version](https://img.shields.io/badge/version-0.1.4-blue)](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/releases)
 [![artifacts](https://img.shields.io/badge/artifacts-acemq.org%2Fmaven-blue)](https://acemq.org/maven/)
 [![docs](https://img.shields.io/badge/docs-acemq.org-blue)](https://acemq.org/acemq-java-amqp-workloads/)
 [![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
@@ -15,10 +15,14 @@ DSL** a test uses. One open-loop rate schedule under all three, honest latency
 percentiles, and a report that says what it measured rather than what you should
 do about it.
 
-> **Status: `0.1.3`, published.** 95 unit tests and integration tests against a
-> real broker, on JDK 17, 21 and 25. The library is on the
-> [Maven repository](https://acemq-company.github.io/maven/); both jars are
-> attached to the [release](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/releases/latest).
+> **Status: `0.1.4`, published.** 104 Java tests including integration tests
+> against a real broker, on JDK 17, 21 and 25, plus 14 component tests and 8
+> end-to-end tests that drive the interface in a headless browser. The library
+> is on the [Maven repository](https://acemq-company.github.io/maven/), both
+> jars are attached to the
+> [release](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/releases/latest),
+> and the studio has an
+> [image](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/pkgs/container/acemq-workloads-studio).
 
 ## The studio
 

@@ -8,7 +8,7 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
-## Unreleased
+## 0.1.4 — 2026-09-07
 
 ### Added
 - **The interface has tests.** Two layers: component tests in jsdom that run
