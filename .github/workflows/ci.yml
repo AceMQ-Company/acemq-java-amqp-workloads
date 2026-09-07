@@ -100,6 +100,10 @@ jobs:
       status: ${{ needs.build.result }}
       title: "AceMQ AMQP workloads: main is failing"
       message: "The build on main did not pass. Artifacts from it should not be trusted."
+      # Work in progress rather than a dead build. main breaking is somebody's
+      # next job, not an outage, and a red dot in a channel that also carries
+      # release failures makes the two look alike.
+      icon: ":construction:"
       url: https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/ci.yml
     secrets:
       # Explicit, not `inherit`. A reusable workflow in another repository
