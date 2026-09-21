@@ -34,7 +34,12 @@
     <spring-boot.version>3.4.1</spring-boot.version>
     <testcontainers.version>1.21.4</testcontainers.version>
     <sqlite.version>3.47.1.0</sqlite.version>
-    <node.version>v22.11.0</node.version>
+    <!-- 22.12 is the floor vitest 5 asks for, and this sat one patch below it
+         at 22.11.0, which npm reported as an EBADENGINE warning and then
+         installed anyway. A warning is not a guarantee: the engine field is
+         advisory here only because npm chooses to make it so, and the current
+         22 LTS costs nothing over the minimum. -->
+    <node.version>v22.23.2</node.version>
     <npm.version>10.9.0</npm.version>
     <frontend-plugin.version>1.15.1</frontend-plugin.version>
   </properties>
