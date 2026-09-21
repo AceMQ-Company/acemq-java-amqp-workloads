@@ -56,7 +56,7 @@ echo "==> the version"
 
 if git rev-parse "v$VERSION" >/dev/null 2>&1; then
   fail "the tag v$VERSION already exists here"
-elif git ls-remote --exit-code --tags origin "v$VERSION" >/dev/null 2>&1; then
+elif git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
   # Checked against the remote rather than only locally: a shallow or stale
   # clone knows nothing about a tag somebody else pushed, and this is exactly
   # how a version gets published twice.
