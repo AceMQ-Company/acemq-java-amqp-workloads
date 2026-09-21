@@ -14,6 +14,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Both libraries this tool measures can release without a commit landing here,
+  # so the workflow also runs on a timer. A scheduled run is the only thing that
+  # notices a release moving underneath an untouched repository, and this
+  # repository went five minor versions without noticing.
+  schedule:
+    - cron: '35 6 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -133,3 +139,79 @@ jobs:
             studio/src/main/frontend/playwright-report/**
             studio/src/main/frontend/test-results/**
           retention-days: 7
+
+  tracks-the-release:
+    name: the pins are the newest releases
+    runs-on: ubuntu-latest
+    # A job of its own rather than a step inside `build`, deliberately. A stale
+    # pin and a broken build are different findings and both are worth having:
+    # everything above still compiles and still runs whatever this job concludes,
+    # so a red X here reads as "the pinned library is old", never as "we have no
+    # idea whether any of this works".
+    #
+    # This repository is where a stale pin does its quietest damage. A benchmark
+    # is believed. <acemq.version> sat at 0.2.10 while acemq-java-amqp was at
+    # 0.7.3, which means every throughput and latency number this tool produced
+    # over that period described a library five releases old while the report
+    # header said nothing about it. The measurement was not wrong so much as
+    # about the wrong thing, and nothing in a green build said so.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Both pinned libraries are the newest released ones
+        # Hard failure rather than a warning, for the reason the examples
+        # repositories give: a warning in a log is what let the pin fall five
+        # minor versions behind. A green build is read as an answer.
+        #
+        # Both properties are checked in one pass and both are reported before the
+        # step exits, so a second stale pin cannot hide behind the first. That is
+        # not hypothetical here -- acemq.version and acemq.admin.version move for
+        # different reasons on different version lines, and fixing one is no
+        # evidence about the other.
+        #
+        # The tags are asked of each library repository rather than of the Maven
+        # feed: git ls-remote needs no token, which matters on a scheduled run,
+        # and the tag is what the release was cut from.
+        run: |
+          pom=library/pom.xml
+          fail=0
+
+          check() {
+            property="$1"
+            repo="$2"
+            # The dots in the property name are regex metacharacters, and an
+            # unescaped one would let <acemqXversion> match. Escaped here rather
+            # than at the call site so the name stays readable in the messages.
+            escaped=$(printf '%s' "$property" | sed 's/\./\\./g')
+
+            pinned=$(sed -n "s/.*<$escaped>\(.*\)<\/$escaped>.*/\1/p" "$pom" | head -1)
+            newest=$(git ls-remote --tags "https://github.com/AceMQ-Company/$repo" \
+                       | grep -v '\^{}' | sed 's#.*refs/tags/##' \
+                       | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' \
+                       | sort -V | tail -1)
+
+            # An empty answer means the listing failed or the tag naming changed,
+            # and comparing against nothing would pass silently forever.
+            if [ -z "$newest" ]; then
+              echo "::error::no release tags found on $repo, so <$property> could not be checked"
+              fail=1
+              return
+            fi
+            if [ -z "$pinned" ]; then
+              echo "::error::no <$property> found in $pom, so the pin on $repo could not be checked"
+              fail=1
+              return
+            fi
+
+            if [ "$pinned" != "$newest" ]; then
+              echo "::error::$pom pins $repo $pinned but the newest release is $newest. Edit <$property> in $pom and set it to $newest, then re-run the workloads against it -- any measurement taken at $pinned describes the older library."
+              fail=1
+              return
+            fi
+            echo "pinned $repo $pinned, which is the newest release"
+          }
+
+          check acemq.version       acemq-java-amqp
+          check acemq.admin.version acemq-java-rabbitmq-admin
+
+          exit $fail

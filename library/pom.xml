@@ -36,8 +36,13 @@
          buys nothing here and costs the newer language features. -->
     <maven.compiler.release>17</maven.compiler.release>
 
+    <!-- Both are the newest published release, and the tracks-the-release job in
+         ci.yml fails when either falls behind. The two move on separate version
+         lines for separate reasons, which is exactly how the admin client was
+         left at 0.1.0 after 0.1.1 shipped while the messaging library was being
+         kept current by hand. -->
     <acemq.version>0.7.3</acemq.version>
-    <acemq.admin.version>0.1.0</acemq.admin.version>
+    <acemq.admin.version>0.1.1</acemq.admin.version>
 
     <!-- Percentiles cannot be averaged, and keeping every sample in a list is
          not viable at hundreds of thousands per second. HdrHistogram is the
