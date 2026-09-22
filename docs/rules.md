@@ -121,6 +121,16 @@ does *not* detect duplication, which needs the sequence numbers and is a
 different measurement. When it fires, the queue depth in the report distinguishes
 "still draining" from "gone".
 
+The comparison carries no tolerance, and at the end of a run that matters: a
+confirm landing inside the measured window whose delivery is counted just after
+it reads exactly like loss. At 5,000/s a healthy run reports two or three
+messages unaccounted for beside a queue depth of zero often enough to be a
+coin toss. **Read the finding, not only the verdict** — a shortfall the queue
+depth cannot account for is the thing this objective exists to catch, and a
+shortfall of a handful beside an empty queue is delivery that finished late.
+Until the boundary is handled, it is an objective for runs where losing messages
+is the thing under test rather than one to put in an unattended gate.
+
 ## Writing your own
 
 ```java

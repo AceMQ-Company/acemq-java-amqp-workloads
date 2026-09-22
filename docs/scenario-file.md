@@ -67,6 +67,12 @@ producers:
 | `queues[]` | `name`, `type`, `bindings[]`, `consumers`, `deadLetterExchange`, `arguments`, `expect` |
 | `producers[]` | `name`, `exchange`, `routingKeys[]`, `rate`, `threads`, `messageSize`, `confirms`, `maxInFlight`, `maxMessages`, `expect` |
 
+There is no `management` setting to give here, and a workload file's one has no
+equivalent. Queue depth during a scenario is read over AMQP, because a run with
+ten queues would otherwise make ten HTTP requests a second to the broker it is
+measuring. A `management` key written by the studio is carried through the file
+for the studio's own use and does nothing to a run.
+
 Queue types are `classic`, `classic-mirrored`, `quorum` and `stream`. Several
 routing keys on a producer are used in turn, which is what makes a topic exchange
 behave like one: a producer on a single key measures one binding however many the

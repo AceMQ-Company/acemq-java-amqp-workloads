@@ -64,6 +64,18 @@ expect:
 | `arguments` | | queue arguments |
 | `declare` | `true` | set `false` to use the topology as it already exists |
 
+> **`queueType` and `arguments` do not reach the broker yet.** The queue is
+> declared classic whichever value `queueType` carries, and the arguments are
+> dropped — while the report prints back the type that was asked for, because it
+> echoes the spec rather than the broker's answer. Two workloads differing only
+> in `queueType` therefore compare classic with classic and pass. A
+> [scenario](scenario-file.md)'s `type` and `arguments` are honoured; use one
+> until this is connected, and check the broker rather than the report:
+>
+> ```bash
+> curl -su guest:guest http://localhost:15672/api/queues/%2F/orders.new
+> ```
+
 `declare: false` is the right choice when measuring a real environment.
 Declaring would either be refused for mismatched arguments or, worse, create
 something subtly different from what production runs and measure *that*.
@@ -105,6 +117,12 @@ report says so when you do.
 confirms is a message handed to a socket, not one the broker accepted. The rate
 goes up and some of those messages were never durably anywhere — not a number to
 promise a customer.
+
+> **Not yet honoured by a run.** The setting reaches the report and raises the
+> `confirms-were-on` warning, and the engine publishes with confirms either way:
+> two runs differing only in this field come back with the same publish latency
+> and the same rate. Until that is connected, `confirms: false` describes an
+> intention rather than a configuration, and there is no example of it.
 
 ## `consumers`
 
@@ -189,3 +207,10 @@ They run in order against the same broker and are reported side by side. This is
 how to answer "what does a quorum queue cost us" with a number rather than an
 opinion — and why the shared settings are inherited rather than copied, since two
 copies that disagree by one field make the comparison meaningless.
+
+**Inheritance replaces a block; it does not merge into it.** An entry writing
+`publishers: { confirms: false }` gets exactly that publishers block, and
+`threads`, `rate` and `messageSize` go back to their defaults. The run is valid,
+the report looks entirely normal, and it is not the experiment you wrote. When a
+suite varies one field *inside* a block, write the whole block out in each entry
+and let the two be read side by side.
