@@ -188,8 +188,8 @@ final class ScenarioRun {
      *
      * <p>Confirms are a property of the connection in this transport rather than of a single
      * publisher, which is why they are read here and not where the publishers are built. The
-     * scenario has already refused to run if its producers disagreed about them, so asking the
-     * first active producer asks all of them.
+     * scenario has already refused to run if its producers disagreed about them, so the
+     * producers are unanimous by the time this asks.
      */
     private AceMq connect() {
         ConnectionConfig.Builder config = ConnectionConfig.url(brokerUrl);

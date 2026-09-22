@@ -297,10 +297,7 @@ public final class Scenario {
         // how a run measures the opposite of what it was asked for. Two runs is the way to
         // compare confirms against no confirms, which is also the only way the comparison means
         // anything: it is the whole run that changes, not one producer in it.
-        Set<Boolean> confirmChoices = activeProducers().stream()
-                .map(ProducerNode::confirms)
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-        if (confirmChoices.size() > 1) {
+        if (activeProducers().stream().map(ProducerNode::confirms).distinct().count() > 1) {
             problems.add("producers disagree about publisher confirms, and a scenario has one"
                     + " connection to negotiate them on. Run the two configurations as two"
                     + " scenarios and compare them");
