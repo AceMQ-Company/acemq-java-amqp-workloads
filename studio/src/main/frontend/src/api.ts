@@ -53,6 +53,48 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+/**
+ * The credentials to ask the management API with.
+ *
+ * The management API is HTTP and wants a user; the AMQP URL already carries
+ * one, and on every broker anybody points this at they are the same user. Until
+ * this was sent, the back end asked the management API anonymously, was
+ * refused, and reported "the management API did not answer" about an API that
+ * had answered perfectly well -- which then disabled stream queues and Import
+ * from broker on a broker that supports both.
+ *
+ * Nothing is invented: when the URL carries no user, none is sent, and the back
+ * end falls back to whatever it would have used.
+ *
+ * @param connection what is about to be sent to the back end
+ * @return the same thing, with a user on it when one can be had
+ */
+function withCredentials<T extends { broker: string; username?: string; password?: string }>(
+  connection: T,
+): T {
+  if (connection.username) return connection
+  return { ...connection, ...credentialsIn(connection.broker) }
+}
+
+/**
+ * @param broker an AMQP URL
+ * @return the user and password written into it, or nothing
+ */
+function credentialsIn(broker: string): { username?: string; password?: string } {
+  try {
+    const url = new URL(broker)
+    if (!url.username) return {}
+    return {
+      username: decodeURIComponent(url.username),
+      password: decodeURIComponent(url.password),
+    }
+  } catch {
+    // Half-typed URLs are the normal state of that box. The probe reports what
+    // is wrong with it; guessing at credentials here would not help.
+    return {}
+  }
+}
+
 export const api = {
   presets: () => call<Preset[]>('/api/presets'),
 
@@ -83,7 +125,7 @@ export const api = {
     tls?: TlsSettings
   }) => call<BrokerProbe>('/api/broker/probe', {
     method: 'POST',
-    body: JSON.stringify(connection),
+    body: JSON.stringify(withCredentials(connection)),
   }),
 
   /**
@@ -103,7 +145,7 @@ export const api = {
     password?: string
   }) => call<Scenario>('/api/broker/import', {
     method: 'POST',
-    body: JSON.stringify(connection),
+    body: JSON.stringify(withCredentials(connection)),
   }),
 
   start: (scenarioId: string | null, scenario: Scenario, broker: string, tls?: TlsSettings) =>
