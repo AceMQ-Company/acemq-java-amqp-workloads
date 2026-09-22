@@ -43,6 +43,40 @@ the messaging library's release train.
   p99 that the old file could not have shown.
 
 ### Fixed
+- **The command line printed the broker password when a run failed.** A run
+  against an unreachable broker answered with `could not connect to
+  amqp://guest:hunter2@localhost:5672`, one line below a banner that had
+  redacted the identical URL — the redaction existed and that path did not call
+  it. This is a CI log, which is archived and frequently public. Redaction now
+  happens on the way out of the stream rather than at whichever call sites
+  somebody remembered, so a URL cannot reach a terminal or a log unredacted by
+  arriving along a route nobody thought of. There were five such routes: the
+  failed-run message on both the workload and the scenario path, and three
+  where a library below us quoted the URL back in its own message — the parser
+  naming the line it choked on, chief among them.
+- **A refused declaration exited 4, "the broker could not be reached".**
+  Redeclaring an exchange under a different type is refused by a broker that
+  answered perfectly well, and calling that unreachable sent the reader to
+  check firewall rules and hostnames for a mistake in their own file. A refusal
+  — anything the broker answers with a reply code, so credentials it will not
+  take and a missing queue as well as an inequivalent redeclaration — is now
+  exit 3, the code a misspelled setting gets, because it is the same kind of
+  problem and is fixed in the same place. Exit 4 keeps its meaning: nobody
+  answered. What the broker said is printed alongside, since it is the only
+  sentence that names the setting to change.
+- **Three SLF4J warnings printed before every run.** `slf4j-api` with no
+  provider on the class path announces its absence in three lines, which were
+  the first thing a new reader of the getting-started page saw and which appear
+  in none of the transcripts in `docs/`. The jar now carries the no-operation
+  provider explicitly — the one slf4j was already falling back to, so nothing
+  about what is logged has changed. It is declared `optional`, so nobody
+  depending on the library has a logging decision made for them.
+- **`${VAR}` written inside a `#` comment stopped a scenario run.**
+  Substitution runs over the whole file before it is parsed, which is what lets
+  a placeholder stand anywhere rather than only in the fields somebody
+  anticipated — but it also ran over the comments, so a file trying to explain
+  its own syntax to the next reader aborted with an unset-variable error over a
+  line the parser never sees. A comment is not part of the document.
 - **The management API was never actually asked.** The studio's probe sent no
   credentials, so on a broker that wants a user — which is every broker — the
   management query was refused and the connect screen reported that the
