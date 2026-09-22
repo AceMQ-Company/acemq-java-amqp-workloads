@@ -93,7 +93,7 @@ public final class ScenarioReader {
      * @return what it describes
      */
     static ScenarioFile parse(String text, boolean json, Function<String, String> environment) {
-        String resolved = substitute(text, environment);
+        String resolved = substitute(text, environment, !json);
         ObjectMapper mapper = mapper(json);
         try {
             ScenarioFile file = mapper.readValue(resolved, ScenarioFile.class);
@@ -218,9 +218,31 @@ public final class ScenarioReader {
 
     /** Replaces {@code ${VAR}} and {@code ${VAR:-default}} from the environment. */
     static String substitute(String text, Function<String, String> environment) {
+        return substitute(text, environment, false);
+    }
+
+    /**
+     * Replaces {@code ${VAR}} and {@code ${VAR:-default}} from the environment, outside comments.
+     *
+     * <p>Substitution runs over the whole file before anything parses it, which is what lets a
+     * placeholder stand anywhere rather than only in the few fields somebody anticipated. It
+     * used to run over the comments too, so a file that tried to explain its own syntax to the
+     * next reader stopped the run with an unset-variable error over a line the parser never
+     * sees. A comment is not part of the document.
+     *
+     * @param text the file's contents
+     * @param environment where {@code ${VAR}} comes from
+     * @param yaml whether {@code #} starts a comment, which it does not in JSON
+     */
+    static String substitute(String text, Function<String, String> environment, boolean yaml) {
+        boolean[] comment = yaml ? YamlComments.mask(text) : new boolean[text.length()];
         Matcher matcher = VARIABLE.matcher(text);
         StringBuilder out = new StringBuilder();
         while (matcher.find()) {
+            if (comment[matcher.start()]) {
+                matcher.appendReplacement(out, Matcher.quoteReplacement(matcher.group()));
+                continue;
+            }
             String name = matcher.group(1);
             String fallback = matcher.group(2);
             String value = environment.apply(name);
