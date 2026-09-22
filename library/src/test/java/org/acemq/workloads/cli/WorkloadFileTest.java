@@ -116,6 +116,48 @@ class WorkloadFileTest {
             // Inherited rather than repeated.
             assertThat(file.workloads().get(1).publishers().rate()).isEqualTo(10_000);
         }
+
+        @Test
+        @DisplayName("the queue type and arguments are carried, not just recognised")
+        void queueTypeAndArguments() {
+            // These were read here and dropped before the broker saw them, which made a suite
+            // like the one above compare classic against classic. WorkloadIT is where the
+            // broker is asked; this is where the value is checked to have survived the parse.
+            WorkloadFile file = parse("""
+                    name: typed
+                    broker: amqp://localhost:5672
+                    topology:
+                      queue: q.typed
+                      queueType: quorum
+                      arguments:
+                        x-max-length: 100000
+                        x-overflow: reject-publish
+                    runFor: 30s
+                    """);
+
+            assertThat(file.workloads().get(0).topology().queueType()).isEqualTo("quorum");
+            assertThat(file.workloads().get(0).topology().queueArguments())
+                    .containsEntry("x-max-length", 100_000)
+                    .containsEntry("x-overflow", "reject-publish");
+        }
+
+        @Test
+        @DisplayName("an incompressible payload can be asked for without restating the size")
+        void randomPayloadWithoutMessageSize() {
+            // randomPayload used to be read only inside the messageSize branch, so on its own it
+            // did nothing and the run went out with a kilobyte of zeroes -- the payload anything
+            // that compresses is best at, and therefore the one that flatters a broker most.
+            WorkloadFile file = parse("""
+                    name: random
+                    broker: amqp://localhost:5672
+                    publishers:
+                      randomPayload: true
+                    runFor: 30s
+                    """);
+
+            assertThat(file.workloads().get(0).publishers().payload().isRandom()).isTrue();
+            assertThat(file.workloads().get(0).publishers().payload().size()).isEqualTo(1024);
+        }
     }
 
     @Nested
@@ -148,6 +190,37 @@ class WorkloadFileTest {
                     """))
                     .isInstanceOf(ConfigException.class)
                     .hasMessageContaining("is not a duration");
+        }
+
+        @Test
+        @DisplayName("a queue type a workload cannot express is refused, not downgraded")
+        void unsupportedQueueType() {
+            // "stream" used to fall through to classic in silence, so a file asking for an
+            // append-only log got a queue that deletes what it delivers.
+            assertThatThrownBy(() -> parse("""
+                    name: streaming
+                    broker: amqp://localhost
+                    topology: { queue: q, queueType: stream }
+                    """))
+                    .isInstanceOf(ConfigException.class)
+                    .hasMessageContaining("'topology.queueType' is 'stream'")
+                    .hasMessageContaining("write a scenario file");
+        }
+
+        @Test
+        @DisplayName("an exchange type with no exchange to put it on is refused")
+        void exchangeTypeWithoutExchange() {
+            // Without an exchange the publish goes through the default one, which has no type.
+            // Accepting the key and ignoring it made "fanout" and "direct to the queue" look
+            // like the same run.
+            assertThatThrownBy(() -> parse("""
+                    name: fanning-out
+                    broker: amqp://localhost
+                    topology: { queue: q, exchangeType: fanout }
+                    """))
+                    .isInstanceOf(ConfigException.class)
+                    .hasMessageContaining("'topology.exchangeType' was given without")
+                    .hasMessageContaining("the type would be ignored");
         }
 
         @Test

@@ -170,6 +170,30 @@ public final class WorkloadFile {
         if (!topology.isMissingNode()) {
             reject(topology, "topology.", "exchange", "exchangeType", "queue", "routingKey",
                     "queueType", "arguments", "declare");
+            // An exchange type with no exchange to apply it to. Without an exchange the workload
+            // publishes through the default one, which has no type and cannot be declared, so
+            // there is nowhere for this value to go — and a file that says fanout and measures
+            // a direct-to-queue publish is exactly the kind of wrong that reads as right.
+            // A workload is one queue, and the two kinds it can be are the two a single path is
+            // worth comparing. "stream" parses elsewhere in this project and does not belong
+            // here: a stream is read by offset and deletes nothing, so the consumers, the depth
+            // and the backlog rules all mean something different — it is a scenario's queue, and
+            // 06-stream.yaml is what asking for one looks like. Refused rather than quietly
+            // downgraded to classic, which is what this used to do.
+            String queueType = topology.path("queueType").asText("classic");
+            if (!"classic".equals(queueType) && !"quorum".equals(queueType)) {
+                throw new ConfigException("'topology.queueType' is '" + queueType + "', and a"
+                        + " workload file understands 'classic' or 'quorum'. For a stream, or for"
+                        + " several queues of different kinds at once, write a scenario file:"
+                        + " its queues take a 'type' and this one does not.");
+            }
+
+            if (topology.has("exchangeType") && !topology.has("exchange")) {
+                throw new ConfigException("'topology.exchangeType' was given without"
+                        + " 'topology.exchange'. With no exchange the workload publishes to the"
+                        + " default exchange, which routes by queue name and has no type, so the"
+                        + " type would be ignored.");
+            }
             builder.topology(t -> {
                 if (topology.has("exchange")) {
                     t.exchange(topology.get("exchange").asText(),
@@ -181,8 +205,10 @@ public final class WorkloadFile {
                 if (topology.has("routingKey")) {
                     t.routingKey(topology.get("routingKey").asText());
                 }
-                if ("quorum".equals(topology.path("queueType").asText("classic"))) {
+                if ("quorum".equals(queueType)) {
                     t.quorum();
+                } else {
+                    t.classic();
                 }
                 topology.path("arguments").fields().forEachRemaining(e ->
                         t.argument(e.getKey(), e.getValue().isNumber()
@@ -206,9 +232,14 @@ public final class WorkloadFile {
                 } else if (publishers.has("rate")) {
                     p.rate(publishers.get("rate").asLong());
                 }
-                if (publishers.has("messageSize")) {
-                    int size = publishers.get("messageSize").asInt();
-                    p.payload(publishers.path("randomPayload").asBoolean(false)
+                // The two payload keys are one setting between them, and either can be written
+                // without the other. Reading randomPayload only inside messageSize meant a file
+                // that asked for an incompressible body and left the size alone got a kilobyte
+                // of zeroes instead — which is the payload a broker's own compression is best at
+                // and therefore the one that flatters it most.
+                if (publishers.has("messageSize") || publishers.has("randomPayload")) {
+                    int size = publishers.path("messageSize").asInt(p.payload().size());
+                    p.payload(publishers.path("randomPayload").asBoolean(p.payload().isRandom())
                             ? Payload.ofRandomBytes(size) : Payload.ofBytes(size));
                 }
                 if (publishers.has("confirms")) {
