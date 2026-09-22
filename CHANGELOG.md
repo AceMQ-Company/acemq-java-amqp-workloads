@@ -36,13 +36,48 @@ the messaging library's release train.
 ### Changed
 - **`examples/comparison.yaml` is now `examples/05-queue-types.yaml`.** The same
   question — what does a quorum queue cost us — answered on a queue that is
-  actually a quorum queue. The old file was a workload suite, and a workload
-  file's `queueType` never reaches the broker, so what it shipped was classic
-  against classic, passing. The replacement is a scenario: one fanout exchange,
-  both queues fed the same messages in the same second, and a four-times gap in
-  p99 that the old file could not have shown.
+  actually a quorum queue. The old file was a workload suite, and at the time a
+  workload file's `queueType` did not reach the broker, so what it shipped was
+  classic against classic, passing. The replacement is a scenario: one fanout
+  exchange, both queues fed the same messages in the same second, and a
+  four-times gap in p99 that the old file could not have shown. The underlying
+  bug is fixed below, so a suite would work now too; the scenario stays, because
+  feeding both queues the same message in the same instant is the better
+  experiment and not merely the available one.
 
 ### Fixed
+- **A workload file's `topology.queueType` and `topology.arguments` never
+  reached the broker.** Both were parsed, both were validated, and both were
+  then left behind when the workload was translated into the scenario the engine
+  runs: the queue node was built with its bindings and its consumers and nothing
+  else, so every workload file declared a classic queue whatever it said. What
+  made this expensive rather than merely wrong is that nothing looked broken.
+  The report prints the type from the spec, so it read back `quorum` for a queue
+  the broker had made classic, and two workloads differing only in `queueType`
+  agreed with each other and passed. A measured comparison came out at p99 2.4ms
+  against 38.3ms once both queues were really what they claimed.
+- **`publishers: confirms: false` was a no-op.** The value reached the producer
+  node and stopped there; the engine opened its connection without ever asking
+  what the producer wanted, and publisher confirms are a property of the
+  connection in this transport. Two runs differing only in this field measured
+  643µs and 662µs publish p50 — the same run twice. They now measure 777µs and
+  23µs, which is the round trip the setting is about. A scenario whose producers
+  disagree about confirms is refused rather than resolved silently, since one
+  connection cannot negotiate both answers.
+- **`publishers: randomPayload: true` did nothing unless `messageSize` was also
+  written.** It was read inside the branch that handles the size, so on its own
+  it was dropped and the run went out with a kilobyte of zeroes — which is the
+  payload anything that compresses is best at, and therefore the one that
+  flatters a broker most. The two keys are now one setting between them and
+  either may be written alone.
+- **`topology.queueType: stream` was silently downgraded to classic**, so a file
+  asking for an append-only log got a queue that deletes what it delivers. A
+  workload is one queue and one path, and a stream is not that shape: it is
+  refused now, pointing at the scenario file that can express one.
+- **`topology.exchangeType` with no `topology.exchange` was accepted and
+  ignored.** With no exchange the publish goes through the default one, which
+  routes by queue name and has no type, so `fanout` and `direct to the queue`
+  produced identical runs from files that read differently. Refused.
 - **The command line printed the broker password when a run failed.** A run
   against an unreachable broker answered with `could not connect to
   amqp://guest:hunter2@localhost:5672`, one line below a banner that had
@@ -50,10 +85,14 @@ the messaging library's release train.
   it. This is a CI log, which is archived and frequently public. Redaction now
   happens on the way out of the stream rather than at whichever call sites
   somebody remembered, so a URL cannot reach a terminal or a log unredacted by
-  arriving along a route nobody thought of. There were five such routes: the
-  failed-run message on both the workload and the scenario path, and three
-  where a library below us quoted the URL back in its own message — the parser
-  naming the line it choked on, chief among them.
+  arriving along a route nobody thought of. Four routes were leaking, all of
+  them a message written somewhere below us and passed through: the failed-run
+  line on the workload path and on the scenario path, and in the studio the
+  stored failure text — which goes into the run history, out to the browser over
+  the event stream, and on to whoever the history file gets copied to — and the
+  server log line beside it. The studio redacted the broker column somebody
+  thought of and stored the message whole, which is the same fault in the same
+  shape.
 - **A refused declaration exited 4, "the broker could not be reached".**
   Redeclaring an exchange under a different type is refused by a broker that
   answered perfectly well, and calling that unreachable sent the reader to
