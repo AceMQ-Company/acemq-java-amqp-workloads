@@ -11,7 +11,7 @@ cd acemq-java-amqp-workloads
 mvn -DskipTests package
 ```
 
-That produces `target/acemq-workload.jar`, which is self-contained — no
+That produces `library/target/acemq-workload.jar`, which is self-contained — no
 classpath, no dependencies to install.
 
 Java 17 or newer. Docker for the integration tests.
@@ -72,7 +72,7 @@ runFor: 30s
 Check it before running it:
 
 ```bash
-java -jar target/acemq-workload.jar -f workload.yaml --dry-run
+java -jar library/target/acemq-workload.jar -f workload.yaml --dry-run
 ```
 
 ```
@@ -93,7 +93,7 @@ than after it.
 Then run it:
 
 ```bash
-java -jar target/acemq-workload.jar -f workload.yaml
+java -jar library/target/acemq-workload.jar -f workload.yaml
 ```
 
 ```
@@ -140,7 +140,7 @@ expect:
 Now the exit code means something:
 
 ```bash
-java -jar target/acemq-workload.jar -f workload.yaml --quiet
+java -jar library/target/acemq-workload.jar -f workload.yaml --quiet
 echo $?     # 0 passed, 1 missed, 2 measured nothing
 ```
 

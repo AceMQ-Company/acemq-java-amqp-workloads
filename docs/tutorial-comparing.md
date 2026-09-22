@@ -47,7 +47,7 @@ workloads:
 ```
 
 ```bash
-java -jar target/acemq-workload.jar -f compare.yaml --dry-run
+java -jar library/target/acemq-workload.jar -f compare.yaml --dry-run
 ```
 
 Confirm both inherited the same publishers and consumers before running
@@ -56,7 +56,7 @@ anything. If they did not, the comparison is already worthless.
 ## Step 2 — Run it
 
 ```bash
-java -jar target/acemq-workload.jar -f compare.yaml --report reports/ --format html,md,json
+java -jar library/target/acemq-workload.jar -f compare.yaml --report reports/ --format html,md,json
 ```
 
 They run in order, against the same broker, and are reported together:
@@ -165,7 +165,7 @@ barely matters and the result will mislead you.
 The Markdown table is usually the whole thing:
 
 ```bash
-java -jar target/acemq-workload.jar -f compare.yaml --report reports/ --format md,json --quiet
+java -jar library/target/acemq-workload.jar -f compare.yaml --report reports/ --format md,json --quiet
 cat reports/workload-*.md | head -8
 ```
 

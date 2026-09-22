@@ -24,7 +24,7 @@ cd acemq-java-amqp-workloads
 mvn -DskipTests package
 ```
 
-That gives you `target/acemq-workload.jar`. Java 17 or newer.
+That gives you `library/target/acemq-workload.jar`. Java 17 or newer.
 
 ## The broker
 

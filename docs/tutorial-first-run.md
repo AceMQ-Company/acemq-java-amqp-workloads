@@ -35,7 +35,7 @@ real exchange.
 ## Step 2 — Check it before running it
 
 ```bash
-java -jar target/acemq-workload.jar -f first.yaml --dry-run
+java -jar library/target/acemq-workload.jar -f first.yaml --dry-run
 ```
 
 ```
@@ -72,7 +72,7 @@ and produced a perfectly plausible report for a configuration you did not choose
 ## Step 3 — Run it
 
 ```bash
-java -jar target/acemq-workload.jar -f first.yaml
+java -jar library/target/acemq-workload.jar -f first.yaml
 ```
 
 ```
@@ -159,7 +159,7 @@ expect:
 ```
 
 ```bash
-java -jar target/acemq-workload.jar -f first.yaml --quiet
+java -jar library/target/acemq-workload.jar -f first.yaml --quiet
 echo "exit: $?"
 ```
 
@@ -193,7 +193,7 @@ about why that distinction matters.
 ## Step 6 — Write a report
 
 ```bash
-java -jar target/acemq-workload.jar -f first.yaml --report reports/
+java -jar library/target/acemq-workload.jar -f first.yaml --report reports/
 open reports/workload-*.html
 ```
 

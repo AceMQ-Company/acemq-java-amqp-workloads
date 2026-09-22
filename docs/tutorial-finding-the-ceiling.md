@@ -32,7 +32,7 @@ expect:
 ```
 
 ```bash
-java -jar target/acemq-workload.jar -f ceiling.yaml
+java -jar library/target/acemq-workload.jar -f ceiling.yaml
 ```
 
 ```
@@ -114,7 +114,7 @@ workloads:
 ```
 
 ```bash
-java -jar target/acemq-workload.jar -f ladder.yaml --report reports/ --format md
+java -jar library/target/acemq-workload.jar -f ladder.yaml --report reports/ --format md
 ```
 
 The Markdown table is the deliverable:

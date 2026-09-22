@@ -6,7 +6,7 @@ importantly — does not fail for the wrong one.
 ## Step 1 — The four ways it can end
 
 ```bash
-java -jar target/acemq-workload.jar -f workload.yaml --quiet
+java -jar library/target/acemq-workload.jar -f workload.yaml --quiet
 echo $?
 ```
 
