@@ -147,6 +147,37 @@ test.describe('the studio', () => {
     }
   })
 
+  // The designer column was a two-row grid -- a toolbar and a canvas -- and a
+  // banner is a third child. The first one to appear took the row the canvas
+  // was meant to have, and the canvas fell into an implicit row sized to its
+  // content, which for a flow pane is nothing. Loading `dead-letter`, whose
+  // parked queue has no consumer, replaced the entire topology with one amber
+  // line about it. A CSS bug with no test comes back, so this is the test.
+  test('a banner does not take the canvas with it', async ({ page }) => {
+    await open(page)
+    await loadPreset(page, 'A dead-letter path under load')
+
+    const banner = page.locator('.design-column > .banner')
+    await expect(banner).toContainText('nothing consumes payments.parked')
+
+    // The topology is still there, and still the size of the space left over.
+    const canvas = page.locator('.canvas')
+    await expect(canvas).toBeVisible()
+    expect((await canvas.boundingBox())!.height,
+      'the canvas was squeezed out by the banner').toBeGreaterThan(300)
+    await expect(page.locator('[data-id^="queue:"]')).toHaveCount(2)
+    await expect(page.locator('[data-id="queue:payments.parked"]')).toBeVisible()
+
+    // The banner is above the canvas rather than on top of it: both are in the
+    // column, neither is over the other.
+    const above = await page.evaluate(() => {
+      const strip = document.querySelector('.design-column > .banner')!.getBoundingClientRect()
+      const pane = document.querySelector('.canvas')!.getBoundingClientRect()
+      return strip.bottom <= pane.top + 1
+    })
+    expect(above, 'the banner is sitting over the canvas').toBe(true)
+  })
+
   test('keeps the run, compares two, and forgets one', async ({ page }) => {
     await open(page)
 
@@ -199,6 +230,17 @@ async function open(page: Page) {
   await page.goto('/')
   await connect(page, BROKER)
   await page.getByRole('button', { name: 'Continue' }).click({ timeout: 30_000 })
+  await expect(page.locator('.canvas')).toBeVisible()
+}
+
+/**
+ * Opens one of the presets on the canvas.
+ *
+ * @param title the heading on its card
+ */
+async function loadPreset(page: Page, title: string) {
+  await page.getByRole('button', { name: 'presets' }).click()
+  await page.locator('.card').filter({ hasText: title }).click()
   await expect(page.locator('.canvas')).toBeVisible()
 }
 

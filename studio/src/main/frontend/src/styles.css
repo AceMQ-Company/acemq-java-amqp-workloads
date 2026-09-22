@@ -343,7 +343,36 @@ button.ghost:hover:not(:disabled) {
   }
 }
 
+/*
+ * The designer column: a toolbar, however many banners the scenario has earned,
+ * and the canvas taking whatever is left.
+ *
+ * This used to be a two-row grid, which worked only as long as nothing had
+ * anything to say. The moment a banner appeared it took the row meant for the
+ * canvas, and the canvas dropped into an implicit row sized to its content --
+ * zero, because a React Flow pane is sized by its container. Loading a preset
+ * with a dead-letter path made the whole topology vanish behind one amber line
+ * about a queue nobody consumes. A column of unknown length is a flex column:
+ * the fixed-height children keep their height and the canvas takes the rest,
+ * however many of them there turn out to be.
+ */
+.design-column {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.design-column > .toolbar,
+.design-column > .banner {
+  flex: none;
+}
+
 .canvas {
+  /* min-height: 0 so the canvas can be shorter than the graph inside it and
+     scroll, rather than pushing the column taller than the window. */
+  flex: 1;
+  min-height: 0;
   position: relative;
   background:
     radial-gradient(circle at 30% 20%, rgba(61, 220, 151, 0.05), transparent 45%),

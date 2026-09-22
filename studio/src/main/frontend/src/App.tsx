@@ -289,7 +289,7 @@ export default function App() {
 
       {tab === 'design' && (
         <div className="body">
-          <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', overflow: 'hidden' }}>
+          <div className="design-column">
             <div className="toolbar">
               <span className="title">{scenario.name}</span>
               <button onClick={() => addExchange(scenario, setScenario, setSelection)}>
