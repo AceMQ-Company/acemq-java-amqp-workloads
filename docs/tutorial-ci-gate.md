@@ -76,6 +76,10 @@ acemq-workload: unknown setting 'consumers.prefech'. ...
 exit: 3
 ```
 
+Also exit 3 when the broker is the one saying the file is wrong — redeclaring an
+exchange under a different type, say. It answered, so it is not unreachable; what
+it said is printed, and it names the setting to change.
+
 **Exit 4 — no broker:**
 
 ```yaml
@@ -83,9 +87,12 @@ broker: amqp://guest:guest@127.0.0.1:1
 ```
 
 ```
-acemq-workload: the run failed: ...
+acemq-workload: the run failed: could not connect to amqp://guest:***@127.0.0.1:1
 exit: 4
 ```
+
+The password is redacted wherever a URL is printed, which matters most here: this
+line is written to a CI log, and CI logs are archived and frequently public.
 
 ## Step 3 — A gate that acts on the difference
 

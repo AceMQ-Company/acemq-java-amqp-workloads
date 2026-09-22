@@ -24,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -145,5 +146,143 @@ class CliTest {
         out.reset();
         assertThat(run("--version")).isEqualTo(Cli.OK);
         assertThat(stdout()).contains("acemq-workload");
+    }
+
+    /**
+     * Every one of these asks the same question of a different route out: did the password
+     * reach the terminal.
+     *
+     * <p>Deliberately not "does this message read as expected". The leak these pin was never a
+     * wrong sentence — it was one failure path that did not call the redaction every other path
+     * called, printing {@code could not connect to amqp://guest:hunter2@localhost:1} one line
+     * below a banner that had redacted the identical URL. A test matching on the message would
+     * have passed on the day the next such path was written, which is the whole problem: the
+     * password does not care which sentence carries it, and neither does the CI log it lands in.
+     *
+     * <p>So the assertion is the absence of the secret from everything both streams produced,
+     * and each case is a different way of getting the URL in front of a printer: a library
+     * quoting it back, a parser quoting the line it choked on, and the two file formats.
+     */
+    @Nested
+    @DisplayName("never prints a password")
+    class Redacting {
+
+        /** Distinctive enough that finding it anywhere in the output means it came from here. */
+        private static final String SECRET = "n0t-f0r-the-log";
+
+        private void assertSilentAbout(String secret) {
+            assertThat(stdout() + stderr())
+                    .as("everything the command line printed")
+                    .doesNotContain(secret);
+        }
+
+        @Test
+        @DisplayName("not when a broker refuses to be reached")
+        void unreachable(@TempDir Path dir) throws Exception {
+            Path file = dir.resolve("w.yaml");
+            Files.writeString(file, """
+                    name: unreachable
+                    broker: amqp://guest:%s@127.0.0.1:1
+                    topology: { queue: q }
+                    publishers: { rate: 10 }
+                    consumers: { concurrency: 1 }
+                    warmup: 0s
+                    runFor: 1s
+                    """.formatted(SECRET));
+
+            assertThat(run("-f", file.toString())).isEqualTo(Cli.BROKER_UNREACHABLE);
+            assertSilentAbout(SECRET);
+        }
+
+        @Test
+        @DisplayName("not when the parser quotes the line it choked on")
+        void malformedFile(@TempDir Path dir) throws Exception {
+            // Jackson puts a slice of the source into its own message, and the broker line is
+            // very often inside that slice. Nothing in this project wrote that message.
+            Path file = dir.resolve("w.yaml");
+            Files.writeString(file, """
+                    name: broken
+                    broker: amqp://guest:%s@localhost:5672
+                    topology: { queue: q
+                    runFor: 30s
+                    """.formatted(SECRET));
+
+            assertThat(run("-f", file.toString())).isEqualTo(Cli.BAD_CONFIG);
+            assertSilentAbout(SECRET);
+        }
+
+        @Test
+        @DisplayName("not when an unknown setting is refused")
+        void unknownSetting(@TempDir Path dir) throws Exception {
+            Path file = dir.resolve("w.yaml");
+            Files.writeString(file, """
+                    name: typo
+                    broker: amqp://guest:%s@localhost:5672
+                    consumers: { prefech: 10 }
+                    runFor: 30s
+                    """.formatted(SECRET));
+
+            assertThat(run("-f", file.toString())).isEqualTo(Cli.BAD_CONFIG);
+            assertSilentAbout(SECRET);
+        }
+
+        @Test
+        @DisplayName("not from a scenario file, which takes a different route entirely")
+        void scenarioFile(@TempDir Path dir) throws Exception {
+            Path file = dir.resolve("s.yaml");
+            Files.writeString(file, """
+                    name: unreachable-scenario
+                    broker: amqp://guest:%s@127.0.0.1:1
+                    exchanges: [ { name: ex, type: topic } ]
+                    queues:
+                      - name: q
+                        bindings: [ { exchange: ex, routingKey: k } ]
+                        consumers: { concurrency: 1 }
+                    producers:
+                      - { name: p, exchange: ex, routingKeys: [k], rate: 10 }
+                    warmup: 0s
+                    runFor: 1s
+                    """.formatted(SECRET));
+
+            assertThat(run("-f", file.toString())).isEqualTo(Cli.BROKER_UNREACHABLE);
+            assertSilentAbout(SECRET);
+        }
+
+        @Test
+        @DisplayName("not from a scenario the studio would not have written")
+        void malformedScenario(@TempDir Path dir) throws Exception {
+            Path file = dir.resolve("s.yaml");
+            Files.writeString(file, """
+                    name: nonsense
+                    broker: amqp://guest:%s@localhost:5672
+                    producers: [ { name: p, exchange: ex, routingKeys: [k], rait: 10 } ]
+                    """.formatted(SECRET));
+
+            assertThat(run("-f", file.toString())).isEqualTo(Cli.BAD_CONFIG);
+            assertSilentAbout(SECRET);
+        }
+
+        @Test
+        @DisplayName("not even from --broker, which never goes near a file")
+        void fromTheCommandLine(@TempDir Path dir) throws Exception {
+            Path file = dir.resolve("s.yaml");
+            Files.writeString(file, """
+                    name: overridden
+                    exchanges: [ { name: ex, type: topic } ]
+                    queues:
+                      - name: q
+                        bindings: [ { exchange: ex, routingKey: k } ]
+                        consumers: { concurrency: 1 }
+                    producers:
+                      - { name: p, exchange: ex, routingKeys: [k], rate: 10 }
+                    warmup: 0s
+                    runFor: 1s
+                    """);
+
+            assertThat(run("-f", file.toString(),
+                    "--broker", "amqp://guest:" + SECRET + "@127.0.0.1:1"))
+                    .isEqualTo(Cli.BROKER_UNREACHABLE);
+            assertSilentAbout(SECRET);
+        }
     }
 }

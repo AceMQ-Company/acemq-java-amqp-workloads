@@ -25,8 +25,8 @@ reads the report.
 | `0` | passed |
 | `1` | a **sound** run missed an objective — the broker's answer is "no" |
 | `2` | a run was **invalid** — nothing was measured |
-| `3` | the file is wrong |
-| `4` | the broker could not be reached |
+| `3` | the file is wrong, including when it is the broker that says so |
+| `4` | the broker could not be reached — nobody answered |
 
 Both kinds of file get the same codes. Which kind it is, is decided by what is in
 it: a scenario names `exchanges`, `queues` and `producers`, and a workload names a
@@ -43,13 +43,34 @@ the wrong thing with each:
   actual problem is a firewall rule.
 - **`3`.** A configuration mistake never becomes a pass by retrying.
 
+### `3` vs `4` — a refusal is not a silence
+
+A broker that refuses something is a broker that answered. Asking it to redeclare
+an exchange under a type it does not already have comes back as
+
+```
+acemq-workload: the broker refused this run: could not declare exchange orders
+  the broker said: PRECONDITION_FAILED - inequivalent arg 'type' for exchange
+  'orders' in vhost '/': received 'direct' but current is 'topic'
+```
+
+and that is exit `3`, not `4`. The same goes for credentials the broker would not
+take, and for a queue that was supposed to already exist. Every one of them is a
+disagreement between the file and the broker, which is the same kind of problem
+as a misspelled setting and is fixed in the same place.
+
+Exit `4` is reserved for the broker that never answered at all — a wrong
+hostname, a closed port, a container still starting. Keeping the two apart is
+the whole point of having both: `4` sends somebody to look at the network, and
+sending them there over a line in their own file wastes an afternoon.
+
 ```bash
 java -jar acemq-workload.jar -f workload.yaml --quiet
 case $? in
   0) echo "ok" ;;
   1) echo "the broker did not meet the objective" ;;
   2) echo "the test harness could not offer the load — fix the harness" ;;
-  3) echo "the workload file is wrong" ;;
+  3) echo "the workload file is wrong, or the broker refused what it asked for" ;;
   4) echo "could not reach the broker" ;;
 esac
 ```

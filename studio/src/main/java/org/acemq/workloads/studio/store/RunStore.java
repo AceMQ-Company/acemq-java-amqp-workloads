@@ -143,6 +143,12 @@ public class RunStore {
      * password was wrong or the port was closed — and the answer somebody needs is three causes
      * further down, where it says the certificate is marked development-only.
      *
+     * <p>Redacted, for the same reason the {@code broker} column is. The URL was taken out of
+     * the column somebody thought of and left in the one nobody did: "could not connect to
+     * amqps://guest:hunter2@broker:5671" is precisely the sentence the transport produces, and
+     * it was going into the history whole, out to the browser over the event stream, and on to
+     * whoever the history file gets copied to.
+     *
      * @param failure what went wrong
      * @return the message, with the root cause when it says something different
      */
@@ -156,9 +162,9 @@ public class RunStore {
         String root = String.valueOf(cause.getMessage());
 
         if (cause == failure || root.equals(message) || root.equals("null")) {
-            return message;
+            return redact(message);
         }
-        return message + " -- " + root;
+        return redact(message + " -- " + root);
     }
 
     /**

@@ -197,13 +197,15 @@ public class Runs {
 
             @Override
             public void onFailed(Throwable failure) {
-                log.warn("run {} failed: {}", id, failure.toString());
+                // Redacted, because the transport puts the whole broker URL into this message
+                // and a server log is a file people paste into tickets.
+                log.warn("run {} failed: {}", id, RunStore.redact(failure.toString()));
                 Active failed = active.get(id);
                 try {
                     store.failed(id, failure);
                     if (failed != null) {
-                        broadcast(failed, "failed",
-                                Map.of("error", String.valueOf(failure.getMessage())));
+                        broadcast(failed, "failed", Map.of("error",
+                                RunStore.redact(String.valueOf(failure.getMessage()))));
                     }
                 } finally {
                     if (failed != null) {

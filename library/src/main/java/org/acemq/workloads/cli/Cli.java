@@ -51,9 +51,15 @@ import org.acemq.workloads.scenario.ScenarioRunner;
  *   <tr><td>1</td><td>a run was sound and missed an objective — the broker's answer is "no"</td></tr>
  *   <tr><td>2</td><td>a run was <strong>invalid</strong>; nothing was measured, retrying as-is
  *       will produce the same non-answer</td></tr>
- *   <tr><td>3</td><td>the workload file is wrong</td></tr>
+ *   <tr><td>3</td><td>the workload file is wrong — including when it is the broker that says so,
+ *       by refusing a topology that contradicts what it already has</td></tr>
  *   <tr><td>4</td><td>the broker could not be reached, or the run failed outright</td></tr>
  * </table>
+ *
+ * <p>A broker that answers and refuses is deliberately not 4. See {@link BrokerFailure}.
+ *
+ * <p>Everything this class prints goes out through {@link Redaction}, so no message can leak a
+ * password by taking a route nobody remembered to redact.
  */
 public final class Cli {
 
@@ -77,8 +83,9 @@ public final class Cli {
               0  passed
               1  a sound run missed an objective
               2  a run was invalid: nothing was measured
-              3  the workload file is wrong
-              4  the broker could not be reached
+              3  the workload file is wrong, including when the broker is the one
+                 saying so by refusing a topology it disagrees with
+              4  the broker could not be reached: nobody answered
 
             a scenario file is what the studio exports, and runs here unchanged:
               name: monday-morning
@@ -123,7 +130,24 @@ public final class Cli {
         System.exit(run(args, System.out, System.err));
     }
 
+    /**
+     * Runs the tool, with both streams wrapped so that nothing printed anywhere below here can
+     * carry a password out to a terminal or a CI log. Doing it once, at the edge, is the point:
+     * the leak this fixes was a single message that did not call the redaction everything else
+     * called, and the next such message would have been just as easy to write.
+     */
     static int run(String[] args, PrintStream out, PrintStream err) {
+        PrintStream safeOut = Redaction.wrap(out);
+        PrintStream safeErr = Redaction.wrap(err);
+        try {
+            return execute(args, safeOut, safeErr);
+        } finally {
+            safeOut.flush();
+            safeErr.flush();
+        }
+    }
+
+    private static int execute(String[] args, PrintStream out, PrintStream err) {
         Options options;
         try {
             options = Options.parse(args);
@@ -178,8 +202,7 @@ public final class Cli {
                 }
             }
         } catch (RuntimeException e) {
-            err.println("acemq-workload: the run failed: " + e.getMessage());
-            return BROKER_UNREACHABLE;
+            return reportRunFailure(e, err);
         }
 
         if (options.reportDir != null) {
@@ -264,8 +287,7 @@ public final class Cli {
         try {
             report = ScenarioRunner.run(scenario, broker);
         } catch (RuntimeException e) {
-            err.println("acemq-workload: the run failed: " + e.getMessage());
-            return BROKER_UNREACHABLE;
+            return reportRunFailure(e, err);
         }
 
         if (!options.quiet) {
@@ -291,6 +313,33 @@ public final class Cli {
         }
         out.println("PASSED -- " + scenario.name());
         return OK;
+    }
+
+    /**
+     * Says which of the two things went wrong, and returns the exit code that says it.
+     *
+     * <p>A broker that answered and refused is not an unreachable broker. Redeclaring an
+     * exchange under a different type comes back as a refusal from a broker that is up, healthy
+     * and reachable, and reporting it as exit 4 sends the reader to check the network for a
+     * mistake that is in their file. It gets exit 3, the code a misspelled setting gets, because
+     * it is the same kind of problem: the file asks for something that cannot be had, and no
+     * number of retries turns it into a pass.
+     *
+     * <p>Exit 4 keeps its meaning — nobody answered — so a pipeline that branches on it can go
+     * on sending somebody to look at the firewall, the hostname and the container.
+     */
+    private static int reportRunFailure(RuntimeException failure, PrintStream err) {
+        String refusal = BrokerFailure.refusal(failure);
+        if (refusal == null) {
+            err.println("acemq-workload: the run failed: " + failure.getMessage());
+            return BROKER_UNREACHABLE;
+        }
+        err.println("acemq-workload: the broker refused this run: " + failure.getMessage());
+        err.println("  the broker said: " + refusal);
+        err.println("  It answered, so this is not a network problem. Something in the file"
+                + " contradicts what the broker already has, and it will refuse again until"
+                + " one of the two changes.");
+        return BAD_CONFIG;
     }
 
     private static void writeScenarioReports(ScenarioReport report, Options options,
