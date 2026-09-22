@@ -178,6 +178,39 @@ test.describe('the studio', () => {
     expect(above, 'the banner is sitting over the canvas').toBe(true)
   })
 
+  // A producer node carries its routing keys in a pill, and `ecommerce` has one
+  // with four of them. With nothing capping the node it was sized by that text
+  // and grew across the 300px the exchange column sits at, covering it.
+  for (const preset of ['Event-driven commerce', 'A trading venue']) {
+    test(`a wide producer does not cover the exchange column on ${preset}`, async ({ page }) => {
+      await open(page)
+      await loadPreset(page, preset)
+      await expect(page.locator('[data-id^="exchange:"]').first()).toBeVisible()
+
+      const collisions = await page.evaluate(() => {
+        const boxes = (selector: string) =>
+          [...document.querySelectorAll(selector)].map((node) => ({
+            id: node.getAttribute('data-id')!,
+            box: node.getBoundingClientRect(),
+          }))
+        const overlaps = []
+        for (const producer of boxes('[data-id^="producer:"]')) {
+          for (const exchange of boxes('[data-id^="exchange:"]')) {
+            if (producer.box.right > exchange.box.left
+              && producer.box.left < exchange.box.right
+              && producer.box.bottom > exchange.box.top
+              && producer.box.top < exchange.box.bottom) {
+              overlaps.push(`${producer.id} over ${exchange.id}`)
+            }
+          }
+        }
+        return overlaps
+      })
+
+      expect(collisions).toEqual([])
+    })
+  }
+
   test('keeps the run, compares two, and forgets one', async ({ page }) => {
     await open(page)
 

@@ -74,8 +74,10 @@ function ScenarioNode({ data }: NodeProps) {
       <div className="kind">{node.kind}</div>
       <div className="name">{node.label}</div>
       <div className="meta">
+        {/* The title carries what the ellipsis takes: a producer with four
+            routing keys is a pill wider than the node it sits in. */}
         {node.pills.map((pill) => (
-          <span key={pill.text} className="pill" data-tone={pill.tone}>
+          <span key={pill.text} className="pill" data-tone={pill.tone} title={pill.text}>
             {pill.text}
           </span>
         ))}

@@ -525,8 +525,18 @@ button.ghost:hover:not(:disabled) {
 
 /* ---- graph nodes ------------------------------------------------------ */
 
+/*
+ * A node is a label on a map. It has a floor so a one-word queue name does not
+ * come out as a stamp, and it needs a ceiling for the same reason: a producer
+ * carries its routing keys in a pill, and `ecommerce` has one with four of them
+ * in it. Sized by its content, that node grew past the 300px the exchange
+ * column sits at and covered it -- the topology reading as a pile rather than
+ * as three columns. Whatever does not fit is in the inspector, which is where
+ * the details of a node belong.
+ */
 .node {
   min-width: 190px;
+  max-width: 260px;
   border-radius: var(--radius);
   border: 1px solid var(--line-bright);
   background: linear-gradient(180deg, var(--bg-panel), var(--bg-raised));
@@ -565,6 +575,17 @@ button.ghost:hover:not(:disabled) {
   gap: 6px;
   flex-wrap: wrap;
   margin-top: 8px;
+  min-width: 0;
+}
+
+/* Cut off rather than wrapped: a pill is a lozenge, and three lines of text
+   inside one have their ends eaten by the rounded caps. The whole value is a
+   hover away, and it is in the inspector as soon as the node is selected. */
+.node .pill {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pill {
