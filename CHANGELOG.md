@@ -11,6 +11,15 @@ the messaging library's release train.
 ## [Unreleased]
 
 ### Added
+- **An examples library**, fourteen examples in [`examples/`](examples) ordered
+  simple to complex, and [a page that walks them](docs/examples.md). The first
+  is a queue, a rate and somebody to drain it; the last is a three-node cluster
+  losing a node mid-run. In between: objectives, all five exit codes, classic
+  against quorum, a stream, fanout, topic routing, a consumer that cannot keep
+  up, an unthrottled ceiling, a run that measures nothing, a CI gate and a
+  dead-letter path. Every one carries comments explaining what it demonstrates
+  and what to read in the output, and every one was run before it shipped — the
+  page marks which output is real.
 - **The studio guide is part of the site, with a picture of every screen it
   describes.** `studio/USAGE.md` moved to [`docs/studio-guide.md`](docs/studio-guide.md),
   which is what the published site renders, and its six numbered sections now
@@ -24,6 +33,15 @@ the messaging library's release train.
   claims, so the walkthrough cannot drift away from the build unnoticed.
   `studio/USAGE.md` stays as a pointer for anybody reading the repository.
 
+### Changed
+- **`examples/comparison.yaml` is now `examples/05-queue-types.yaml`.** The same
+  question — what does a quorum queue cost us — answered on a queue that is
+  actually a quorum queue. The old file was a workload suite, and a workload
+  file's `queueType` never reaches the broker, so what it shipped was classic
+  against classic, passing. The replacement is a scenario: one fanout exchange,
+  both queues fed the same messages in the same second, and a four-times gap in
+  p99 that the old file could not have shown.
+
 ### Fixed
 - **The management API was never actually asked.** The studio's probe sent no
   credentials, so on a broker that wants a user — which is every broker — the
@@ -33,6 +51,35 @@ the messaging library's release train.
   the designer, and **Import from broker** unavailable, on brokers that support
   both. It now sends the user written into the AMQP URL, which is the same user
   in every case anybody points this at.
+- **The documented path to the jar was wrong.** `mvn -DskipTests package`
+  produces `library/target/acemq-workload.jar`, not `target/acemq-workload.jar`
+  — the build has had two modules since the studio arrived. Every command in
+  the guide and the five tutorials said the latter, so the first thing a new
+  reader typed failed.
+- **Suite inheritance replaces a block rather than merging into it**, and
+  nothing said so. An entry writing `publishers: { confirms: false }` silently
+  reverts `threads`, `rate` and `messageSize` to their defaults and reports a
+  perfectly normal-looking result for a configuration nobody chose. Documented
+  in [the workload file](docs/workload-file.md#a-suite).
+- **A scenario file has no `management` setting**, and the page now says so.
+  Depth is read over AMQP during a scenario, because ten queues would otherwise
+  mean ten HTTP requests a second to the broker being measured.
+- **A workload file's `topology.queueType` and `topology.arguments` never reach
+  the broker**, and the page said they did. The queue is declared classic
+  whatever `queueType` says, while the report prints back the type that was
+  asked for — so a suite comparing `classic` with `quorum` compares classic with
+  classic and passes. A scenario's `type` and `arguments` are honoured, which is
+  why every queue-type example is a scenario.
+- **`publishers.confirms: false` is not honoured by a run**, and the page said
+  it was. The value reaches the report and raises the `confirms-were-on`
+  warning; the engine publishes with confirms either way, so two runs differing
+  only in that field come back with the same publish latency and the same rate.
+  Marked as an intention rather than a configuration until it is connected.
+- **`noMessagesLost` has no tolerance at the run boundary**, which the page now
+  says. A confirm landing inside the measured window whose delivery is counted
+  just after it reads exactly like loss, so a healthy run at 5,000/s reports two
+  or three messages unaccounted for beside a queue depth of zero about half the
+  time. The finding's own detail line separates the two cases.
 
 ## 0.1.4 — 2026-09-07
 
