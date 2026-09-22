@@ -113,6 +113,33 @@
       <artifactId>slf4j-api</artifactId>
       <version>${slf4j.version}</version>
     </dependency>
+    <!--
+      A binding, so the jar stops apologising for not having one.
+
+      With slf4j-api and no provider, every single run printed three warning
+      lines before the tool had said anything at all:
+
+        SLF4J(W): No SLF4J providers were found.
+        SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+        SLF4J(W): See https://www.slf4j.org/codes.html#noProviders
+
+      They were the first thing a new reader saw, they are absent from every
+      transcript in docs/, and they are noise in a CI log. Choosing the
+      no-operation provider explicitly changes nothing about what is logged —
+      slf4j was already defaulting to it — and removes the apology.
+
+      optional, so that nobody who depends on the thin jar has a logging
+      decision made for them; runtime, because nothing here compiles against
+      it. Surefire and failsafe put it off the test class path below, so that
+      the test run keeps slf4j-simple and testcontainers keeps its output.
+    -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-nop</artifactId>
+      <version>${slf4j.version}</version>
+      <scope>runtime</scope>
+      <optional>true</optional>
+    </dependency>
 
     <dependency>
       <groupId>org.junit.jupiter</groupId>
@@ -152,6 +179,14 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>${maven.surefire.plugin.version}</version>
+        <configuration>
+          <!-- Two providers on one class path is the warning the nop binding was
+               added to avoid, in reverse. The tests want slf4j-simple, so the
+               binding the shipped jar carries stays out of their way. -->
+          <classpathDependencyExcludes>
+            <classpathDependencyExclude>org.slf4j:slf4j-nop</classpathDependencyExclude>
+          </classpathDependencyExcludes>
+        </configuration>
       </plugin>
       <!-- The runnable jar: java -jar acemq-workload.jar -f workload.yaml -->
       <plugin>
@@ -217,6 +252,13 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
         <version>${maven.failsafe.plugin.version}</version>
+        <configuration>
+          <!-- As above: the integration tests want testcontainers' output, which
+               means slf4j-simple and only slf4j-simple. -->
+          <classpathDependencyExcludes>
+            <classpathDependencyExclude>org.slf4j:slf4j-nop</classpathDependencyExclude>
+          </classpathDependencyExcludes>
+        </configuration>
         <executions>
           <execution>
             <goals>
