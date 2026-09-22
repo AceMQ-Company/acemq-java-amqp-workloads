@@ -1,0 +1,37 @@
+# A run that fails on purpose, so you can see what a failure looks like before
+# one happens to you at four in the afternoon.
+#
+#   java -jar library/target/acemq-workload.jar -f examples/03-objective-missed.yaml --quiet
+#   echo $?        # 1
+#
+# Exit 1, and the distinction is the whole point: the measurement was sound and
+# the broker's answer was no. That is different from exit 2, where the generator
+# never offered the load and there is no answer at all — see 11.
+#
+# The finding names both numbers, because "p99 was 3.5ms" is a measurement and
+# "p99 was 3.5ms against a budget of 200us" is an answer.
+name: objective-missed
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+management: http://localhost:15672
+
+topology:
+  queue: ex.missed
+  routingKey: ex.missed
+
+publishers:
+  threads: 2
+  rate: 5000
+  messageSize: 512
+
+consumers:
+  concurrency: 4
+  prefetch: 100
+
+warmup: 5s
+runFor: 30s
+
+expect:
+  # 200 microseconds end to end, including a confirm round trip and a delivery.
+  # No broker on a laptop does this, and that is what makes it a reliable
+  # demonstration rather than a flaky one.
+  p99Below: 200us

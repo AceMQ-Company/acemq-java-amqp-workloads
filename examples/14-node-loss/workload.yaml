@@ -1,0 +1,105 @@
+# A quorum queue on a three-node cluster, measured while it loses a node.
+#
+# Run it through the script next to this file, which starts the cluster, starts
+# the run, and stops a replica in the middle of the measured window:
+#
+#   CONTROL=1 ./examples/14-node-loss/run.sh    # the healthy cluster, first
+#   ./examples/14-node-loss/run.sh              # the same run, losing a node
+#
+# **Do the control run first.** One measurement of a cluster losing a node is a
+# number with nothing to compare it against: p99.9 of 380ms means nothing until
+# you know the same cluster idles at 3ms. The difference between the two runs is
+# the answer; either figure alone is trivia.
+#
+# This is a scenario file rather than a workload file, for a reason worth
+# knowing before you write a quorum queue anywhere: **a workload file's
+# `queueType` is dropped on the way to the broker on this build.** The queue is
+# declared classic whatever the file says, while the report prints back the type
+# that was asked for. An experiment about quorum replication run that way is an
+# experiment about a classic queue with a confident label on it. A scenario's
+# `type` is honoured. Verify rather than trust, here and anywhere else:
+#
+#   curl -su guest:guest http://localhost:15691/api/queues/%2F/ex.ha.orders
+#
+# What a quorum queue does when it loses one of three replicas: nothing much,
+# and that is the result. A majority is two, two nodes remain, and writes keep
+# being confirmed. Expect a bump — a spike in p99.9 and in max around the moment
+# of the loss — and a run that still passes. What you should not see is a failed
+# publish, and `noFailures` below is where that is stated.
+#
+# The objectives below are the ones that belong to the experiment rather than to
+# the machine: nothing may fail, nothing may be left in the queue, the consumers
+# must keep up. Latency is reported per queue and deliberately not given a
+# budget here — see the note beside `expect`.
+#
+# Two things this file cannot show you, and the script prints the first:
+#
+#   Which node held the leader. Stopping a follower costs a replica. Stopping
+#   the leader also costs an election, and the pause is longer. The script
+#   stops a follower on purpose, so the number is repeatable; do it the other
+#   way once, by hand, to see the difference.
+#
+#   Losing a second node. Two of three gone is no majority, and the queue stops
+#   accepting writes until one comes back. That is not a slower queue, it is an
+#   unavailable one, and it is what the third replica is for.
+name: quorum-node-loss
+description: what a quorum queue costs when one of its three replicas goes away
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5691
+warmup: 10s
+runFor: 60s
+
+exchanges:
+  - { name: ex.ha, type: direct }
+
+queues:
+  - name: ex.ha.orders
+    type: quorum
+    bindings: [ { exchange: ex.ha, routingKey: order } ]
+    arguments:
+      # Three replicas on a three-node cluster. Spelled out rather than left to
+      # the default, because the whole point of the run is how many there are
+      # and how many may go away.
+      x-quorum-initial-group-size: 3
+    consumers: { concurrency: 4, prefetch: 200 }
+    expect:
+      # Under the offered rate, with room for the seconds around the loss.
+      consumeRateAtLeast: 1800
+
+      # The queue must not still be draining at the end. A quorum queue that
+      # loses a replica may be slower for a moment; it may not fall behind and
+      # stay there.
+      noBacklog: true
+
+      # NO LATENCY BUDGET HERE, and that is deliberate rather than an omission.
+      # Three replicas on one laptop are expensive before anything goes wrong,
+      # and how expensive depends on what else the machine is doing: two control
+      # runs on the machine this was written on came back at p99 94ms and p99
+      # 484ms with nothing stopped either time. Any number written in here would
+      # be a budget on the hardware rather than on the experiment, and a budget
+      # that fails for reasons outside the thing under test is one people learn
+      # to ignore.
+      #
+      # Add one from your own control run, which is the only place it can
+      # honestly come from:
+      #
+      #   CONTROL=1 ./examples/14-node-loss/run.sh   # read p99 and p99.9
+      #   p99Below: <a little above the control's p99>
+      #   p999Below: <a little above the control's p99.9>
+      #
+      # Then run it again losing a node and see whether the budget holds. The
+      # per-queue latency is reported either way, so the comparison is in front
+      # of you before you write a single objective.
+
+producers:
+  - name: orders
+    exchange: ex.ha
+    routingKeys: [ order ]
+    rate: 2000
+    messageSize: 1024
+    maxInFlight: 1000
+    expect:
+      # The one that must not bend. Losing a minority of replicas may make the
+      # queue slower; it may not make a confirmed publish fail. If this fires,
+      # the run found something that matters much more than a latency budget.
+      noFailures: true
+      withinPercentOfOffered: 5

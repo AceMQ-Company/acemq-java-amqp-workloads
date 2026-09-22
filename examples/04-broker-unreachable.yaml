@@ -1,0 +1,83 @@
+# The two exit codes that are not about the broker's performance.
+#
+# 01 exits 0, 03 exits 1 and 11 exits 2. This file is the other two, and it
+# takes a second rather than half a minute, because neither of them gets as far
+# as measuring anything.
+#
+# ---------------------------------------------------------------------------
+# Exit 4 — the broker could not be reached
+#
+#   java -jar library/target/acemq-workload.jar -f examples/04-broker-unreachable.yaml
+#   echo $?        # 4
+#
+# Nothing is listening on port 1. That is the whole configuration of this file.
+#
+# It matters that this is not 1. A pipeline that reads "the broker refused the
+# load" when the broker was never contacted sends somebody to look at broker
+# capacity while the actual problem is a firewall rule, a wrong hostname, or a
+# container that has not finished starting. Those are different afternoons.
+#
+# ---------------------------------------------------------------------------
+# Exit 3 — the file is wrong
+#
+# Introduce a typo and run it again:
+#
+#   consumers:
+#     prefech: 100
+#
+#   acemq-workload: unknown setting 'consumers.prefech'. Known settings here:
+#   concurrency, prefetch, handlerTime, failureRate. A misspelled setting that
+#   was ignored would run with the default and report a result that looks
+#   entirely normal.
+#
+# Exit 3, and no broker was contacted. Unknown settings are refused rather than
+# ignored for exactly the reason the message gives: silently ignored, that typo
+# runs at the default prefetch and produces a full, plausible report for a
+# configuration nobody chose.
+#
+# A bare number in a duration is refused the same way — `runFor: 60` is a
+# minute to one reader and a second to another.
+#
+# ---------------------------------------------------------------------------
+# Neither of these ever becomes a pass by retrying, which is the reason a
+# pipeline should branch on all five:
+#
+#   0  passed
+#   1  a sound run missed an objective — the broker's answer is no
+#   2  a run was invalid — nothing was measured
+#   3  the file is wrong
+#   4  the broker could not be reached
+#
+# One habit worth taking from this file: --dry-run resolves the environment
+# placeholders, applies suite inheritance, validates every setting and prints
+# the result with the password redacted, without touching a broker. It catches
+# exit 3 in a second instead of after a two-minute wait, and it is safe in a
+# pre-commit hook.
+#
+# While you are here: substitution runs over the whole file before it is parsed,
+# comments included. A dollar-brace placeholder written in a comment as an
+# example is resolved like any other, and an unset one with no default stops the
+# run with exit 3 — which is why the paragraph above describes the syntax rather
+# than printing it.
+#
+#   java -jar library/target/acemq-workload.jar -f examples/04-broker-unreachable.yaml --dry-run
+#
+# That exits 0 here, because the file is valid. It is the broker that is not.
+name: broker-unreachable
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:1
+
+topology:
+  queue: ex.unreachable
+  routingKey: ex.unreachable
+
+publishers:
+  threads: 2
+  rate: 1000
+  messageSize: 512
+
+consumers:
+  concurrency: 2
+  prefetch: 100
+
+warmup: 1s
+runFor: 5s

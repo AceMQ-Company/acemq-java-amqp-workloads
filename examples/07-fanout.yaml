@@ -1,0 +1,79 @@
+# One publish, three deliveries.
+#
+# A fanout exchange copies every message to every bound queue, so the broker's
+# work is the publish rate multiplied by the number of bindings. This run offers
+# 3,000 messages a second and the broker delivers 9,000.
+#
+#   java -jar library/target/acemq-workload.jar -f examples/07-fanout.yaml
+#   echo $?        # 1 — on purpose, see below
+#
+# The three queues are identical apart from how many consumers drain them, which
+# is the point. A fanout is only as healthy as its slowest binding: the publisher
+# sees one number — 3,000/s offered, 3,000/s achieved, nothing failed — and the
+# subscriber with two consumers is meanwhile several seconds behind. Objectives
+# are per node precisely so this does not average away.
+#
+# RUN IT ON AN EMPTY QUEUE. Nothing here purges anything, so a second run
+# starts with the first run's backlog still sitting in `ex.notify.email` and its
+# end-to-end latency counts from when those older messages were due — a p99 in
+# the hundreds of seconds, which is true and not what you meant to measure.
+# Delete the queue between runs:
+#
+#   curl -su guest:guest -X DELETE http://localhost:15672/api/queues/%2F/ex.notify.email
+#
+# Look for `ex.notify.email` deep at the end and its p99 in the seconds while
+# the other two sit in the low milliseconds, from the same messages published at
+# the same instant. It exits 1, because `noBacklog` was asked for on that queue
+# and did not hold.
+name: fanout-three-subscribers
+description: what a fan-out costs, and which binding decides
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+warmup: 5s
+runFor: 30s
+
+exchanges:
+  # A fanout ignores routing keys entirely. Every binding gets everything, and
+  # `routingKey: ""` below is honest rather than lazy.
+  - { name: ex.notify, type: fanout }
+
+queues:
+  - name: ex.notify.push
+    type: classic
+    bindings: [ { exchange: ex.notify, routingKey: "" } ]
+    consumers: { concurrency: 8, prefetch: 100, handlerTime: 1ms }
+    expect:
+      # Loose on purpose: the queue that is meant to fail here fails on
+      # `noBacklog`, and a latency budget tight enough to trip on a busy laptop
+      # would make the other two fail for a reason that is not the lesson.
+      p99Below: 500ms
+      noBacklog: true
+
+  - name: ex.notify.sms
+    type: classic
+    bindings: [ { exchange: ex.notify, routingKey: "" } ]
+    consumers: { concurrency: 8, prefetch: 100, handlerTime: 1ms }
+    expect:
+      p99Below: 500ms
+      noBacklog: true
+
+  - name: ex.notify.email
+    type: classic
+    bindings: [ { exchange: ex.notify, routingKey: "" } ]
+    # Two consumers with a 1ms handler can take about 2,000 messages a second.
+    # The producer offers 3,000. This queue is going to lose, and losing on
+    # purpose is how you find out what the report calls it.
+    consumers: { concurrency: 2, prefetch: 100, handlerTime: 1ms }
+    expect:
+      # Stated, and expected to fail — a `noBacklog` nobody wrote is not one the
+      # run failed, so leaving it out would make this example prove nothing.
+      noBacklog: true
+
+producers:
+  - name: notifier
+    exchange: ex.notify
+    routingKeys: [ "" ]
+    rate: 3000
+    messageSize: 512
+    expect:
+      withinPercentOfOffered: 5
+      noFailures: true

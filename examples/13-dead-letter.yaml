@@ -1,0 +1,75 @@
+# A handler that fails some of the time, and where those messages end up.
+#
+#   java -jar library/target/acemq-workload.jar -f examples/13-dead-letter.yaml
+#
+# `failureRate: 0.05` makes one message in twenty throw out of the handler.
+# `deadLetterExchange` points the queue at somewhere for them to go, and
+# `ex.dlq` catches them. The interesting number is the dead-letter queue's
+# consumed rate: it should be about 5% of what `ex.work` sees.
+#
+# This is worth running before you trust a dead-letter path in production,
+# because the failure mode is silent in both directions. A DLX that is not
+# declared drops what it was given. A DLX bound to nothing accepts messages and
+# discards them just as thoroughly. Neither shows up in a broker's error log,
+# and both look exactly like a handler that stopped failing.
+#
+# Look at:
+#
+#   ex.work consumed     every delivery the handler saw, including the ones it
+#                        then rejected — the count is taken before the handler
+#                        is given its chance to fail.
+#   ex.dlq consumed      roughly 5% of that.
+#   ex.work depth        should still end near zero. Rejected messages leave the
+#                        queue; they do not pile up in it.
+name: dead-letter
+description: where a five percent handler failure rate actually goes
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+warmup: 5s
+runFor: 30s
+
+exchanges:
+  - { name: ex.jobs, type: direct }
+  # The dead-letter exchange has to exist. Declaring it here is the whole
+  # difference between a dead-letter path and a hole in the floor.
+  - { name: ex.jobs.dead, type: fanout }
+
+queues:
+  - name: ex.work
+    type: quorum
+    bindings: [ { exchange: ex.jobs, routingKey: job } ]
+    deadLetterExchange: ex.jobs.dead
+    consumers:
+      concurrency: 8
+      prefetch: 100
+      handlerTime: 1ms
+      # One in twenty deliveries throws. A rejection, not a slow handler — the
+      # message leaves this queue either way, and only one of those two is a
+      # message you still have.
+      failureRate: 0.05
+    expect:
+      # Loose on purpose. The absolute number belongs to whatever else the
+      # machine is doing — the same file came back at p99 34ms on a quiet
+      # laptop and 164ms on a busy one — and this example is about where the
+      # messages go, not about how fast they got there. A budget that fails for
+      # reasons outside the thing under test is one people learn to ignore.
+      p99Below: 500ms
+      noBacklog: true
+
+  - name: ex.dlq
+    type: classic
+    bindings: [ { exchange: ex.jobs.dead, routingKey: "" } ]
+    # Somebody has to drain the dead-letter queue, in the test as in production.
+    # A dead-letter queue nobody consumes is a disk alarm with a delay on it.
+    consumers: { concurrency: 1, prefetch: 50 }
+    expect:
+      noBacklog: true
+
+producers:
+  - name: jobs
+    exchange: ex.jobs
+    routingKeys: [ job ]
+    rate: 2000
+    messageSize: 512
+    expect:
+      withinPercentOfOffered: 5
+      noFailures: true

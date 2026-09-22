@@ -1,0 +1,51 @@
+# The same run as 01, with something to prove.
+#
+# Without `expect` the tool can only describe what happened, and a description
+# is not something a pipeline can act on. With it, the exit code is the answer:
+# 0 passed, 1 the broker said no, 2 nothing was measured.
+#
+#   java -jar library/target/acemq-workload.jar -f examples/02-objectives.yaml --quiet
+#   echo $?        # 0
+#
+# `management` is new here, and it is optional. The depth of the queue is read
+# over AMQP during the run, because opening an HTTP connection every second
+# would add load to the broker being measured; given a management URL the tool
+# asks the management API for a more accurate final reading at the end. Leave it
+# out and the run is the same, with a slightly rougher last number.
+name: objectives
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+management: http://localhost:15672
+
+topology:
+  queue: ex.objectives
+  routingKey: ex.objectives
+
+publishers:
+  threads: 2
+  rate: 5000
+  messageSize: 512
+
+consumers:
+  concurrency: 4
+  prefetch: 100
+
+warmup: 5s
+runFor: 30s
+
+expect:
+  # Deliberately under the offered rate. An objective set exactly at the rate
+  # you configured fails on rounding and teaches you to ignore it.
+  throughputAtLeast: 4800
+
+  # A budget, not a measurement. 50ms is generous for a local broker and is the
+  # point: the number belongs to the promise you made someone, not to the run.
+  p99Below: 50ms
+
+# `noMessagesLost` belongs in this list and is deliberately not in it. It
+# compares messages confirmed against messages consumed with no tolerance, and
+# at 5,000/s the last two or three confirms of the window routinely land after
+# the consumer's counter has been read — so a healthy run reports "2 messages
+# unaccounted for" next to a queue depth of zero, about half the time. 14 is
+# where the objective earns its place, and says so there. Until the boundary is
+# handled, state it on runs where losing messages is the thing you are testing
+# and read the queue depth in the finding before believing it.

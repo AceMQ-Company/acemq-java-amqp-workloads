@@ -1,0 +1,50 @@
+# A consumer that cannot keep up, and what that does to every other number.
+#
+#   java -jar library/target/acemq-workload.jar -f examples/09-slow-consumer.yaml
+#   echo $?        # 0 — and read on, because that is the lesson
+#
+# Four consumers with a 5ms handler can finish about 800 messages a second. The
+# publisher offers 4,000. Nothing here is broken: the broker accepts everything,
+# the generator keeps its schedule, no publish fails. The queue simply grows.
+#
+# Three things to look at.
+#
+#   queue at end      a large number. That is roughly (4,000 - 800) x 30s.
+#   end-to-end p99    seconds, not milliseconds. The last message consumed had
+#                     been waiting since near the start of the run.
+#   consumers-kept-up a WARNING, not a failure. More than a tenth of what was
+#                     published was still queued at the end.
+#
+# The warning is a warning because a run that fills a queue on purpose is doing
+# exactly what it meant to. What makes it dangerous is that the latency of a
+# growing queue is a function of how long you ran: double `runFor` and the p99
+# roughly doubles, from the same broker and the same consumers. A latency taken
+# from a run in this state describes the experiment, not the system.
+#
+# And the exit code is 0, because nothing in this file asked for anything. If
+# you want a pipeline to catch this, say so — `expect.throughputAtLeast: 3800`
+# would make it exit 1, because `throughputAtLeast` counts what was *consumed*.
+# 12 is a gate built that way.
+name: slow-consumer
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+management: http://localhost:15672
+
+topology:
+  queue: ex.slow
+  routingKey: ex.slow
+
+publishers:
+  threads: 4
+  rate: 4000
+  messageSize: 512
+
+consumers:
+  concurrency: 4
+  prefetch: 100
+  # A sleep, which models waiting on a database or an HTTP call. It does not
+  # model a CPU-bound handler — a sleeping thread does not compete for a core
+  # the way a busy one does.
+  handlerTime: 5ms
+
+warmup: 5s
+runFor: 30s

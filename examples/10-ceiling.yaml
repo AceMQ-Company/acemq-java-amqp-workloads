@@ -1,0 +1,95 @@
+# How much can this broker take?
+#
+#   java -jar library/target/acemq-workload.jar -f examples/10-ceiling.yaml \
+#     --report reports/ --format md
+#
+# `unthrottled: true` removes the schedule: publish as fast as the confirms come
+# back. The achieved rate is then the ceiling for this client, this broker and
+# this message size.
+#
+# **Read the throughput and throw the latencies away.** With no schedule there
+# is no "due" time, so a stall in the broker also stalls the generator, and the
+# recorded latency gets *better* as the stall gets worse. The offered column in
+# the report says `unthrottled` instead of a rate, which is the tool declining
+# to pretend. `generator-kept-up` does not run either — there was no schedule to
+# fall behind.
+#
+# The way to use this file is as step one of two:
+#
+#   1. Run it. Take the achieved rate.
+#   2. Set `rate:` to perhaps 70% of that in a normal workload, and measure
+#      latency there. 02 is that file.
+#
+# A latency measured at the ceiling is a queue about to run away. A latency
+# measured at 70% of it is a number you can put in a sentence.
+#
+# The second workload is the same experiment at four times the message size.
+# Expect the message rate to fall by rather less than four — the per-message
+# cost the broker pays is largely fixed, and bytes on the wire are cheap until
+# they are not.
+#
+# WHOSE CEILING IS IT? Check `queue at end`. There are two ceilings and they
+# are not the same number: what the broker will *accept*, and what this system
+# *sustains*. If the queue ends at zero, the consumers matched the publishers
+# and you measured the second one. If it ends deep, you measured the first, and
+# the honest thing to do is add consumers until it stops growing — sixteen here
+# is what it took on the machine this was written on. Eight left six hundred
+# thousand messages in the queue and reported a rate a third higher, which is a
+# real number about the broker and not one any system of ours could sustain.
+#
+# ON THIS MACHINE the broker is a container sharing a CPU with the JVM producing
+# the load, so what you measure is the laptop. That is fine for learning what
+# the file does and useless as a capacity number. Run the generator somewhere
+# else before quoting anything.
+#
+# ---------------------------------------------------------------------------
+# TWO THINGS ABOUT SUITES that this file is the place to meet, because it is
+# the one that varies a field inside a block.
+#
+# **Inheritance replaces a block; it does not merge into it.** An entry writing
+# `publishers: { messageSize: 4096 }` gets exactly that publishers block, and
+# `threads`, `unthrottled` and `maxInFlight` go back to their defaults. The run
+# is valid, the report looks entirely normal, and it is not the experiment you
+# wrote. So both blocks below are written out in full and are meant to be read
+# side by side with one field different.
+#
+# **Two entries must not share a routing key on a shared exchange.**
+# `routingKey` is both the publish key and the binding key, so the first entry's
+# queue is still bound when the second runs, and the second publishes into both.
+# Nothing errors. The consumed count is simply wrong, by however much the first
+# run left behind, and it looks entirely plausible.
+# ---------------------------------------------------------------------------
+#
+# This run publishes close to a million messages per workload. If the consumers
+# do keep up it leaves nothing behind; if they do not, delete the two queues
+# from the management interface when you are done.
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+management: http://localhost:15672
+
+consumers:
+  # Enough that the consumers are not what limits the run. Check `queue at end`
+  # rather than trusting the number: see the note above.
+  concurrency: 16
+  prefetch: 500
+
+warmup: 5s
+runFor: 30s
+
+workloads:
+  - name: ceiling-1kb
+    topology: { exchange: ex.ceiling, queue: ex.ceiling.1kb, routingKey: k.1kb }
+    publishers:
+      threads: 4
+      unthrottled: true
+      messageSize: 1024
+      confirms: true
+      maxInFlight: 1000
+
+  - name: ceiling-4kb
+    topology: { exchange: ex.ceiling, queue: ex.ceiling.4kb, routingKey: k.4kb }
+    publishers:
+      threads: 4
+      unthrottled: true
+      messageSize: 4096
+      confirms: true
+      maxInFlight: 1000

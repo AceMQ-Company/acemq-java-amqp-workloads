@@ -1,0 +1,68 @@
+# Three brokers in a cluster, so a quorum queue has a quorum to lose.
+#
+#   docker compose -f examples/14-node-loss/compose.yaml up -d
+#
+# Everything above the three services is the same on every node:
+#
+#   the same Erlang cookie      nodes that disagree about it do not cluster,
+#                               and the error says almost nothing useful
+#   classic_config discovery    each node is told the other two by name. No
+#                               discovery plugin, no etcd, no guessing
+#   loopback_users = none       guest reaches the broker from outside the
+#                               container, which is the whole point here and
+#                               not a thing to copy into production
+#
+# Only node one publishes its ports to the host. That is deliberate: the load
+# generator connects to node one and stays connected, so when the script stops
+# a different node what you measure is the queue losing a replica rather than
+# your own client reconnecting. Those are two different experiments and mixing
+# them produces a graph nobody can read.
+x-rabbit: &rabbit
+  image: rabbitmq:4-management
+  environment:
+    RABBITMQ_ERLANG_COOKIE: node-loss-example
+    RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit loopback_users []"
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+    interval: 5s
+    timeout: 5s
+    retries: 24
+  configs:
+    - source: cluster
+      target: /etc/rabbitmq/conf.d/20-cluster.conf
+
+configs:
+  cluster:
+    content: |
+      cluster_formation.peer_discovery_backend = classic_config
+      cluster_formation.classic_config.nodes.1 = rabbit@node1
+      cluster_formation.classic_config.nodes.2 = rabbit@node2
+      cluster_formation.classic_config.nodes.3 = rabbit@node3
+      loopback_users = none
+
+services:
+  node1:
+    <<: *rabbit
+    hostname: node1
+    container_name: node-loss-1
+    ports:
+      # 5691 and 15691 rather than 5672 and 15672, so this cluster can sit
+      # beside whatever broker the rest of the examples are using.
+      - "5691:5672"
+      - "15691:15672"
+
+  node2:
+    <<: *rabbit
+    hostname: node2
+    container_name: node-loss-2
+    depends_on:
+      node1:
+        condition: service_healthy
+
+  node3:
+    <<: *rabbit
+    hostname: node3
+    container_name: node-loss-3
+    depends_on:
+      node1:
+        condition: service_healthy

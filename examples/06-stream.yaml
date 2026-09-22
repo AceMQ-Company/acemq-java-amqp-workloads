@@ -1,0 +1,68 @@
+# A stream next to a classic queue, both fed the same messages.
+#
+# This is a *scenario* file rather than a workload file. A workload describes one
+# path — an exchange, a queue, publishers, consumers. A scenario describes a
+# topology: several queues with their own bindings, their own consumers and
+# their own objectives, all running at once. Nothing has to say which kind of
+# file it is; naming `queues` and `producers` is what decides.
+#
+#   java -jar library/target/acemq-workload.jar -f examples/06-stream.yaml
+#
+# Two things to look at.
+#
+#   Depth. The classic queue ends at zero because its consumers acknowledged and
+#   the messages were removed. The stream ends holding everything published, and
+#   the report says "retained" rather than "waiting". A stream is an append-only
+#   log; reading it moves an offset and deletes nothing.
+#
+#   `noBacklog` on the stream. It is not checked, deliberately — a stream is
+#   always deeper at the end than at the start, and a rule that fires on every
+#   run is one nobody reads.
+name: stream-alongside-classic
+description: what an audit stream costs when it shares an exchange with the live path
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+warmup: 5s
+runFor: 30s
+
+exchanges:
+  # Fanout, so both queues get every message without either binding having to
+  # know about the other.
+  - { name: ex.events, type: fanout }
+
+queues:
+  - name: ex.events.live
+    type: classic
+    bindings: [ { exchange: ex.events, routingKey: "" } ]
+    consumers: { concurrency: 4, prefetch: 100 }
+    expect:
+      p99Below: 50ms
+      # The live path must not fall behind. This is the asymmetry a scenario
+      # exists to express: one overall p99 across both queues would average away
+      # the only distinction worth keeping.
+      noBacklog: true
+
+  - name: ex.events.audit
+    type: stream
+    bindings: [ { exchange: ex.events, routingKey: "" } ]
+    # One consumer, because a stream is read in order. Prefetch matters more
+    # here than on a classic queue: it is the entire flow-control window for a
+    # reader that never removes anything.
+    consumers: { concurrency: 1, prefetch: 200 }
+    expect:
+      # Latency only. Asking a stream for `noBacklog` would be asking a log not
+      # to be a log.
+      p99Below: 200ms
+
+producers:
+  - name: events
+    exchange: ex.events
+    # A fanout exchange ignores the routing key, so one empty key is honest
+    # here. 08 is where several keys start to matter.
+    routingKeys: [ "" ]
+    rate: 4000
+    messageSize: 1024
+    expect:
+      # The achieved rate may fall 5% short of the configured one before this
+      # fails. Tighter than that and you are measuring the scheduler.
+      withinPercentOfOffered: 5
+      noFailures: true

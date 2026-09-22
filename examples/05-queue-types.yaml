@@ -1,0 +1,88 @@
+# What does a quorum queue cost us?
+#
+# One fanout exchange, two queues bound to it, one producer. Every message goes
+# to both queues at the same instant, so the comparison is not two runs minutes
+# apart on a machine whose state moved in between — it is the same messages,
+# the same second, two storage engines.
+#
+#   java -jar library/target/acemq-workload.jar -f examples/05-queue-types.yaml \
+#     --report reports/ --format md,html,json
+#
+# 3,000 a second offered, so 6,000 deliveries a second across the two queues.
+# The budget below is 100ms, which is loose for a local broker on purpose: the
+# absolute numbers here are a laptop's and the **gap between the two rows** is
+# the result. Tighten the budget once you know what your own hardware does.
+#
+# Read the per-queue p99 rather than p50. On the machine this was written on,
+# the classic queue came back at p99 1ms and the quorum queue at 4ms — four
+# times, from the same messages in the same second, which is a sentence you can
+# put in a design document.
+#
+# It is also a single node's answer and not the whole one. A quorum queue
+# replicates each message to a majority of nodes before confirming it, and on
+# one broker there is no majority to wait for: what you are paying for here is
+# the Raft log write alone. Add the network and the gap changes. The cost of the
+# guarantee is a cluster's number, which is why 14 builds a cluster.
+#
+# The honest caveat of running them together: the two queues share a broker, so
+# each is measured while the other is also being written. That is usually closer
+# to production than a queue with a broker to itself, and it is not the same
+# experiment as measuring each alone. If you want each alone, enable one queue
+# at a time with `enabled: false` on the other — the settings stay in the file,
+# prefetch and all, and only the run changes.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS IS A SCENARIO FILE AND NOT A SUITE. A workload file has a
+# `queueType` setting, and on this build it does nothing: the queue is declared
+# classic whichever value you give it, while the report prints back the type you
+# asked for. Two workloads differing only in `queueType` therefore compare
+# classic with classic and pass. A scenario's `type` is honoured. Check for
+# yourself, on any file that claims a queue type — the broker is the authority
+# and the report is not:
+#
+#   curl -su guest:guest http://localhost:15672/api/queues/%2F/ex.bench.quorum
+#
+# The same goes for `topology.arguments` in a workload file, which is also
+# dropped. A scenario's `arguments` reach the broker.
+# ---------------------------------------------------------------------------
+name: queue-types
+description: what a quorum queue costs, measured against a classic one on the same messages
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+warmup: 5s
+runFor: 30s
+
+exchanges:
+  # Fanout, so both queues get every message and neither binding has to know
+  # about the other.
+  - { name: ex.bench, type: fanout }
+
+queues:
+  - name: ex.bench.classic
+    type: classic
+    bindings: [ { exchange: ex.bench, routingKey: "" } ]
+    consumers: { concurrency: 8, prefetch: 100 }
+    expect:
+      # Both queues carry the same objective. One field differs between them,
+      # and that field is the experiment.
+      consumeRateAtLeast: 2800
+      p99Below: 100ms
+      noBacklog: true
+
+  - name: ex.bench.quorum
+    type: quorum
+    bindings: [ { exchange: ex.bench, routingKey: "" } ]
+    consumers: { concurrency: 8, prefetch: 100 }
+    expect:
+      consumeRateAtLeast: 2800
+      p99Below: 100ms
+      noBacklog: true
+
+producers:
+  - name: bench
+    exchange: ex.bench
+    routingKeys: [ "" ]
+    rate: 3000
+    messageSize: 1024
+    expect:
+      withinPercentOfOffered: 5
+      noFailures: true

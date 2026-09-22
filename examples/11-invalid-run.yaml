@@ -1,0 +1,60 @@
+# A run that measures nothing, and says so.
+#
+#   java -jar library/target/acemq-workload.jar -f examples/11-invalid-run.yaml
+#   echo $?        # 2
+#
+# One publisher thread holding one unconfirmed publish at a time. Every message
+# costs a full network round trip before the next one may go out, so the thread
+# manages a few hundred a second against a local broker — and this file asks for
+# 5,000.
+#
+# What comes back is `[INVALID] generator-kept-up`: publishes ran seconds behind
+# their own schedule, the configured rate was never offered, and no conclusion
+# about the broker may be drawn from the run. Exit code 2.
+#
+# **2 is not 1, and a pipeline that treats them alike does the wrong thing with
+# each.** Exit 1 is an answer — the measurement was sound and the broker said
+# no. Exit 2 is the absence of an answer: the generator never offered the load,
+# and retrying this file unchanged produces the same non-answer forever. Sending
+# somebody to look at broker capacity on the strength of this run would waste
+# their afternoon; the broker is fine and the harness is the problem.
+#
+# Note what the end-to-end latency does. It will roughly equal the send lag,
+# because the messages really were seconds late — a tool timestamping each
+# message as it sends it would have reported a couple of milliseconds here and
+# called the broker healthy. That is coordinated omission, and it is the reason
+# this tool measures from when a message was *due*.
+#
+# The fix is in the file, not in the broker: raise `maxInFlight` so a thread may
+# hold a window of unconfirmed publishes, and raise `threads`. 02 is the same
+# rate with both, and it passes.
+name: invalid-run
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+management: http://localhost:15672
+
+topology:
+  queue: ex.invalid
+  routingKey: ex.invalid
+
+publishers:
+  threads: 1
+  rate: 5000
+  messageSize: 512
+  confirms: true
+  # One. The whole point. A publish that waits for its own confirm is a
+  # synchronous round trip dressed as a load generator.
+  maxInFlight: 1
+
+consumers:
+  concurrency: 4
+  prefetch: 100
+
+warmup: 5s
+runFor: 30s
+
+expect:
+  # Stated so you can watch it be outranked. The objective is still checked and
+  # its [FAILED] finding is still printed, but INVALID sits above FAILED: the
+  # run's verdict is INVALID and the exit code is 2. Calling this run "FAILED
+  # throughput" would blame the broker for a client that only managed 1,883/s.
+  throughputAtLeast: 4800

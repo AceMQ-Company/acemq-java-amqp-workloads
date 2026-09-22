@@ -1,0 +1,43 @@
+# The smallest file that measures anything.
+#
+# A queue, a rate, somebody to drain it. Everything else takes a default, and
+# the defaults are printed by --dry-run so you can see what you agreed to.
+#
+#   java -jar library/target/acemq-workload.jar -f examples/01-hello.yaml
+#
+# What to look at, in this order:
+#
+#   send lag      how far behind its own schedule each publish went out. Read
+#                 this first. Microseconds means the generator offered the rate
+#                 it was configured with, so everything below is about the
+#                 broker. Seconds means it is about this laptop.
+#   published     the achieved rate next to the offered rate. They should match.
+#   end-to-end    from when a message was *due* to when a consumer had it.
+#   queue at end  zero means the consumers kept up.
+name: hello
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+
+# No exchange, so publishes go through the default exchange, which routes by
+# queue name. It is the fastest path there is and almost nothing in production
+# uses it — 07 and 08 use real exchanges.
+topology:
+  queue: ex.hello
+  routingKey: ex.hello
+
+publishers:
+  # Two threads *sharing* 5,000/s, not two threads doing 5,000/s each. The rate
+  # is the property of the experiment; the threads are how much parallelism the
+  # client needs to keep up with it.
+  threads: 2
+  rate: 5000
+  messageSize: 512
+
+consumers:
+  concurrency: 4
+  prefetch: 100
+
+# The warm-up runs the whole workload and throws the numbers away: class
+# loading, JIT and the first collection are not the broker's fault, and a
+# percentile has no way to forget them once they are in.
+warmup: 5s
+runFor: 30s

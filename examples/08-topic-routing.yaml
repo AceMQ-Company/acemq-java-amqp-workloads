@@ -1,0 +1,79 @@
+# A topic exchange, measured as a topic exchange.
+#
+#   java -jar library/target/acemq-workload.jar -f examples/08-topic-routing.yaml
+#
+# The mistake this example exists to prevent: a producer publishing on one
+# routing key against a topic exchange with five bindings measures *one*
+# binding. The broker's routing table is barely touched, the queues that do not
+# match stay empty, and the number you take away is for a topology you do not
+# have.
+#
+# `routingKeys` is a list and the producer uses them in turn, so the exchange
+# has to make a routing decision for every message. Four keys here, and the
+# bindings below carve them up differently:
+#
+#   order.created   ->  ex.orders.fulfilment, ex.orders.audit
+#   order.paid      ->  ex.orders.fulfilment, ex.orders.audit
+#   order.cancelled ->  ex.orders.fulfilment, ex.orders.audit
+#   payment.failed  ->  ex.orders.audit
+#
+# So fulfilment sees three quarters of the traffic and audit sees all of it.
+# Compare their consumed counts in the report — if fulfilment shows the same
+# total as audit, the bindings are not doing what you think they are, and that
+# is a topology bug this run just found for you.
+name: topic-routing
+description: selective routing measured with several keys, not one
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+warmup: 5s
+runFor: 30s
+
+exchanges:
+  - { name: ex.orders, type: topic }
+
+queues:
+  - name: ex.orders.fulfilment
+    type: quorum
+    # `order.*` matches exactly one word after `order.`, so `order.created`
+    # matches and `payment.failed` does not. `order.created.eu` would not match
+    # either — that needs `order.#`.
+    bindings: [ { exchange: ex.orders, routingKey: "order.*" } ]
+    consumers: { concurrency: 8, prefetch: 200, handlerTime: 1ms }
+    expect:
+      # Loose on purpose. The proportions in the consumed column are the lesson
+      # here; the absolute latency belongs to whatever else the machine is
+      # doing, and a budget that trips on that teaches nothing.
+      p99Below: 500ms
+      noBacklog: true
+
+  - name: ex.orders.audit
+    type: classic
+    # `#` matches anything, including nothing. This queue sees every message the
+    # exchange routes.
+    bindings: [ { exchange: ex.orders, routingKey: "#" } ]
+    consumers: { concurrency: 4, prefetch: 200 }
+    expect:
+      p99Below: 500ms
+      noBacklog: true
+
+  - name: ex.orders.payments
+    type: classic
+    # One exact key. Narrow bindings are the ones worth checking, because a
+    # binding that matches nothing produces an empty queue and a perfectly
+    # healthy-looking report.
+    bindings: [ { exchange: ex.orders, routingKey: "payment.failed" } ]
+    consumers: { concurrency: 2, prefetch: 100 }
+    expect:
+      # A queue that received nothing fails a latency expectation: its p99 is
+      # unanswerable, and unanswerable is not the same as passing. That is the
+      # check that catches a typo in a binding key.
+      p99Below: 500ms
+
+producers:
+  - name: checkout
+    exchange: ex.orders
+    routingKeys: [ order.created, order.paid, order.cancelled, payment.failed ]
+    rate: 4000
+    messageSize: 1024
+    expect:
+      withinPercentOfOffered: 5
+      noFailures: true
