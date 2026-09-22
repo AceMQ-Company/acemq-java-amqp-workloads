@@ -39,7 +39,7 @@ as they stand, most of them with their objectives already set.
 What comes out is a file: `acemq-workload-<name>-<date>.json`, which is what the
 command line reads. A scenario designed on a screen runs unchanged in a pipeline
 — that is the reason for a designer rather than a nicer form over a YAML file.
-**[How to use it](studio/USAGE.md).**
+**[How to use it](docs/studio-guide.md)** — every screen, with a picture of each.
 
 ## From Java
 

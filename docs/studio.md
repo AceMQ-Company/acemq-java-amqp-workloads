@@ -12,9 +12,8 @@ it exports is a [scenario file](scenario-file.md), which is what a pipeline
 reads — so a scenario drawn on a screen runs unchanged in CI rather than being
 described to somebody who then writes YAML by hand.
 
-The full walkthrough, screen by screen, is in
-[studio/USAGE.md](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/blob/main/studio/USAGE.md).
-This page is what it is and why.
+The full walkthrough, screen by screen and with pictures of each one, is
+[Using the studio](studio-guide.md). This page is what it is and why.
 
 ## A broker first
 

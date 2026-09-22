@@ -29,9 +29,20 @@ mkdir -p "$OUT"
 
 # Images as well as stylesheets. Copying only *.css is how a logo ends up
 # referenced by every page and served by none.
+#
+# -R and a trailing dot rather than a glob: the screenshots are in here too,
+# and a folder of them added later would make a plain `cp` fail the build for
+# a reason nobody would guess from "cp: is a directory".
+#
+# The pages reference these as assets/<file>, which is relative to the page --
+# so it resolves under acemq.org/acemq-java-amqp-workloads/ and from a local
+# file:// open alike, and it is the same path the markdown uses on GitHub,
+# where docs/studio-guide.md sits beside docs/assets/. A leading slash would
+# work on none of the three.
 if compgen -G "docs/assets/*" > /dev/null; then
   mkdir -p "$OUT/assets"
-  cp docs/assets/* "$OUT/assets/"
+  cp -R docs/assets/. "$OUT/assets/"
+  echo "  copied $(find docs/assets -type f | wc -l | tr -d ' ') assets"
 fi
 
 cat > "$OUT/style.css" <<'CSS'
@@ -82,6 +93,16 @@ table { border-collapse:collapse; width:100%; font-size:.92rem; display:block; o
 th,td { text-align:left; padding:.55rem .8rem; border-bottom:1px solid var(--line); vertical-align:top; }
 th { color:var(--muted); font-weight:600; }
 blockquote { border-left:3px solid var(--line); margin:1.25rem 0; padding:.2rem 0 .2rem 1.15rem; color:var(--muted); }
+
+/* Screenshots. They are captured at twice their CSS size for a retina screen,
+   so without max-width every one of them would be half again wider than the
+   column and push the page sideways. The border matters more than it looks:
+   the studio is a dark interface, and on a white page a dark rectangle with no
+   edge reads as a hole rather than as a picture of something. */
+main img { display:block; max-width:100%; height:auto; margin:1.6rem auto;
+           border:1px solid var(--line); border-radius:8px; }
+main figure { margin:1.6rem 0; }
+main figcaption { color:var(--muted); font-size:.85rem; text-align:center; margin-top:.5rem; }
 footer { max-width:47rem; margin:0 auto; padding:1.5rem 1.25rem 4rem;
          border-top:1px solid var(--line); color:var(--muted); font-size:.85rem; }
 
@@ -108,6 +129,8 @@ NAV='<nav class="top">
   <span class="brand"><img src="assets/acemq.png" alt="AceMQ"> AMQP workloads</span>
   <a href="index.html">Overview</a>
   <a href="getting-started.html">Getting started</a>
+  <a href="studio.html">Studio</a>
+  <a href="studio-guide.html">Studio guide</a>
   <a href="cli.html">Command line</a>
   <a href="workload-file.html">Workload file</a>
   <a href="measurement.html">Measurement</a>

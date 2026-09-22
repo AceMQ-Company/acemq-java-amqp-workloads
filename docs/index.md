@@ -91,6 +91,7 @@ a wrong one worse than silence.
 ## Where to start
 
 - [The studio](studio.md) — design a topology, run it, watch it
+- [Using the studio](studio-guide.md) — every screen, in the order you meet them
 - [Getting started](getting-started.md) — build it and run something
 - [Tutorials](tutorials.md) — step by step, five of them
 - [Command line](cli.md) — every option, with examples
