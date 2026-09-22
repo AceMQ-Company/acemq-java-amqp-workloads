@@ -67,10 +67,17 @@ fi
 
 # The changelog is the release notes and the only record of why a version
 # exists. "Unreleased" in the heading means nobody wrote them.
-if grep -q "^## $VERSION — " CHANGELOG.md; then
+# The bracketed form Keep a Changelog documents, which the header of
+# CHANGELOG.md says this file follows. It was written "## 0.1.4 — 2026-09-07"
+# for five releases and this check was written to match what was there rather
+# than what was meant, so the two drifted apart without either being wrong on
+# its own terms. The pre-push hook reads the documented form; when they
+# disagreed it refused a good release and named five earlier ones as missing
+# their sections. One form, and this is it.
+if grep -qE "^## \[$VERSION\] - " CHANGELOG.md; then
   ok "CHANGELOG.md has a section for $VERSION"
 else
-  fail "CHANGELOG.md has no '## $VERSION — <date>' section"
+  fail "CHANGELOG.md has no '## [$VERSION] - <date>' section"
 fi
 
 echo "==> continuous integration on this commit"
