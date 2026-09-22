@@ -8,6 +8,32 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
+## [Unreleased]
+
+### Added
+- **The studio guide is part of the site, with a picture of every screen it
+  describes.** `studio/USAGE.md` moved to [`docs/studio-guide.md`](docs/studio-guide.md),
+  which is what the published site renders, and its six numbered sections now
+  show the screen each one is about: the connect screen, the canvas, the
+  inspector, the objectives panel, a run in progress, the verdict, the run
+  history and a two-run comparison. Every picture is a capture of the running
+  studio, taken by [`scripts/screenshots.sh`](scripts/screenshots.sh) driving it
+  through that walkthrough against a real broker — the same preset, the same
+  rates, a fixed viewport, so a re-run produces a diff rather than noise. Each
+  shot is preceded by an assertion that the screen still says what the guide
+  claims, so the walkthrough cannot drift away from the build unnoticed.
+  `studio/USAGE.md` stays as a pointer for anybody reading the repository.
+
+### Fixed
+- **The management API was never actually asked.** The studio's probe sent no
+  credentials, so on a broker that wants a user — which is every broker — the
+  management query was refused and the connect screen reported that the
+  management API did not answer about an API that had answered perfectly well.
+  What that cost was visible: stream and mirrored-classic queues greyed out in
+  the designer, and **Import from broker** unavailable, on brokers that support
+  both. It now sends the user written into the AMQP URL, which is the same user
+  in every case anybody points this at.
+
 ## 0.1.4 — 2026-09-07
 
 ### Added
