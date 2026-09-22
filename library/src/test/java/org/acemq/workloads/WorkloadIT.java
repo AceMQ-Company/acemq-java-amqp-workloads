@@ -17,13 +17,23 @@ package org.acemq.workloads;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 
+import org.acemq.rabbitmq.admin.ChannelInfo;
+import org.acemq.rabbitmq.admin.QueueInfo;
+import org.acemq.rabbitmq.admin.RabbitAdmin;
+import org.acemq.workloads.cli.WorkloadFile;
 import org.acemq.workloads.rules.Objective;
 import org.acemq.workloads.rules.Severity;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -189,5 +199,164 @@ class WorkloadIT {
                     assertThat(f.rule()).isEqualTo("consumers-kept-up");
                     assertThat(f.implication()).contains("run's length");
                 });
+    }
+
+    /**
+     * What the broker was actually told, rather than what the report says it was told.
+     *
+     * <p>These exist because of a bug that no report could have caught. A workload file's
+     * {@code queueType} and {@code arguments} were parsed, validated, and then dropped on the way
+     * to the scenario the engine runs, so every queue was declared classic — while the report
+     * printed back the type that had been <em>asked for</em>. Two workloads differing only in
+     * {@code queueType} therefore compared classic against classic and agreed with each other,
+     * which is the worst way for a measurement to be wrong. {@code confirms: false} was dropped
+     * the same way, one layer lower.
+     *
+     * <p>So the assertion has to come from somewhere the code under test does not write. The
+     * management API is that place: it reports what the broker holds, and it does not care what
+     * the workload file said.
+     */
+    @Nested
+    @DisplayName("what the broker was actually told")
+    class WhatTheBrokerWasActuallyTold {
+
+        @Test
+        @Timeout(180)
+        @DisplayName("a workload file that asks for a quorum queue gets one")
+        void queueTypeAndArgumentsReachTheBroker(@TempDir Path directory) throws IOException {
+            // Through the file, not the builder: the file is the surface the bug was on, and a
+            // test that starts at the builder would have passed throughout.
+            Path file = directory.resolve("quorum.yaml");
+            Files.writeString(file, """
+                    name: it-declares-quorum
+                    broker: %s
+                    topology:
+                      queue: wl.declared.quorum
+                      routingKey: wl.declared.quorum
+                      queueType: quorum
+                      arguments:
+                        x-max-length: 100000
+                    publishers: { threads: 1, rate: 200, messageSize: 256 }
+                    consumers: { concurrency: 2, prefetch: 50 }
+                    warmup: 1s
+                    runFor: 5s
+                    """.formatted(amqpUrl()));
+
+            WorkloadFile parsed = WorkloadFile.read(file);
+            parsed.workloads().get(0).run(parsed.brokerUrl(0));
+
+            try (RabbitAdmin admin = RabbitAdmin.connect(managementUrl(), "guest", "guest")) {
+                QueueInfo queue = admin.queue("wl.declared.quorum").orElseThrow();
+
+                assertThat(queue.type()).isEqualTo("quorum");
+                assertThat(queue.argument("x-queue-type")).isEqualTo("quorum");
+                // A number in YAML has to survive as a number. An x-max-length of "100000" is
+                // refused by the broker, so this would have failed loudly rather than quietly --
+                // but only once the argument reached it at all.
+                assertThat(queue.argument("x-max-length")).isEqualTo(100_000);
+            }
+        }
+
+        @Test
+        @Timeout(180)
+        @DisplayName("the default is still a classic queue, and nothing invents an x-queue-type")
+        void theDefaultIsClassic() {
+            Workload.named("it-declares-classic")
+                    .topology(t -> t.queue("wl.declared.classic").routingKey("wl.declared.classic"))
+                    .publishers(p -> p.threads(1).rate(200).messageSize(256))
+                    .consumers(c -> c.concurrency(2).prefetch(50))
+                    .warmup(Duration.ofSeconds(1))
+                    .runFor(Duration.ofSeconds(5))
+                    .run(amqpUrl());
+
+            try (RabbitAdmin admin = RabbitAdmin.connect(managementUrl(), "guest", "guest")) {
+                QueueInfo queue = admin.queue("wl.declared.classic").orElseThrow();
+
+                assertThat(queue.type()).isEqualTo("classic");
+                // The quorum case above asserts the same field. Both have to be read from the
+                // broker for the pair to mean anything: a test that only ever asks about the
+                // queue it expects to be quorum would still pass if every queue were.
+                assertThat(queue.argument("x-max-length")).isNull();
+            }
+        }
+
+        @Test
+        @Timeout(180)
+        @DisplayName("confirms: false reaches the channel the broker sees")
+        void confirmsReachTheChannel() {
+            assertThat(channelConfirmFlagsDuringA(false))
+                    .describedAs("every publishing channel, with confirms switched off")
+                    .isNotEmpty()
+                    .containsOnly(false);
+        }
+
+        @Test
+        @Timeout(180)
+        @DisplayName("and confirms: true still does")
+        void confirmsOnReachTheChannel() {
+            assertThat(channelConfirmFlagsDuringA(true))
+                    .describedAs("every publishing channel, with confirms switched on")
+                    .isNotEmpty()
+                    .containsOnly(true);
+        }
+
+        /**
+         * Runs a workload and asks the broker, while it is still running, whether the channels
+         * publishing to it are in confirm mode.
+         *
+         * <p>It has to be asked during the run: a channel that has closed is not in
+         * {@code /api/channels} any more, so a report read afterwards is the only thing left to
+         * believe, and the report is what was lying.
+         *
+         * @param confirms what the workload asks for
+         * @return the confirm flag of every channel with something unconfirmed or unacknowledged
+         *     on it, as the broker sees them
+         */
+        private List<Boolean> channelConfirmFlagsDuringA(boolean confirms) {
+            String queue = "wl.confirms." + confirms;
+            RunHandle handle = Workload.named("it-confirms-" + confirms)
+                    .topology(t -> t.queue(queue).routingKey(queue))
+                    .publishers(p -> p.threads(2).rate(400).messageSize(256).confirms(confirms))
+                    .consumers(ConsumerSpec::none)
+                    .warmup(Duration.ofSeconds(1))
+                    // Long enough to be asked about, and stopped as soon as it has been.
+                    .runFor(Duration.ofMinutes(2))
+                    .build()
+                    .start(amqpUrl(), RunListener.NONE);
+
+            try (RabbitAdmin admin = RabbitAdmin.connect(managementUrl(), "guest", "guest")) {
+                List<Boolean> flags = List.of();
+                long deadline = System.currentTimeMillis() + 60_000;
+                while (flags.isEmpty() && System.currentTimeMillis() < deadline) {
+                    sleep(500);
+                    flags = admin.channels().stream()
+                            // Consumers are switched off, so a channel doing anything at all is
+                            // one of the publishers'.
+                            .filter(c -> c.messagesUnconfirmed() > 0 || c.confirm())
+                            .map(ChannelInfo::confirm)
+                            .toList();
+                    // With confirms off there is nothing unconfirmed and nothing in confirm mode,
+                    // so the filter above finds nothing and the absence is the answer. Wait for
+                    // the run to have opened its channels, then read them all.
+                    if (flags.isEmpty() && !confirms) {
+                        flags = admin.channels().stream()
+                                .map(ChannelInfo::confirm)
+                                .toList();
+                    }
+                }
+                return flags;
+            } finally {
+                handle.stop();
+                handle.report().join();
+            }
+        }
+
+        private void sleep(long millis) {
+            try {
+                Thread.sleep(millis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 }

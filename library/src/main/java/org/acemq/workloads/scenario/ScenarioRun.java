@@ -179,17 +179,36 @@ final class ScenarioRun {
     }
 
     /**
-     * Opens the connection, with TLS when a policy was given.
+     * Opens the connection, with TLS when a policy was given and confirms unless they were
+     * turned off.
      *
-     * <p>Without one the URL decides, which means plaintext for amqp:// and the JVM's own trust
-     * store for amqps://. A policy is what carries a private CA or a client certificate, and
-     * neither can be expressed in a URL.
+     * <p>Without a security policy the URL decides, which means plaintext for amqp:// and the
+     * JVM's own trust store for amqps://. A policy is what carries a private CA or a client
+     * certificate, and neither can be expressed in a URL.
+     *
+     * <p>Confirms are a property of the connection in this transport rather than of a single
+     * publisher, which is why they are read here and not where the publishers are built. The
+     * scenario has already refused to run if its producers disagreed about them, so asking the
+     * first active producer asks all of them.
      */
     private AceMq connect() {
-        if (security == null) {
-            return AceMq.connect(brokerUrl);
+        ConnectionConfig.Builder config = ConnectionConfig.url(brokerUrl);
+        if (security != null) {
+            config.security(security);
         }
-        return AceMq.connect(ConnectionConfig.url(brokerUrl).security(security).build());
+        if (!confirmsWanted()) {
+            config.withoutPublisherConfirms();
+        }
+        return AceMq.connect(config.build());
+    }
+
+    /**
+     * @return whether this run waits for the broker to accept a publish. A run without confirms
+     *     counts messages handed to a socket, which is a different number wearing the same name
+     *     — {@code Rules.confirmsWereOn} is what says so in the report
+     */
+    private boolean confirmsWanted() {
+        return scenario.activeProducers().stream().allMatch(ProducerNode::confirms);
     }
 
     private ScenarioReport report(AceMq broker, Instant startedAt, Duration measured) {

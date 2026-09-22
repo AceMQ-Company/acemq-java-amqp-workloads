@@ -77,6 +77,44 @@ class ScenarioTest {
                 .anyMatch(problem -> problem.contains("nothing is receiving"));
     }
 
+    // Confirms are negotiated on the connection, and a scenario runs on one. Honouring both
+    // answers is impossible and picking one of them silently is how a run measures the opposite
+    // of what it was asked for.
+    @Test
+    void refusesProducersThatDisagreeAboutConfirms() {
+        Scenario scenario = Scenario.named("mixed")
+                .exchange("orders", "topic")
+                .queue("orders.q", q -> q.boundTo("orders", "#"))
+                .producer("safe", p -> p.to("orders", "k").confirms(true))
+                .producer("fast", p -> p.to("orders", "k").confirms(false));
+
+        assertThat(scenario.problems())
+                .anyMatch(problem -> problem.contains("disagree about publisher confirms"));
+    }
+
+    @Test
+    void acceptsProducersThatAgreeAboutConfirms() {
+        Scenario scenario = Scenario.named("agreed")
+                .exchange("orders", "topic")
+                .queue("orders.q", q -> q.boundTo("orders", "#"))
+                .producer("one", p -> p.to("orders", "k").confirms(false))
+                .producer("two", p -> p.to("orders", "k").confirms(false));
+
+        assertThat(scenario.problems()).isEmpty();
+    }
+
+    // A producer that is switched off is not in the run, so its opinion is not a conflict.
+    @Test
+    void ignoresASwitchedOffProducersOpinionOnConfirms() {
+        Scenario scenario = Scenario.named("one-off")
+                .exchange("orders", "topic")
+                .queue("orders.q", q -> q.boundTo("orders", "#"))
+                .producer("live", p -> p.to("orders", "k").confirms(true))
+                .producer("parked", p -> p.to("orders", "k").confirms(false).enabled(false));
+
+        assertThat(scenario.problems()).isEmpty();
+    }
+
     // A queue nobody reads is a legitimate thing to measure -- it is how you find out what a
     // backlog costs -- so it is worth saying and not worth refusing.
     @Test

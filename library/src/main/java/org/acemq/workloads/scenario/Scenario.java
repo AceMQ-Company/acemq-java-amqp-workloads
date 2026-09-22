@@ -292,6 +292,20 @@ public final class Scenario {
             }
         }
 
+        // Confirms are negotiated once, on the connection, and a scenario runs on one. Producers
+        // that disagree cannot both be honoured, and silently picking one of the two answers is
+        // how a run measures the opposite of what it was asked for. Two runs is the way to
+        // compare confirms against no confirms, which is also the only way the comparison means
+        // anything: it is the whole run that changes, not one producer in it.
+        Set<Boolean> confirmChoices = activeProducers().stream()
+                .map(ProducerNode::confirms)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        if (confirmChoices.size() > 1) {
+            problems.add("producers disagree about publisher confirms, and a scenario has one"
+                    + " connection to negotiate them on. Run the two configurations as two"
+                    + " scenarios and compare them");
+        }
+
         if (activeProducers().isEmpty()) {
             problems.add("nothing is publishing: every producer is switched off");
         }

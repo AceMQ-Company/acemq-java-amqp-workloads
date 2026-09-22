@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.acemq.rabbitmq.admin.RabbitAdmin;
 import org.acemq.workloads.metrics.LatencySummary;
+import org.acemq.workloads.scenario.QueueType;
 import org.acemq.workloads.scenario.Scenario;
 import org.acemq.workloads.scenario.ScenarioListener;
 import org.acemq.workloads.scenario.ScenarioReport;
@@ -94,6 +95,13 @@ final class WorkloadRun {
         }
 
         scenario.queue(topology.queue(), queue -> {
+            // The type and the arguments are what the declaration is made of, and a queue node
+            // built without them is a classic queue however the file was written. A workload that
+            // says quorum and measures classic is worse than one that refuses to run: the report
+            // reads back the type that was asked for, so the two legs of a comparison agree with
+            // each other and both are wrong.
+            queue.type(QueueType.parse(topology.queueType()));
+            topology.queueArguments().forEach(queue::argument);
             if (!topology.usesDefaultExchange()) {
                 queue.boundTo(topology.exchange(), topology.routingKey());
             }
