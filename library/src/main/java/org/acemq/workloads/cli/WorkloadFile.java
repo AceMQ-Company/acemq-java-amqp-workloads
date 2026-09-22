@@ -34,6 +34,7 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import org.acemq.workloads.Payload;
 import org.acemq.workloads.Workload;
 import org.acemq.workloads.rules.Objective;
+import org.acemq.workloads.scenario.YamlComments;
 
 /**
  * Reads a workload, or a suite of them, from YAML or JSON.
@@ -108,7 +109,7 @@ public final class WorkloadFile {
     }
 
     static WorkloadFile parse(String text, boolean json, Function<String, String> environment) {
-        String resolved = substitute(text, environment);
+        String resolved = substitute(text, environment, !json);
         ObjectMapper mapper = json ? new ObjectMapper() : new ObjectMapper(new YAMLFactory());
 
         JsonNode root;
@@ -333,11 +334,32 @@ public final class WorkloadFile {
         return value.asText();
     }
 
-    /** Replaces {@code ${VAR}} and {@code ${VAR:-default}} from the environment. */
-    static String substitute(String text, Function<String, String> environment) {
+    /**
+     * Replaces {@code ${VAR}} and {@code ${VAR:-default}} from the environment, outside comments.
+     *
+     * <p>Substitution runs over the whole file before anything parses it, which is what lets a
+     * placeholder stand anywhere — a broker URL, a rate, a queue name — rather than only in the
+     * few fields somebody anticipated. It used to run over the comments too, so a file that
+     * tried to explain its own syntax to the next reader stopped the run with an unset-variable
+     * error over a line the parser never sees. A comment is not part of the document.
+     *
+     * <p>A placeholder in a comment is left exactly as written even when the variable <em>is</em>
+     * set, because resolving it would write the value into the comment, and the value is often
+     * the password the placeholder exists to keep out of the file.
+     *
+     * @param text the file's contents
+     * @param environment where {@code ${VAR}} comes from
+     * @param yaml whether {@code #} starts a comment, which it does not in JSON
+     */
+    static String substitute(String text, Function<String, String> environment, boolean yaml) {
+        boolean[] comment = yaml ? YamlComments.mask(text) : new boolean[text.length()];
         Matcher matcher = VARIABLE.matcher(text);
         StringBuilder out = new StringBuilder();
         while (matcher.find()) {
+            if (comment[matcher.start()]) {
+                matcher.appendReplacement(out, Matcher.quoteReplacement(matcher.group()));
+                continue;
+            }
             String name = matcher.group(1);
             String fallback = matcher.group(2);
             String value = environment.apply(name);

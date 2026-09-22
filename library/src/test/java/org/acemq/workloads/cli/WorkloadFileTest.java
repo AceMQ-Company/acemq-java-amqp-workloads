@@ -280,6 +280,58 @@ class WorkloadFileTest {
         }
 
         @Test
+        @DisplayName("an unset variable in a comment does not stop the run")
+        void unsetInCommentIsNotAnError() {
+            // The fault this pins: a workload file explaining its own syntax to the next reader
+            // could not write the syntax down, because the placeholder in the comment was read
+            // as a real one. The comment never reaches the parser, so nothing in it has any
+            // business deciding whether the run happens.
+            String yaml = """
+                    # Export ${BROKER_PASSWORD} before running this.
+                    name: documented
+                    broker: amqp://guest:guest@localhost:5672
+                    runFor: 30s
+                    """;
+
+            assertThat(WorkloadFile.substitute(yaml, name -> null, true))
+                    .contains("${BROKER_PASSWORD}");
+            assertThat(WorkloadFile.parse(yaml, false, name -> null).brokerUrl(0))
+                    .isEqualTo("amqp://guest:guest@localhost:5672");
+        }
+
+        @Test
+        @DisplayName("a set variable in a comment is left as written")
+        void setInCommentIsStillLeftAlone() {
+            // Resolving it would put the password into the comment, and the comment is the part
+            // of the file somebody pastes into a ticket.
+            Map<String, String> env = Map.of("BROKER_PASSWORD", "s3cret");
+
+            assertThat(WorkloadFile.substitute("# use ${BROKER_PASSWORD}\nname: n\n", env::get, true))
+                    .contains("# use ${BROKER_PASSWORD}")
+                    .doesNotContain("s3cret");
+        }
+
+        @Test
+        @DisplayName("a trailing comment does not stop the line it follows being resolved")
+        void trailingComment() {
+            Map<String, String> env = Map.of("BROKER_PASSWORD", "s3cret");
+
+            assertThat(WorkloadFile.substitute(
+                    "broker: amqp://guest:${BROKER_PASSWORD}@h  # or ${OTHER_ONE}\n", env::get, true))
+                    .isEqualTo("broker: amqp://guest:s3cret@h  # or ${OTHER_ONE}\n");
+        }
+
+        @Test
+        @DisplayName("in JSON a hash is never a comment")
+        void jsonHasNoComments() {
+            // JSON cannot carry a comment, so a # is a character in a string and nothing else.
+            Map<String, String> env = Map.of("BROKER_PASSWORD", "s3cret");
+
+            assertThat(WorkloadFile.substitute("{\"broker\": \"# ${BROKER_PASSWORD}\"}", env::get, false))
+                    .contains("s3cret");
+        }
+
+        @Test
         @DisplayName("a dry run does not print the password")
         void dryRunRedacts() {
             WorkloadFile file = WorkloadFile.parse("""

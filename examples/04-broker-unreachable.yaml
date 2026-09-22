@@ -54,11 +54,16 @@
 # exit 3 in a second instead of after a two-minute wait, and it is safe in a
 # pre-commit hook.
 #
-# While you are here: substitution runs over the whole file before it is parsed,
-# comments included. A dollar-brace placeholder written in a comment as an
-# example is resolved like any other, and an unset one with no default stops the
-# run with exit 3 — which is why the paragraph above describes the syntax rather
-# than printing it.
+# The placeholders it resolves are written ${BROKER_PASSWORD}, or
+# ${BROKER_PASSWORD:-guest} to carry a default — which is what the broker line
+# below does. An unset one with no default stops the run with exit 3 rather than
+# quietly connecting with an empty password.
+#
+# Substitution runs over the whole file before it is parsed, but it steps around
+# the comments, which is why this paragraph can print the syntax instead of
+# describing it in words. A placeholder here stays as written even when the
+# variable is set: resolving it would paste the password into the comment that
+# exists to explain how to keep the password out of the file.
 #
 #   java -jar library/target/acemq-workload.jar -f examples/04-broker-unreachable.yaml --dry-run
 #

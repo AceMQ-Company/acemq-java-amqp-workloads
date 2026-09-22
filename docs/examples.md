@@ -354,10 +354,13 @@ broker-unreachable
 ```
 
 One thing worth knowing while you are editing these files: **environment
-substitution runs over the whole file before it is parsed, comments included.**
-A `${NAME}` placeholder written inside a comment as an example is resolved like
-any other, and an unset one with no default stops the run with exit 3 and a
-message about a variable you thought you were only describing.
+substitution runs over the whole file before it is parsed, but it steps around
+the comments.** So a `${NAME}` written inside a `#` comment as an example is
+left exactly as written — it neither stops the run when the variable is unset
+nor pastes the value in when it is set, which matters when the value is the
+password the placeholder exists to keep out of the file. Outside a comment it
+resolves as always, and an unset one with no default is still exit 3 rather
+than a connection with an empty password.
 
 ## Classic against quorum
 
