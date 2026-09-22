@@ -8,6 +8,38 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
+## [Unreleased]
+
+### Fixed
+- **`${VAR}` written inside a `#` comment stopped a workload run**, which is
+  the same fault 0.2.0 fixed for scenario files and left in place for the other
+  half of the same `-f`. `WorkloadFile` carried its own copy of the
+  substitution loop, so a workload file documenting its own syntax to the next
+  reader aborted with an unset-variable error over a line the parser never
+  sees. It now masks the comments the way the scenario reader does, and leaves
+  a placeholder in a comment as written even when the variable *is* set, since
+  resolving it would write the value — usually a password — into the comment
+  that exists to explain keeping it out of the file.
+  [`examples/04-broker-unreachable.yaml`](examples/04-broker-unreachable.yaml)
+  now prints the syntax it previously had to apologise for and describe in
+  words.
+- **One banner took the whole canvas with it.** The designer column was a
+  two-row grid — a toolbar and a canvas — and a banner is a third child, so the
+  first one to appear claimed the row meant for the canvas and the canvas
+  dropped into an implicit row sized to its content, which for a flow pane is
+  nothing. Loading the `dead-letter` preset, whose parked queue has no
+  consumer, replaced the entire topology with one amber line about it. The
+  column is a flex column now, so it takes however many banners the scenario
+  earns and the canvas still gets what is left.
+- **A producer node could sit on top of the exchange column.** A node carries
+  its routing keys in a pill and `ecommerce` has one with four of them in it;
+  with a minimum width and no maximum, the node was sized by that text and grew
+  straight across the 300px the exchanges sit at. Nodes are capped now and a
+  pill too wide for one is cut off with its full value on the title, which is
+  what the ellipsis already on the node's name was waiting for. Both were
+  invisible to the component tests — neither is a bug you can see without
+  layout — so both are pinned by end-to-end tests in a real browser.
+
 ## [0.2.0] - 2026-09-22
 
 ### Added
