@@ -64,17 +64,25 @@ expect:
 | `arguments` | | queue arguments |
 | `declare` | `true` | set `false` to use the topology as it already exists |
 
-> **`queueType` and `arguments` do not reach the broker yet.** The queue is
-> declared classic whichever value `queueType` carries, and the arguments are
-> dropped — while the report prints back the type that was asked for, because it
-> echoes the spec rather than the broker's answer. Two workloads differing only
-> in `queueType` therefore compare classic with classic and pass. A
-> [scenario](scenario-file.md)'s `type` and `arguments` are honoured; use one
-> until this is connected, and check the broker rather than the report:
->
-> ```bash
-> curl -su guest:guest http://localhost:15672/api/queues/%2F/orders.new
-> ```
+`queueType` and `arguments` are what the queue is declared with, so a suite of
+two workloads differing only in `queueType` is a real comparison — see
+[a suite](#a-suite) below. The broker
+is still the authority, and checking it costs one command:
+
+```bash
+curl -su guest:guest http://localhost:15672/api/queues/%2F/orders.new
+```
+
+A workload is one queue, and `classic` and `quorum` are the two kinds worth
+comparing along a single path. `stream` is refused here rather than quietly
+downgraded: a stream is read by offset and deletes nothing, so its consumers,
+its depth and its backlog rules all mean something else. Write a
+[scenario](scenario-file.md) for one — its queues take a `type`, and
+`examples/06-stream.yaml` is what asking for one looks like.
+
+`exchangeType` without `exchange` is refused for the same reason. With no
+exchange the workload publishes through the default one, which routes by queue
+name and has no type, so there would be nowhere for the value to go.
 
 `declare: false` is the right choice when measuring a real environment.
 Declaring would either be refused for mismatched arguments or, worse, create
@@ -116,13 +124,22 @@ report says so when you do.
 **`confirms: false` changes what the throughput means.** A publish without
 confirms is a message handed to a socket, not one the broker accepted. The rate
 goes up and some of those messages were never durably anywhere — not a number to
-promise a customer.
+promise a customer. The report raises the `confirms-were-on` warning whenever it
+happened, because a rate produced this way needs the sentence above attached to
+it. Two runs differing only in this field, 4,000/s of 1KB messages:
 
-> **Not yet honoured by a run.** The setting reaches the report and raises the
-> `confirms-were-on` warning, and the engine publishes with confirms either way:
-> two runs differing only in this field come back with the same publish latency
-> and the same rate. Until that is connected, `confirms: false` describes an
-> intention rather than a configuration, and there is no example of it.
+| publish latency | `confirms: true` | `confirms: false` |
+|---|---|---|
+| p50 | 777µs | 23µs |
+| p99 | 1.6ms | 77µs |
+
+That gap is the round trip to the broker and back, which is exactly what the
+setting buys and exactly what it costs.
+
+`randomPayload: true` may be written on its own; it keeps whatever
+`messageSize` is in force. Worth using when anything downstream compresses or
+deduplicates — a run of zeroes compresses to nothing, and a broker or network
+that compresses will report a throughput no real payload reproduces.
 
 ## `consumers`
 
@@ -207,6 +224,16 @@ They run in order against the same broker and are reported side by side. This is
 how to answer "what does a quorum queue cost us" with a number rather than an
 opinion — and why the shared settings are inherited rather than copied, since two
 copies that disagree by one field make the comparison meaningless.
+
+On the laptop this was written on, at 3,000/s of 1KB messages, that suite came
+back with an end-to-end p99 of 2.4ms for the classic queue and 38.3ms for the
+quorum one. Both figures are a single node's, and a single node is the least
+flattering case for a quorum queue in one respect and the most flattering in
+another: there is no network hop, and there is also no second node to absorb the
+Raft log write while this one serves consumers. Take the shape, measure your own
+numbers. `examples/05-queue-types.yaml` runs both queues at once instead, off
+one fanout exchange, which is a different and equally honest experiment — the
+same messages in the same second, on a broker doing both jobs.
 
 **Inheritance replaces a block; it does not merge into it.** An entry writing
 `publishers: { confirms: false }` gets exactly that publishers block, and

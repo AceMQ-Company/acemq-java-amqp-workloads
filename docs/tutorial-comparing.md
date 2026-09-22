@@ -62,9 +62,9 @@ java -jar library/target/acemq-workload.jar -f compare.yaml --report reports/ --
 They run in order, against the same broker, and are reported together:
 
 ```
-| workload      | result | offered | published | consumed | p50   | p99   | p99.9  |
-| classic-queue | PASSED | 4,000/s | 4,000/s   | 4,000/s  | 1.4ms | 2.2ms | 5.3ms  |
-| quorum-queue  | PASSED | 4,000/s | 4,000/s   | 4,000/s  | 1.1ms | 4.8ms | 47.7ms |
+| workload      | result | offered | published | consumed | p50   | p99    | p99.9   |
+| classic-queue | PASSED | 4,000/s | 4,000/s   | 4,000/s  | 587µs | 1.0ms  | 2.2ms   |
+| quorum-queue  | PASSED | 4,000/s | 4,000/s   | 4,000/s  | 1.3ms | 28.8ms | 307.8ms |
 ```
 
 ## Step 3 — Read it carefully
@@ -73,15 +73,23 @@ They run in order, against the same broker, and are reported together:
 queue type costs nothing in throughput, which is worth knowing and is not the
 interesting part.
 
-**p50 is a wash** — 1.4ms against 1.1ms, and the quorum queue is *faster* at the
-median. Do not read anything into that; it is within the noise of a laptop.
+**p50 roughly doubles** — 587µs against 1.3ms. That is the Raft log write on the
+happy path, and it is the part you would notice least.
 
-**p99.9 is nine times worse**: 5.3ms against 47.7ms. That is the replication
-showing up, and it shows up in the tail rather than the middle.
+**p99.9 is a hundred and forty times worse**: 2.2ms against 307.8ms. That is
+where the durability actually gets paid for, and it is invisible in every
+summary statistic except a high percentile. The quorum run also comes back with
+a `tail-is-not-extreme` warning, which is the report saying the same thing
+without being asked.
 
 This is the shape of almost every durability trade-off, and it is why a mean or a
-median would have told you nothing. A tool reporting "average latency 1.2ms vs
-1.1ms" would have concluded the quorum queue was free.
+median would have told you nothing. A tool reporting "average latency 0.6ms vs
+1.3ms" would have concluded the quorum queue costs about twice as much, and the
+message in a thousand that takes a third of a second would never have appeared.
+
+These are a laptop's numbers, and a single node's: one broker has no majority to
+wait for, so what is priced here is the log write alone and not the network.
+Measure your own, and read the gap rather than the absolute figures.
 
 ## Step 4 — Make the cost concrete
 
@@ -103,7 +111,7 @@ workloads:
 | quorum-queue  | FAILED |
 
 [FAILED] p99.9<20.0ms
-    observed:  p99.9 was 47.7ms, against a budget of 20.0ms
+    observed:  p99.9 was 307.8ms, against a budget of 20.0ms
     means:     one message in 1,000 took longer than the budget allows
 ```
 
@@ -127,6 +135,10 @@ workloads:
 
 The `confirms-were-on` warning fires on the second, which is correct — that
 throughput counts messages handed to a socket rather than accepted by the broker.
+On the same laptop the publish p50 goes from 777µs to 23µs, which is the round
+trip to the broker and back. That is the whole of what confirms cost, and the
+whole of what they buy: the 23µs number is not a faster broker, it is a number
+that stopped asking the broker anything.
 
 **What does message size cost?**
 

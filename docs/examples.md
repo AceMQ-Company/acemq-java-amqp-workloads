@@ -445,33 +445,36 @@ Exit code `0`.
 
 ### Why this is a scenario file and not a suite
 
-Because a suite of two workloads differing only in `queueType` compares classic
-with classic, and passes.
+Both work. A workload file's `queueType` and `arguments` reach the declaration,
+so a suite of two workloads differing only in `queueType` is a real comparison —
+`docs/workload-file.md` has one, and at 3,000/s it comes back with p99 2.4ms
+classic against 38.3ms quorum.
 
-**On this build a workload file's `queueType` is dropped on the way to the
-broker.** The queue is declared classic whatever the file says, while the report
-prints back the type that was asked for — the report is echoing the spec, not
-the broker's answer. `topology.arguments` goes the same way. A scenario's `type`
-and `arguments` are honoured, which is why every queue-type example here is a
-scenario.
+They answer different questions, though. A suite runs the two queues one after
+the other, each with the broker to itself. This file runs them together off one
+fanout exchange, so the same message lands in both at the same instant — which
+removes the minutes between two runs and the machine state that moved across
+them, and adds the fact that each queue is now measured while the other is being
+written. That is why the gap here is 4x and the gap in the suite is larger.
+Neither is the true number; they are answers to different experiments, and the
+one you want is whichever matches how the queue will actually be used.
 
-The broker is the authority and the report is not. Check, on any file that
-claims a queue type:
+The broker is the authority and the report is not — a report can only echo what
+it was asked for. Check, on any file that claims a queue type:
 
 ```bash
 curl -su guest:guest http://localhost:15672/api/queues/%2F/ex.bench.quorum
 ```
 
-Real output from the version of this example that used a workload suite —
-`"type": "classic"` on the queue called `quorum`:
-
 ```json
-{"name": "ex.bench.quorum", "type": "classic",
- "arguments": {"x-queue-type": "classic"}}
+{"name": "ex.bench.quorum", "type": "quorum",
+ "arguments": {"x-queue-type": "quorum"}}
 ```
 
-That is the whole reason the earlier draft of this page reported a quorum queue
-*faster* than a classic one. It was a classic queue.
+An earlier build dropped `queueType` between the file and the declaration, so
+that same command answered `"type": "classic"` on the queue called `quorum`, and
+a suite comparing the two compared classic with classic and passed. Fixed — and
+the habit of asking the broker is worth keeping anyway.
 
 ## A stream
 
@@ -976,11 +979,10 @@ Against a real environment, set `declare: false`. Declaring would either be
 refused for mismatched arguments or, worse, quietly create something subtly
 different from what production runs and measure that instead.
 
-There is no `queueType` in this file, deliberately. A workload file's is
-[dropped on the way to the broker](#why-this-is-a-scenario-file-and-not-a-suite)
-on this build, and a gate that believes it is testing a quorum queue and is not
-is worse than one that knows it is testing a classic queue. Gate a quorum queue
-with a scenario file, the way example 5 does.
+There is no `queueType` in this file, so the gate tests a classic queue and says
+so. Adding `queueType: quorum` makes it a quorum queue. What a gate must never
+be is unsure which of the two it tested, so pin the type in the file rather than
+leaving it to a default that could move under you.
 
 Exit code `0` against a local broker.
 
@@ -1086,10 +1088,11 @@ node one and stays connected, so what you measure is the queue losing a replica
 rather than your own client reconnecting. Those are two different experiments,
 and mixing them produces a graph nobody can read.
 
-It is a scenario file, because a workload file's `queueType` never reaches the
-broker — see [above](#why-this-is-a-scenario-file-and-not-a-suite). An
-experiment about quorum replication run on a queue that was quietly declared
-classic is an experiment about a classic queue with a confident label on it.
+It is a scenario file because of `x-quorum-initial-group-size`: how many
+replicas there are, and how many may go away, is the whole subject of the run,
+and a queue node is where a scenario puts an argument like that. A workload file
+would carry it too — `topology.arguments` reaches the declaration — but a
+workload is one queue and one path, and this wants the shape a scenario has.
 
 ```yaml
 name: quorum-node-loss

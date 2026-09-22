@@ -32,18 +32,23 @@
 # prefetch and all, and only the run changes.
 #
 # ---------------------------------------------------------------------------
-# WHY THIS IS A SCENARIO FILE AND NOT A SUITE. A workload file has a
-# `queueType` setting, and on this build it does nothing: the queue is declared
-# classic whichever value you give it, while the report prints back the type you
-# asked for. Two workloads differing only in `queueType` therefore compare
-# classic with classic and pass. A scenario's `type` is honoured. Check for
-# yourself, on any file that claims a queue type — the broker is the authority
-# and the report is not:
+# WHY THIS IS A SCENARIO FILE AND NOT A SUITE. Both would work — a workload
+# file's `queueType` and `arguments` reach the declaration — but they answer
+# different questions. A suite runs the two queues one after the other, each
+# with the broker to itself; this file runs them together, off one fanout
+# exchange, so every message lands in both at the same instant. That removes
+# the two things a sequential comparison cannot control for: the minutes
+# between the runs, and a machine whose state moved across them.
+#
+# It costs something in exchange. The two queues share a broker, so each is
+# measured while the other is also being written, and the gap below is
+# therefore smaller than a suite measures. Both numbers are true; they are
+# answers to different questions. `docs/workload-file.md` has the suite.
+#
+# Either way, check the broker rather than the report on any file that claims a
+# queue type. The report echoes what it was asked for; the broker knows:
 #
 #   curl -su guest:guest http://localhost:15672/api/queues/%2F/ex.bench.quorum
-#
-# The same goes for `topology.arguments` in a workload file, which is also
-# dropped. A scenario's `arguments` reach the broker.
 # ---------------------------------------------------------------------------
 name: queue-types
 description: what a quorum queue costs, measured against a classic one on the same messages

@@ -11,13 +11,14 @@
 # you know the same cluster idles at 3ms. The difference between the two runs is
 # the answer; either figure alone is trivia.
 #
-# This is a scenario file rather than a workload file, for a reason worth
-# knowing before you write a quorum queue anywhere: **a workload file's
-# `queueType` is dropped on the way to the broker on this build.** The queue is
-# declared classic whatever the file says, while the report prints back the type
-# that was asked for. An experiment about quorum replication run that way is an
-# experiment about a classic queue with a confident label on it. A scenario's
-# `type` is honoured. Verify rather than trust, here and anywhere else:
+# This is a scenario file rather than a workload file because of the
+# `arguments` below: `x-quorum-initial-group-size` is the whole subject of the
+# run, and a queue node is where a scenario puts it. A workload file would
+# carry it too — `topology.arguments` reaches the declaration — but a workload
+# is one queue and one path, and what follows wants the shape a scenario has.
+#
+# Verify rather than trust, here and anywhere else. The broker is the authority
+# on what it declared, and a report only ever echoes what it was asked for:
 #
 #   curl -su guest:guest http://localhost:15691/api/queues/%2F/ex.ha.orders
 #

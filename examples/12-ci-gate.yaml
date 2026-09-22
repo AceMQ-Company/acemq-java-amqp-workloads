@@ -56,12 +56,11 @@ topology:
   exchangeType: topic
   queue: ex.gate.orders
   routingKey: order.created
-  # No `queueType` here, deliberately: on this build a workload file's
-  # `queueType` is dropped on the way to the broker and the queue is declared
-  # classic whatever it says, while the report prints back the type you asked
-  # for. A gate that believes it is testing a quorum queue and is not, is worse
-  # than one that knows it is testing a classic queue. Gate a quorum queue with
-  # a scenario file, as 05 does.
+  # No `queueType` here, so this gate is a classic queue and says so. Add
+  # `queueType: quorum` and it is a quorum queue — the setting reaches the
+  # declaration. What the gate must not be is unsure which it tested, so
+  # whichever you pick, pin it in the file rather than leaving it to a default
+  # that could move under you.
   #
   # Against a real environment set `declare: false`. Declaring would either be
   # refused for mismatched arguments or, worse, quietly create something subtly
