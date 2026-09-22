@@ -8,7 +8,7 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
-## 0.2.0 — 2026-09-22
+## [0.2.0] - 2026-09-22
 
 ### Added
 - **An examples library**, fourteen examples in [`examples/`](examples) ordered
@@ -154,7 +154,7 @@ the messaging library's release train.
   or three messages unaccounted for beside a queue depth of zero about half the
   time. The finding's own detail line separates the two cases.
 
-## 0.1.4 — 2026-09-07
+## [0.1.4] - 2026-09-07
 
 ### Added
 - **The interface has tests.** Two layers: component tests in jsdom that run
@@ -214,7 +214,7 @@ the messaging library's release train.
 - The README led with the Java DSL and said `0.1.0` with a test count three
   releases old. It leads with the studio, and says what is actually true.
 
-## 0.1.3 — 2026-09-06
+## [0.1.3] - 2026-09-06
 
 ### Added
 - **The command line runs a scenario file.** `-f` takes either kind; which one it
@@ -281,7 +281,7 @@ the messaging library's release train.
   the studio into the library, because the file format is the contract between the
   designer and the command line and cannot live in only one of them.
 
-## 0.1.2 — 2026-09-06
+## [0.1.2] - 2026-09-06
 
 ### Added
 - **TLS and mutual TLS in the studio.** An `amqps://` URL turns on a TLS section
@@ -319,7 +319,7 @@ the messaging library's release train.
   refused, the password was wrong or the port was closed, and the answer is
   three causes further down.
 
-## 0.1.1 — 2026-09-06
+## [0.1.1] - 2026-09-06
 
 ### Added
 - **The studio.** `java -jar acemq-workloads-studio.jar` opens a browser
@@ -359,7 +359,7 @@ the messaging library's release train.
   studio is distributed as a release asset rather than a Maven artifact, because
   nobody declares an application as a dependency.
 
-## 0.1.0 — 2026-09-03
+## [0.1.0] - 2026-09-03
 
 ### Added
 - The repository: licence, notice, build, and a README that says what this is
