@@ -125,6 +125,14 @@ footer { max-width:47rem; margin:0 auto; padding:1.5rem 1.25rem 4rem;
 }
 CSS
 
+# The examples page is written in another stream of work, and a nav entry for a
+# page this build did not render is a 404 on every page of the site. So it is
+# asked for rather than assumed: the link appears the moment docs/examples.md
+# does, and until then the nav is simply one shorter.
+EXAMPLES=""
+[ -f docs/examples.md ] && EXAMPLES='
+  <a href="examples.html">Examples</a>'
+
 NAV='<nav class="top">
   <span class="brand"><img src="assets/acemq.png" alt="AceMQ"> AMQP workloads</span>
   <a href="index.html">Overview</a>
@@ -135,7 +143,7 @@ NAV='<nav class="top">
   <a href="workload-file.html">Workload file</a>
   <a href="measurement.html">Measurement</a>
   <a href="rules.html">Rules</a>
-  <a href="reports.html">Reports</a>
+  <a href="reports.html">Reports</a>'"$EXAMPLES"'
   <a class="tutorials" href="tutorials.html">Tutorials</a>
   <a class="api" href="apidocs/index.html">API reference</a>
   <a class="enterprise" href="https://acemq.com">Enterprise support</a>
