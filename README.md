@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/ci.yml)
 [![authorship guard](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/attribution-guard.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/actions/workflows/attribution-guard.yml)
-[![version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/releases)
+[![version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/releases)
 [![artifacts](https://img.shields.io/badge/artifacts-acemq.org%2Fmaven-blue)](https://acemq.org/maven/)
 [![docs](https://img.shields.io/badge/docs-acemq.org-blue)](https://acemq.org/acemq-java-amqp-workloads/)
 [![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
@@ -15,7 +15,7 @@ DSL** a test uses. One open-loop rate schedule under all three, honest latency
 percentiles, and a report that says what it measured rather than what you should
 do about it.
 
-> **Status: `0.2.0`, published.** 144 Java tests including integration tests
+> **Status: `0.3.0`, published.** 166 Java tests including integration tests
 > against a real broker, on JDK 17, 21 and 25, plus 14 component tests and 8
 > end-to-end tests that drive the interface in a headless browser. The library
 > is on the [Maven repository](https://acemq-company.github.io/maven/), both
@@ -164,6 +164,17 @@ usually asymmetric — here the audit stream may lag as much as it likes while t
 fulfilment queue must not, and a single overall p99 would average away exactly
 that distinction. What is not stated is not checked; anything stated produces a
 `FAILED` finding naming the node and both numbers, and exit `1`.
+
+A scenario also says how to reach the broker over TLS — `security: { mode,
+truststore, allowDevelopmentCertificates }`, or the same as `--tls`,
+`--truststore` and `--truststore-password` on the command line, so one file runs
+against staging and then production without being edited. The truststore
+password is read from the environment and is never written back into a file.
+
+And a queue can say which broker it is on, with `broker:`, which is how a
+federation link or a shovel gets measured from both ends: the producers publish
+upstream, the queue that receives them is declared and consumed downstream, and
+the run leaves the link itself to whoever configured it.
 
 [Every field](docs/scenario-file.md).
 
