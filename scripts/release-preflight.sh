@@ -95,6 +95,28 @@ else
   fail "gh is not installed, so ci cannot be checked"
 fi
 
+echo "==> what the tag will need"
+
+# The release workflow refuses in its first minute without this, which is the
+# right place for it to refuse -- but a tag is already public by then, and the
+# only way to retry is to delete and re-push it. Asked here, where the answer
+# still costs nothing.
+if command -v gh >/dev/null 2>&1; then
+  if gh secret list --json name --jq '.[].name' 2>/dev/null | grep -qx MAVEN_REPO_DEPLOY_KEY; then
+    ok "MAVEN_REPO_DEPLOY_KEY is set, so the release can write to the Maven feed"
+  else
+    fail "MAVEN_REPO_DEPLOY_KEY is not set on this repository; the release cannot publish"
+  fi
+fi
+
+if [ -f .github/workflows/release.yml ]; then
+  ok "release.yml exists, so pushing the tag publishes everything"
+else
+  # This is what the release used to be, and what it must not go back to being:
+  # four steps by hand, one of which was missed for a whole version.
+  fail "no .github/workflows/release.yml; nothing would publish this tag"
+fi
+
 echo "==> the build, at the version being released"
 
 # A copy with the version set, exactly as the publish script does it. The
@@ -173,8 +195,19 @@ ready to tag $VERSION
 
   git tag -a v$VERSION -m "$VERSION"
   git push origin v$VERSION
-  ../scripts/publish-maven-repo.sh $VERSION acemq-java-amqp-workloads
 
-The release's jars must be built with the version set, the way this script just
-did it, or they report a snapshot version to whoever runs them.
+That is the whole release now. The tag starts .github/workflows/release.yml,
+which builds both jars with the version set, runs the entire suite against those
+jars, and only then puts the library on the Maven feed and both jars on a GitHub
+release. image.yml builds the container from the same tag alongside it.
+
+Nothing is left to do by hand, and that is the point: this used to be four
+manual steps and v0.2.0 went out missing the fourth, so the library was on the
+feed while the release page the README points at did not exist.
+
+If you ever need to publish the Maven artifacts on their own -- a feed that lost
+a version, say -- ../scripts/publish-maven-repo.sh $VERSION acemq-java-amqp-workloads
+still does that from the workspace. Do not run it as part of an ordinary
+release; the workflow has already done it, and doing it twice is how two
+different builds of one version end up on the feed.
 DONE

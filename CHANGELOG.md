@@ -8,6 +8,38 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
+## [Unreleased]
+
+### Changed
+- **A tag is now the whole release.** Until this, releasing meant four things
+  done by hand from a workspace checkout — set the version, build the jars, run
+  `publish-maven-repo.sh`, then open the release page and attach the jars — and
+  the fourth is the one that gets forgotten: v0.2.0 went onto the Maven feed and
+  never had a GitHub release object created at all, so for a whole version the
+  README's promise that both jars are attached to the release was false and
+  nothing said so. `.github/workflows/release.yml` now does all of it from the
+  tag, in an order that matters: the jars are built with the version set and put
+  through the entire suite — the integration tests against a real broker, and
+  the end-to-end tests driving that exact studio jar in a real browser — before
+  a single byte reaches the feed. Nothing is published until the thing being
+  published has been tested. The container image is unaffected; `image.yml`
+  already builds it from the same tag and the two run side by side.
+- **Release pages carry a `SHA256SUMS` file** beside the two jars, and their
+  notes are taken from this changelog rather than pasted in by hand. The
+  checksum answers "did this arrive intact" and nothing more — a truncated
+  download, or a proxy that returned an error page with a 200 — and the release
+  workflow downloads one of its own jars from the public URL and checks it
+  before calling the release finished.
+
+### Added
+- **`etc/check-nothing-skipped.py`**, which fails a build when a test skipped. A
+  skip reads as success from every angle a dashboard has, and for a load
+  generator the tests that skip most easily are the ones needing a broker, which
+  is to say the ones that decide whether the numbers this tool prints mean
+  anything. It runs on all three JDKs in `ci.yml`, and in the release with
+  `--require-integration`, where "the broker tests did not run" must not look
+  like "the broker tests passed".
+
 ## [0.3.0] - 2026-09-23
 
 ### Added

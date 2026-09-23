@@ -51,6 +51,23 @@ jobs:
       - name: Build and test
         run: mvn -B --no-transfer-progress clean verify
 
+      - name: Check nothing skipped
+        # A suite that skipped everything reports the same green as one that
+        # passed everything, and the step above cannot tell the two apart. This
+        # reads the Surefire and Failsafe XML and fails on any skip nobody wrote
+        # an exemption for.
+        #
+        # Here as well as in release.yml, on purpose. The release is the moment
+        # it matters, but a gate that only ever runs at release time is a gate
+        # whose first real exercise is the thing it is meant to protect, and on
+        # all three JDKs an @Disabled somebody added is visible in the pull
+        # request that added it rather than a fortnight later.
+        #
+        # Without --require-integration, which release.yml passes: this job is
+        # where a JDK-specific gap would first show up, and failing three CI runs
+        # to learn that is a worse way to find out than failing one release.
+        run: python3 etc/check-nothing-skipped.py .
+
       - name: Verify the CLI jar starts and reports its usage
         if: matrix.java == '17'
         # A shaded jar that builds and cannot start is a jar that fails in front
