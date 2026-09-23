@@ -40,6 +40,19 @@ the messaging library's release train.
   configuration and this library does not create it. See
   `examples/16-federation-link.yaml`.
 
+- **The cross-broker queue is tested against two brokers.** `LinkedQueueIT`
+  stands up two independent brokers -- deliberately not a cluster, because a
+  cluster shares its queues and every assertion would pass without the feature
+  existing -- puts a real shovel between them, and checks that the consumers
+  attach to the broker the queue names rather than to the one the run started
+  against, that the run leaves a remote queue to whatever link owns it instead
+  of declaring it locally, and that the connection it opened across is closed
+  again. Sampled while the run is going: a consumer exists only for the length
+  of a run, so reading the count afterwards finds nought however well the
+  feature works, and leaves the report as the only witness to what the report is
+  about. The unit tests that shipped with the feature cover the setter, the
+  warning and the file format, none of which opens a connection.
+
 ### Fixed
 - **The truststore password was written back into any file that got saved.**
   Substitution resolves `${TRUSTSTORE_PASSWORD}` before a scenario is parsed, so
