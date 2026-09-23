@@ -15,13 +15,16 @@
  */
 package org.acemq.workloads.scenario;
 
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 
 /**
@@ -49,7 +52,16 @@ public record ScenarioFile(
         String warmup,
         String runFor,
         Boolean declare,
+        SecurityJson security,
         Map<String, Object> ui) {
+
+    /** A file written before {@code security:} existed. */
+    public ScenarioFile(String name, String description, String broker, String management,
+            List<ExchangeJson> exchanges, List<QueueJson> queues, List<ProducerJson> producers,
+            String warmup, String runFor, Boolean declare, Map<String, Object> ui) {
+        this(name, description, broker, management, exchanges, queues, producers, warmup, runFor,
+                declare, null, ui);
+    }
 
     /**
      * An exchange.
@@ -80,14 +92,90 @@ public record ScenarioFile(
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record QueueJson(String name, String type, Boolean durable, Boolean enabled,
             String deadLetterExchange, List<BindingJson> bindings, ConsumersJson consumers,
-            Map<String, Object> arguments, ExpectJson expect) {
+            Map<String, Object> arguments, ExpectJson expect, String broker) {
+
+        /** A queue on the broker the scenario runs against. */
+        public QueueJson(String name, String type, Boolean durable, Boolean enabled,
+                String deadLetterExchange, List<BindingJson> bindings, ConsumersJson consumers,
+                Map<String, Object> arguments, ExpectJson expect) {
+            this(name, type, durable, enabled, deadLetterExchange, bindings, consumers, arguments,
+                    expect, null);
+        }
 
         /** A queue that is asked to prove nothing in particular. */
         public QueueJson(String name, String type, Boolean durable, Boolean enabled,
                 String deadLetterExchange, List<BindingJson> bindings, ConsumersJson consumers,
                 Map<String, Object> arguments) {
             this(name, type, durable, enabled, deadLetterExchange, bindings, consumers, arguments,
-                    null);
+                    null, null);
+        }
+    }
+
+    /**
+     * How to reach a broker over TLS.
+     *
+     * <p>The URL decides whether TLS is used at all -- {@code amqps://} or nothing. What a URL
+     * cannot carry is which certificates to believe, and that is what this is for: a private
+     * certificate authority, or a client certificate, in a keystore.
+     *
+     * @param mode {@code required} to verify, {@code insecure} to accept any certificate,
+     *     {@code disabled} for no TLS at all
+     * @param truststore a PKCS#12 or JKS keystore holding the CA to trust, and a client
+     *     certificate when one is needed
+     * @param truststorePassword the password for it. Read from the file and never written back
+     *     to one -- see below
+     * @param allowDevelopmentCertificates whether a certificate marked as a development one is
+     *     acceptable. Brokers that generate their own certificate on first boot mark it; a
+     *     production run should refuse it, and that is the default.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record SecurityJson(String mode, String truststore,
+            /*
+             * Read from a file, never written to one. Substitution resolves `${TRUSTSTORE_PASSWORD}`
+             * before the file is parsed, so by the time this record exists the placeholder is gone
+             * and the field holds the secret itself. Serialising it wrote that secret into whatever
+             * came next -- a scenario the studio saved, an export, a run history -- with the
+             * placeholder replaced by the password, and nothing in the file to say it had happened.
+             *
+             * WRITE_ONLY is Jackson's name for the direction that matters here: it means the
+             * property is accepted when reading and omitted when writing. A file saved from one
+             * that had a password comes back without one, and asks for it again through the
+             * environment or `--truststore-password`, which is where a secret should have been
+             * coming from in the first place.
+             *
+             * The command line already refuses to print this, and the same reasoning applies with
+             * more force to a file that persists: a log line scrolls away, a saved scenario is
+             * committed.
+             */
+            @JsonProperty(access = JsonProperty.Access.WRITE_ONLY) String truststorePassword,
+            Boolean allowDevelopmentCertificates) {
+
+        /**
+         * @return the client's security policy, or null when this says nothing
+         * @throws ScenarioReader.ScenarioFormatException if the mode is not a mode
+         */
+        public org.acemq.amqp.security.Security toSecurity() {
+            String wanted = mode == null || mode.isBlank() ? "required" : mode.trim();
+            org.acemq.amqp.security.Security policy = switch (wanted.toLowerCase(Locale.ROOT)) {
+                case "required", "verify", "on" -> truststore == null || truststore.isBlank()
+                        ? org.acemq.amqp.security.Security.required()
+                        : org.acemq.amqp.security.Security.fromKeystore(Path.of(truststore));
+                case "insecure", "trust-any", "trust-everything" ->
+                        org.acemq.amqp.security.Security.insecure();
+                case "disabled", "off", "none" -> org.acemq.amqp.security.Security.disabled();
+                default -> throw new ScenarioReader.ScenarioFormatException(
+                        "security.mode is '" + mode + "', which is not one of required, insecure"
+                        + " or disabled. 'required' verifies the broker's certificate,"
+                        + " 'insecure' accepts any certificate and is for a development broker"
+                        + " only, and 'disabled' turns TLS off.");
+            };
+            if (truststorePassword != null && !truststorePassword.isBlank()) {
+                policy = policy.keystorePassword(truststorePassword);
+            }
+            if (Boolean.TRUE.equals(allowDevelopmentCertificates)) {
+                policy = policy.allowDevelopmentCertificates();
+            }
+            return policy;
         }
     }
 
@@ -238,6 +326,7 @@ public record ScenarioFile(
                     node.boundTo(binding.exchange(), binding.routingKey());
                 }
                 nullToEmptyMap(queue.arguments()).forEach(node::argument);
+                node.broker(queue.broker());
 
                 if (queue.expect() != null) {
                     node.expect(queue.expect()::applyTo);
@@ -313,6 +402,30 @@ public record ScenarioFile(
      */
     public static ScenarioFile of(Scenario scenario, String broker, String management,
             Map<String, Object> ui) {
+        return of(scenario, broker, management, ui, null);
+    }
+
+    /**
+     * The same, keeping a security block the caller already has.
+     *
+     * <p>A {@link Scenario} does not carry one: how to reach a broker is a property of the file
+     * and of the run, not of the shape being run. So the four-argument form cannot preserve what
+     * it was never given, and silently wrote {@code security: null} into every file it produced --
+     * which is fine while nothing saves a file that had one, and stops being fine the moment
+     * something does. A queue's {@code broker:} survives that round trip; TLS did not, and the
+     * asymmetry made the loss look like it could not be happening.
+     *
+     * <p>The password is not part of what survives: {@link SecurityJson} does not serialise it.
+     *
+     * @param scenario what to write down
+     * @param broker the URL it ran against, or null
+     * @param management the management URL, or null
+     * @param ui whatever the interface wants to remember, or null
+     * @param security the security block to keep, or null when there is none
+     * @return the file
+     */
+    public static ScenarioFile of(Scenario scenario, String broker, String management,
+            Map<String, Object> ui, SecurityJson security) {
         List<ExchangeJson> exchanges = new ArrayList<>();
         for (ExchangeNode exchange : scenario.exchanges()) {
             exchanges.add(new ExchangeJson(exchange.name(), exchange.type(),
@@ -339,7 +452,8 @@ public record ScenarioFile(
                             consumers.failureRate() == 0 ? null : consumers.failureRate(),
                             consumers.isEnabled() ? null : Boolean.FALSE),
                     null,
-                    ExpectJson.of(queue.expectations())));
+                    ExpectJson.of(queue.expectations()),
+                    queue.broker()));
         }
 
         List<ProducerJson> producers = new ArrayList<>();
@@ -355,7 +469,8 @@ public record ScenarioFile(
 
         return new ScenarioFile(scenario.name(), scenario.description(), broker, management,
                 exchanges, queues, producers, format(scenario.warmup()),
-                format(scenario.duration()), scenario.shouldDeclare() ? null : Boolean.FALSE, ui);
+                format(scenario.duration()), scenario.shouldDeclare() ? null : Boolean.FALSE,
+                security, ui);
     }
 
     /**

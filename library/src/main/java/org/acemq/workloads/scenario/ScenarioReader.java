@@ -155,6 +155,18 @@ public final class ScenarioReader {
         if (file.broker() != null) {
             out.append("broker: ").append(redact(file.broker())).append('\n');
         }
+        if (file.security() != null) {
+            // The password is never printed. --dry-run output ends up in CI logs.
+            ScenarioFile.SecurityJson tls = file.security();
+            out.append("tls: ").append(tls.mode() == null ? "required" : tls.mode());
+            if (tls.truststore() != null && !tls.truststore().isBlank()) {
+                out.append(", truststore ").append(tls.truststore());
+            }
+            if (Boolean.TRUE.equals(tls.allowDevelopmentCertificates())) {
+                out.append(", development certificates accepted");
+            }
+            out.append('\n');
+        }
         out.append("warm-up ").append(scenario.warmup().toSeconds())
                 .append("s, measuring for ").append(scenario.duration().toSeconds())
                 .append("s\n\n");
@@ -169,6 +181,10 @@ public final class ScenarioReader {
                     .append(" (").append(queue.type().wireName()).append(") ")
                     .append(queue.consumersNode())
                     .append(queue.isEnabled() ? "" : "  [off]").append('\n');
+            if (queue.isRemote()) {
+                out.append("             on ").append(redact(queue.broker()))
+                        .append(", reached across a link\n");
+            }
             for (Binding binding : queue.bindings()) {
                 out.append("             from ").append(binding.exchange())
                         .append(" on [").append(binding.routingKey()).append("]\n");

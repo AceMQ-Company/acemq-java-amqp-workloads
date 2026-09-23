@@ -31,6 +31,7 @@ import org.acemq.workloads.WorkloadReport;
 import org.acemq.workloads.report.Reports;
 import org.acemq.workloads.report.ScenarioReports;
 import org.acemq.workloads.scenario.Scenario;
+import org.acemq.amqp.security.Security;
 import org.acemq.workloads.scenario.ScenarioFile;
 import org.acemq.workloads.scenario.ScenarioReader;
 import org.acemq.workloads.scenario.ScenarioReport;
@@ -72,6 +73,12 @@ public final class Cli {
             options:
               -f, --file <path>       workload or scenario file, .yaml or .json (required)
                   --broker <url>      the broker to run against, overriding the file
+                  --tls <mode>        required, insecure or disabled, overriding the file
+                  --truststore <path> keystore holding the CA to trust, and a client
+                                      certificate if one is needed
+                  --truststore-password <pw>
+                  --allow-development-certificates
+                                      accept a certificate the broker generated for itself
                   --report <dir>      write reports into this directory
                   --format <list>     html, md, json (comma separated; default html,json)
                   --dry-run           resolve and print the configuration, run nothing
@@ -237,6 +244,30 @@ public final class Cli {
      * exchange nothing declares -- is a bad file rather than a failed run, and says so before
      * anything touches the broker.
      */
+    /**
+     * The TLS policy for this run: the command line if it said anything, otherwise the file.
+     *
+     * <p>Returning null is meaningful and is the common case -- it leaves the decision to the
+     * URL, which is plaintext for {@code amqp://} and the JVM's own trust store for
+     * {@code amqps://}. A policy is only needed when neither of those is right: a private
+     * certificate authority, a client certificate, or a broker that signed its own certificate.
+     *
+     * <p>The command line wins over the file rather than merging with it. Half the file's policy
+     * and half the flags' is a third policy nobody wrote down, and the one time that matters is
+     * the run where somebody meant to turn verification off for a development broker and turned
+     * it off for production instead.
+     */
+    private static Security securityFor(Options options, ScenarioFile file) {
+        boolean fromFlags = options.tlsMode != null || options.truststore != null
+                || options.truststorePassword != null || options.allowDevelopmentCertificates;
+        if (fromFlags) {
+            return new ScenarioFile.SecurityJson(
+                    options.tlsMode, options.truststore, options.truststorePassword,
+                    options.allowDevelopmentCertificates ? Boolean.TRUE : null).toSecurity();
+        }
+        return file.security() == null ? null : file.security().toSecurity();
+    }
+
     private static int runScenario(Options options, PrintStream out, PrintStream err) {
         ScenarioFile file;
         try {
@@ -268,6 +299,14 @@ public final class Cli {
             return BAD_CONFIG;
         }
 
+        Security security;
+        try {
+            security = securityFor(options, file);
+        } catch (RuntimeException e) {
+            err.println("acemq-workload: " + e.getMessage());
+            return BAD_CONFIG;
+        }
+
         String broker = options.broker != null ? options.broker : file.broker();
         if (broker == null || broker.isBlank()) {
             err.println("acemq-workload: no broker. Put one in the file as 'broker:', or pass"
@@ -285,7 +324,7 @@ public final class Cli {
 
         ScenarioReport report;
         try {
-            report = ScenarioRunner.run(scenario, broker);
+            report = ScenarioRunner.run(scenario, broker, security);
         } catch (RuntimeException e) {
             return reportRunFailure(e, err);
         }
@@ -417,6 +456,13 @@ public final class Cli {
         Path file;
         Path reportDir;
         String broker;
+        // TLS on the command line, because a URL cannot carry which certificates to believe
+        // and a scenario file that is run against both staging and production should not have
+        // to be edited to change that.
+        String tlsMode;
+        String truststore;
+        String truststorePassword;
+        boolean allowDevelopmentCertificates;
         Set<String> formats = new LinkedHashSet<>(List.of("html", "json"));
         boolean dryRun;
         boolean quiet;
@@ -442,6 +488,12 @@ public final class Cli {
                     // way this gets used, and editing the file in between is how the two
                     // stop being the same test.
                     case "--broker" -> options.broker = value(args, ++i, arg);
+                    case "--tls" -> options.tlsMode = value(args, ++i, arg);
+                    case "--truststore" -> options.truststore = value(args, ++i, arg);
+                    case "--truststore-password" ->
+                            options.truststorePassword = value(args, ++i, arg);
+                    case "--allow-development-certificates" ->
+                            options.allowDevelopmentCertificates = true;
                     case "--format" -> {
                         options.formats = new LinkedHashSet<>();
                         for (String format : value(args, ++i, arg).split(",")) {

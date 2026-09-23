@@ -1,0 +1,85 @@
+# How long does a message take to cross a federation link?
+#
+#   java -jar library/target/acemq-workload.jar -f examples/16-federation-link.yaml
+#
+# Neither broker can answer this. The upstream knows when it accepted the
+# message; the downstream knows when it delivered one; and nothing correlates
+# the two, which is why the usual answer to "how far behind is our federation"
+# is a shrug and a queue depth. Depth is not lag: a link moving nothing has a
+# growing depth, and a link with a huge backlog draining fast has a shrinking
+# one, and neither number is a time.
+#
+# This measures it directly by standing on both ends. A producer publishes to
+# the upstream exchange, the link carries the messages, and a consumer group
+# attached to the downstream queue reads them. End-to-end latency for that
+# queue is therefore publish-to-arrival *across the link*, including whatever
+# the link itself costs.
+#
+# It works because both ends run in this one process. The timestamp travels
+# inside the payload as a System.nanoTime() reading, and nanoTime is only
+# comparable within a JVM — two copies of this tool on two machines would
+# subtract one arbitrary clock from another and call the result a latency.
+#
+# WHAT THIS DOES NOT DO: it does not create the link. A federation upstream and
+# a shovel are broker configuration — a parameter and a policy — and a load
+# generator that declared them would be configuring the thing it is supposed to
+# be measuring. Set the link up first, with whatever you normally use:
+#
+#   rabbitmqctl set_parameter federation-upstream up \
+#       '{"uri":"amqp://upstream:5672"}'
+#   rabbitmqctl set_policy --apply-to queues federate-orders '^orders\.' \
+#       '{"federation-upstream":"up"}'
+#
+# A queue with a `broker:` of its own is never declared and its bindings are
+# never created: the link owns that end. Declaring into it would either
+# duplicate what the link already made or fail against an exchange that exists
+# only on the other side.
+#
+# The same file measures a shovel. A shovel moves messages queue-to-queue
+# rather than exchange-to-queue, so bind the upstream queue as below and point
+# the shovel's source at it; nothing else changes.
+#
+# READING THE REPORT: the downstream queue's end-to-end percentiles are the
+# answer. If its consumed count is zero, the link is not running at all — check
+# it before reading anything else into the numbers. If p99 is enormous but p50
+# is small, the link is reconnecting rather than slow.
+name: federation-link
+description: end-to-end latency across a federation or shovel link
+broker: amqp://guest:${UPSTREAM_PASSWORD:-guest}@localhost:5672
+
+warmup: 10s
+runFor: 60s
+
+exchanges:
+  - { name: ex.orders, type: topic }
+
+queues:
+  # The upstream end. The link consumes from here, so this scenario must not:
+  # two consumers on one queue would race for the messages and the link would
+  # only carry the share it happened to win.
+  - name: orders.upstream
+    type: quorum
+    bindings: [ { exchange: ex.orders, routingKey: "#" } ]
+    consumers: { enabled: false }
+
+  # The downstream end, on the other broker. Fed by the link, not by a binding.
+  - name: orders.downstream
+    broker: amqp://guest:${DOWNSTREAM_PASSWORD:-guest}@localhost:5682
+    consumers: { concurrency: 4, prefetch: 200 }
+    expect:
+      # A link crossing a WAN has a floor no amount of tuning removes. Set this
+      # to what the network actually costs plus what you are willing to lose,
+      # not to a number that looks tidy.
+      p99Below: 2s
+      # Deliberately not `noBacklog`: the downstream queue is allowed to hold
+      # messages while the link catches up. What matters is that they arrive.
+      noBacklog: false
+
+producers:
+  - name: checkout
+    exchange: ex.orders
+    routingKeys: [ "order.created", "order.paid", "order.cancelled" ]
+    # Modest on purpose. This measures the link's latency, not its ceiling —
+    # push hard enough to saturate it and every number becomes queueing delay.
+    rate: 200
+    messageSize: 1024

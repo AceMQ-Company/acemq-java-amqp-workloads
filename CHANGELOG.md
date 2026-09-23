@@ -10,7 +10,64 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+### Added
+- **TLS settings in a scenario file and on the command line.** The URL decides
+  whether TLS is used; what it cannot carry is which certificates to believe,
+  and until now that could only be said from Java. A `security:` block takes
+  `mode` (`required`, `insecure` or `disabled`), a `truststore` and its
+  password, and `allowDevelopmentCertificates` for brokers that sign their own
+  certificate on first boot. The same settings are available as `--tls`,
+  `--truststore`, `--truststore-password` and
+  `--allow-development-certificates`, which replace the file's block rather
+  than merging with it — half a policy from each is a third policy nobody
+  wrote down. An unrecognised mode stops the run instead of falling back to a
+  default, because both possible fallbacks are worse than an error. The
+  keystore password is never printed by `--dry-run`. See `examples/15-tls.yaml`,
+  which also carries the `keytool` line for turning a PEM certificate authority
+  into a keystore.
+- **A queue can say which broker it is on**, which is how a federation or
+  shovel link gets measured. Neither broker can answer "how far behind is the
+  link": the upstream knows when it accepted a message, the downstream knows
+  when it delivered one, and nothing correlates the two, which is why the usual
+  answer is a queue depth — and depth is not a time. Giving a queue a `broker:`
+  of its own puts its consumers on the far side of the link while the producers
+  stay on the near side, so that queue's end-to-end latency is
+  publish-to-arrival across the link. Sound because both ends run in one JVM:
+  the timestamp travels in the payload as a `System.nanoTime()` reading, which
+  is only comparable within a process. Such a queue is never declared and its
+  bindings are never created — the link owns that end — and it is no longer
+  warned about for having no bindings. The link itself is still broker
+  configuration and this library does not create it. See
+  `examples/16-federation-link.yaml`.
+
 ### Fixed
+- **The truststore password was written back into any file that got saved.**
+  Substitution resolves `${TRUSTSTORE_PASSWORD}` before a scenario is parsed, so
+  by the time the security block exists the placeholder is gone and the field
+  holds the secret itself. Writing that block out again — a scenario saved from
+  the studio, an export, a run history — wrote the password in place of the
+  placeholder, with nothing in the file to say it had happened. The password is
+  read from a file now and never written to one, so a saved scenario asks for it
+  again through the environment or `--truststore-password`. The command line
+  already refused to print it; a file that persists deserves the same rule with
+  more force, because a log line scrolls away and a committed scenario does not.
+- **`ScenarioFile.of` dropped a security block.** A queue's `broker:` survived
+  that round trip and TLS did not, and the asymmetry made the loss look like it
+  could not be happening. It takes the block to keep as an argument now, since a
+  `Scenario` does not carry one.
+- **The example for TLS could not have worked.** `truststore:` is a directory
+  holding `truststore.p12` and `keystore.p12`, both of which are opened even when
+  the broker asks for no client certificate — and the example documented a
+  keystore file, which fails with `<that file>/keystore.p12 does not exist`. That
+  reads like a missing file rather than like the wrong kind of path. Corrected,
+  with the whole `keytool` setup, and run against a broker serving a private
+  certificate authority.
+- **"nothing consumes X, so it will grow" was wrong for a linked queue.** A
+  scenario that reaches a second broker is one where a federation link or a
+  shovel may be draining a queue this file deliberately leaves unconsumed. The
+  tool cannot see the link, so it cannot say that is what is happening — but it
+  must not assert the opposite, which it did in a warning printed against the
+  federation example it ships.
 - **`${VAR}` written inside a `#` comment stopped a workload run**, which is
   the same fault 0.2.0 fixed for scenario files and left in place for the other
   half of the same `-f`. `WorkloadFile` carried its own copy of the

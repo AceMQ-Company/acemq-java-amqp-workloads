@@ -324,12 +324,22 @@ public final class Scenario {
      */
     public List<String> warnings() {
         List<String> warnings = new ArrayList<>();
+        // A scenario that reaches a second broker is one where something outside this file may be
+        // taking messages off a queue: a federation link or a shovel drains its upstream, and
+        // turning this file's consumers off is how you say so. The tool cannot see the link -- it
+        // knows only that a queue lives somewhere else -- so it cannot say whether that is what is
+        // happening here. What it must not do is assert the opposite. "it will grow" is a
+        // prediction, and it is the wrong one for the queue the shipped federation example builds,
+        // where a reader's first encounter with the feature was a warning about the example.
+        boolean somethingIsLinked = activeQueues().stream().anyMatch(QueueNode::isRemote);
         for (QueueNode queue : activeQueues()) {
             if (!queue.consumersNode().isEnabled()) {
                 warnings.add("nothing consumes " + queue.name()
-                        + ", so it will grow for the length of the run");
+                        + (somethingIsLinked
+                                ? ", so it will grow unless a link or shovel is draining it"
+                                : ", so it will grow for the length of the run"));
             }
-            if (queue.bindings().isEmpty()) {
+            if (queue.bindings().isEmpty() && !queue.isRemote()) {
                 warnings.add("nothing is bound to " + queue.name()
                         + ", so it will only receive what is published to it by name");
             }

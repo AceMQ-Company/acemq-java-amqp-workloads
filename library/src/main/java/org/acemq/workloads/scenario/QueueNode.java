@@ -39,6 +39,7 @@ public final class QueueNode implements Node {
     private final List<Binding> bindings = new ArrayList<>();
     private final Map<String, Object> arguments = new LinkedHashMap<>();
     private final ConsumerGroupNode consumers = new ConsumerGroupNode(this);
+    private String broker;
     private final Expect expect = new Expect();
 
     QueueNode(String name) {
@@ -123,6 +124,35 @@ public final class QueueNode implements Node {
     }
 
     /**
+     * The broker this queue actually lives on, when that is not the one the scenario runs
+     * against.
+     *
+     * <p>This is how a federation or shovel link gets measured. The link itself is broker
+     * configuration and this library does not declare it -- what it can do is stand on both
+     * ends of one: a producer publishes to the upstream broker, the link carries the messages,
+     * and a consumer group attached here reads them off the downstream queue. End-to-end
+     * latency for such a queue is therefore publish-to-arrival <em>across the link</em>, which
+     * is the number people actually want from federation and cannot get from either broker
+     * alone.
+     *
+     * <p>The measurement is sound because both ends run in this one process: the timestamp
+     * travels in the payload as a {@link System#nanoTime()} reading, and nanoTime is only
+     * comparable within a JVM. Two copies of this tool on two machines would produce a
+     * difference between two unrelated clocks rather than a latency.
+     *
+     * <p>A queue on another broker is never declared and its bindings are never created: the
+     * link owns that end, and declaring into it would either duplicate what the link already
+     * made or fail against an exchange that exists only upstream.
+     *
+     * @param url the broker this queue is on, as an AMQP URL
+     * @return this queue
+     */
+    public QueueNode broker(String url) {
+        this.broker = url == null || url.isBlank() ? null : url;
+        return this;
+    }
+
+    /**
      * @param enabled whether it takes part in the run
      * @return this queue
      */
@@ -159,6 +189,16 @@ public final class QueueNode implements Node {
 
     public List<Binding> bindings() {
         return List.copyOf(bindings);
+    }
+
+    /** @return the broker this queue is on, or null for the one the scenario runs against */
+    public String broker() {
+        return broker;
+    }
+
+    /** @return whether this queue is on the far side of a link rather than on the run's broker */
+    public boolean isRemote() {
+        return broker != null;
     }
 
     /** @return the consumers attached to this queue, whether or not they are switched on */

@@ -52,6 +52,14 @@ final class ScenarioRun {
     private final Scenario scenario;
     private final String brokerUrl;
     private final Security security;
+    /**
+     * Connections to brokers other than the one the scenario runs against, keyed by URL.
+     *
+     * <p>A queue can declare that it lives somewhere else -- the far end of a federation or
+     * shovel link -- and its consumers have to connect there. One connection per distinct URL,
+     * opened when first needed and closed with the run.
+     */
+    private final Map<String, AceMq> remoteBrokers = new LinkedHashMap<>();
     private final ScenarioListener listener;
     private final AtomicBoolean stopRequested;
 
@@ -146,7 +154,8 @@ final class ScenarioRun {
                     entry.getValue().reset();
                     // Read before measuring so the report can say whether a queue grew, which is
                     // the difference between "the consumers kept up" and "they nearly did".
-                    entry.getValue().depthAtStart = depthOf(broker, entry.getKey());
+                    entry.getValue().depthAtStart =
+                            depthOf(brokerFor(queueByName(entry.getKey()), broker), entry.getKey());
                 }
 
                 Instant startedAt = Instant.now();
@@ -174,6 +183,7 @@ final class ScenarioRun {
                 for (ConsumerGroup group : groups) {
                     group.close();
                 }
+                closeRemoteBrokers();
             }
         }
     }
@@ -238,7 +248,7 @@ final class ScenarioRun {
                     counters.consumed.get(),
                     counters.endToEnd.summary(),
                     counters.depthAtStart,
-                    depthOf(broker, queue.name()),
+                    depthOf(brokerFor(queue, broker), queue.name()),
                     queue.expectations()));
         }
 
@@ -254,12 +264,68 @@ final class ScenarioRun {
             broker.declareExchange(exchange.name(), exchange.type());
         }
         for (QueueNode queue : scenario.activeQueues()) {
+            // A queue on another broker belongs to whatever link feeds it. Declaring it here
+            // would either duplicate what the link already made or, for its bindings, fail
+            // against an exchange that only exists on this side.
+            if (queue.isRemote()) {
+                continue;
+            }
             broker.declareQueue(queue.name(), transportType(queue.type()),
                     queue.declaredArguments());
             for (Binding binding : queue.bindings()) {
                 broker.bind(queue.name(), binding.exchange(), binding.routingKey());
             }
         }
+    }
+
+    /**
+     * Closes the far-side connections.
+     *
+     * <p>One failing close must not stop the others, and none of them must mask whatever the run
+     * itself is already reporting -- this happens in a finally block.
+     */
+    private void closeRemoteBrokers() {
+        for (AceMq remote : remoteBrokers.values()) {
+            try {
+                remote.close();
+            } catch (RuntimeException e) {
+                // Nothing useful to do: the run is over and the report is already made.
+            }
+        }
+        remoteBrokers.clear();
+    }
+
+    /** @param name a queue name @return the node with that name, or null */
+    private QueueNode queueByName(String name) {
+        for (QueueNode queue : scenario.activeQueues()) {
+            if (queue.name().equals(name)) {
+                return queue;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The connection a queue's consumers and depth reads should use.
+     *
+     * @param queue the queue
+     * @param local the connection the scenario runs against
+     * @return the same connection, or one to the broker the queue says it is on
+     */
+    private AceMq brokerFor(QueueNode queue, AceMq local) {
+        if (queue == null || !queue.isRemote()) {
+            return local;
+        }
+        return remoteBrokers.computeIfAbsent(queue.broker(), url -> {
+            ConnectionConfig.Builder config = ConnectionConfig.url(url);
+            if (security != null) {
+                config.security(security);
+            }
+            // Consuming only: publisher confirms are a producer's concern and asking for them
+            // on a connection that never publishes only adds a round trip to the handshake.
+            config.withoutPublisherConfirms();
+            return AceMq.connect(config.build());
+        });
     }
 
     /**
@@ -288,7 +354,7 @@ final class ScenarioRun {
             long handlerNanos = spec.handlerTime().toNanos();
             double failureRate = spec.failureRate();
 
-            groups.add(broker.consumeGroup(queue.name(), byte[].class, message -> {
+            groups.add(brokerFor(queue, broker).consumeGroup(queue.name(), byte[].class, message -> {
                 byte[] body = message.payload();
                 if (measuring.get() && Payload.isWorkloadMessage(body)) {
                     // Latency from when the message was due, not from when it was sent. The
@@ -472,7 +538,7 @@ final class ScenarioRun {
                     queueSamples.add(new ScenarioSample.QueueSample(
                             queue.name(), consumed,
                             seconds <= 0 ? 0 : Math.max(0, (consumed - previous) / seconds),
-                            depthOf(broker, queue.name()),
+                            depthOf(brokerFor(queue, broker), queue.name()),
                             counters.endToEnd.summary(),
                             queue.consumersNode().isEnabled()));
                 }

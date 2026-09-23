@@ -1,0 +1,99 @@
+# A broker that only speaks TLS, measured over TLS.
+#
+#   java -jar library/target/acemq-workload.jar -f examples/15-tls.yaml
+#
+# The URL decides whether TLS is used at all: amqps:// or nothing. What a URL
+# cannot say is *which certificates to believe*, and that is the whole reason
+# this block exists. Without it, amqps:// is verified against the JVM's own
+# trust store — which knows the public certificate authorities and nothing
+# about yours.
+#
+# Three modes:
+#
+#   required   verify the broker's certificate. The default, and the only one
+#              to use against anything real.
+#   insecure   accept any certificate at all. For a broker that signed its own
+#              and that you can reach over a network you trust. Never in CI
+#              against a staging environment that stands in for production —
+#              a run that cannot tell the broker from an impostor is not
+#              measuring the broker.
+#   disabled   no TLS. The same as an amqp:// URL, said out loud.
+#
+# `truststore` is a DIRECTORY, not a file, and this is the thing to get right
+# first. It holds two PKCS#12 keystores with fixed names:
+#
+#   <truststore>/truststore.p12   the CA to believe
+#   <truststore>/keystore.p12     this client's own certificate
+#
+# Both must exist even when the broker asks for no client certificate, because
+# the loader opens both. Pointing at a keystore file instead gets you
+# `<that file>/keystore.p12 does not exist`, which reads like a missing file
+# rather than like the wrong kind of path.
+#
+# A private CA usually arrives as a .pem, so it has to be imported once. This
+# is the whole setup, and it has been run against a real broker:
+#
+#   mkdir -p tls
+#   keytool -importcert -noprompt -trustcacerts -alias broker-ca \
+#           -file ca.pem \
+#           -keystore tls/truststore.p12 -storetype PKCS12 \
+#           -storepass "$TRUSTSTORE_PASSWORD"
+#   keytool -genkeypair -alias client -keyalg RSA -keysize 2048 -validity 30 \
+#           -dname "CN=acemq-workload-client" \
+#           -keystore tls/keystore.p12 -storetype PKCS12 \
+#           -storepass "$TRUSTSTORE_PASSWORD"
+#
+# then `truststore: tls`. When the broker does ask for a client certificate
+# (verify_peer with fail_if_no_peer_cert), keystore.p12 is the one it checks,
+# so put a real certificate there rather than the generated pair above.
+#
+# `allowDevelopmentCertificates` is for brokers that generate a certificate for
+# themselves on first boot and mark it as a development one. Refusing those is
+# the default and is what you want in a pipeline; accepting one is a deliberate
+# act, which is why it has to be written down.
+#
+# Everything here can be given on the command line instead, which is how the
+# same file runs against staging and then production without being edited:
+#
+#   --tls required --truststore tls \
+#   --truststore-password "$TRUSTSTORE_PASSWORD"
+#
+# The flags replace this block rather than merging with it. Half a policy from
+# a file and half from a command line is a third policy nobody wrote down.
+name: tls
+description: the same routing measured over a TLS connection
+broker: amqps://guest:${BROKER_PASSWORD:-guest}@localhost:5671
+
+security:
+  mode: required
+  # The directory described above, not a keystore file.
+  truststore: ${TRUSTSTORE:-tls}
+  # Never write a password in a file that gets committed. This reads the
+  # environment, and fails the run if it is unset rather than trying blank.
+  truststorePassword: ${TRUSTSTORE_PASSWORD}
+  allowDevelopmentCertificates: false
+
+warmup: 5s
+runFor: 30s
+
+exchanges:
+  - { name: ex.orders, type: topic }
+
+queues:
+  - name: ex.orders.fulfilment
+    type: quorum
+    bindings: [ { exchange: ex.orders, routingKey: "order.*" } ]
+    consumers: { concurrency: 4, prefetch: 200 }
+    expect:
+      # TLS costs something on the handshake and very little per message. If
+      # this budget fails where the plaintext equivalent passes, the difference
+      # is worth knowing rather than assuming — that is the point of running it.
+      p99Below: 500ms
+      noBacklog: true
+
+producers:
+  - name: checkout
+    exchange: ex.orders
+    routingKeys: [ "order.created", "order.paid" ]
+    rate: 500
+    messageSize: 1024
