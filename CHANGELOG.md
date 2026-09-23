@@ -8,7 +8,7 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
-## [Unreleased]
+## [0.3.1] - 2026-09-23
 
 ### Changed
 - **A tag is now the whole release.** Until this, releasing meant four things
