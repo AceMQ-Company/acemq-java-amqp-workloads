@@ -67,6 +67,11 @@ final class ScenarioRun {
     private final Map<String, QueueCounters> queueCounters = new LinkedHashMap<>();
 
     private final AtomicBoolean measuring = new AtomicBoolean(false);
+    // True for the measured window and for the drain that follows it. `measuring` says whether a
+    // message being published belongs to the run; this says whether a message being *delivered*
+    // does. They differ for the length of the drain, and everything delivered in that gap was
+    // published inside the window -- which is the only reason the counts can be made to balance.
+    private final AtomicBoolean accounting = new AtomicBoolean(false);
     private final AtomicLong blockedNanos = new AtomicLong();
     private final AtomicReference<String> blockedReason = new AtomicReference<>();
     private final AtomicReference<Sample.Phase> phase =
@@ -161,6 +166,7 @@ final class ScenarioRun {
                 Instant startedAt = Instant.now();
                 long startNanos = System.nanoTime();
                 measuring.set(true);
+                accounting.set(true);
                 enter(Sample.Phase.MEASURING);
 
                 awaitOrStop(scenario.duration());
@@ -171,9 +177,26 @@ final class ScenarioRun {
                 stop.set(true);
                 join(publishers);
 
+                // Keep counting what arrives while the queue drains. A publisher latches
+                // `measuring` at the moment it publishes and its confirm callback honours that
+                // latch however late the confirm lands, so a message published in the last
+                // milliseconds of the window is counted as confirmed. The consumer side read the
+                // same flag at *delivery* time instead, so that message -- delivered a moment
+                // later, during this drain -- was never counted as consumed.
+                //
+                // Confirmed in, consumed out, and the two could not balance. noMessagesLost
+                // subtracts one from the other and failed about half of all healthy runs at
+                // 5,000/s, reporting three or four messages "unaccounted for" beside a queue depth
+                // of nought that disproved it. The messages were neither lost nor still queued:
+                // they had been delivered and not added up.
+                //
+                // Nothing else can arrive here. Publishers have stopped and been joined, so
+                // whatever the drain delivers was published inside the window by definition, which
+                // is exactly what the publisher's latch means.
                 for (ConsumerGroup group : groups) {
                     group.drain(Duration.ofSeconds(5));
                 }
+                accounting.set(false);
 
                 return report(broker, startedAt, measured);
             } finally {
@@ -356,9 +379,15 @@ final class ScenarioRun {
 
             groups.add(brokerFor(queue, broker).consumeGroup(queue.name(), byte[].class, message -> {
                 byte[] body = message.payload();
-                if (measuring.get() && Payload.isWorkloadMessage(body)) {
+                if (accounting.get() && Payload.isWorkloadMessage(body)) {
                     // Latency from when the message was due, not from when it was sent. The
                     // difference is the whole argument of this library.
+                    //
+                    // `accounting` rather than `measuring`, so the drain's deliveries are recorded
+                    // too. They are the slowest messages of the run by construction -- the ones
+                    // still in flight when publishing stopped -- so dropping them trimmed the tail
+                    // of the very distribution the tail is read from, and flattered every
+                    // percentile above p99 by exactly the messages that took longest.
                     counters.endToEnd.record(System.nanoTime() - Payload.intendedSendNanos(body));
                     counters.consumed.incrementAndGet();
                 }

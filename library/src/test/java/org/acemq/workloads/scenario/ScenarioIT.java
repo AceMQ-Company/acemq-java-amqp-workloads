@@ -229,4 +229,59 @@ class ScenarioIT {
             Thread.currentThread().interrupt();
         }
     }
+
+    @Test
+    @Timeout(180)
+    @DisplayName("everything confirmed is also counted as consumed, including what drains after")
+    void theCountsBalanceAcrossTheDrain() {
+        // The accounting bug this pins: a publisher latches `measuring` when it publishes, so a
+        // message sent in the last milliseconds of the window counts as confirmed however late its
+        // confirm lands. The consumer side read the same flag at delivery time, so that message --
+        // delivered a moment later, while the queue drained -- was never counted as consumed.
+        //
+        // noMessagesLost subtracts one from the other. At 5,000/s it failed about half of all
+        // healthy runs, reporting three or four messages "unaccounted for" beside a queue depth of
+        // nought that disproved the finding in the same breath.
+        //
+        // A rate high enough that the boundary lands mid-flight is the point: at a gentle rate the
+        // window closes on an idle queue and the bug does not appear at all.
+        Scenario scenario = Scenario.named("balances")
+                .runFor(Duration.ofSeconds(12))
+                .warmup(Duration.ofSeconds(3));
+        scenario.queue("balance.probe", queue -> queue.consumers(group -> group
+                .concurrency(8)
+                .prefetch(200)));
+        scenario.producer("fast", producer -> producer
+                .to("", "balance.probe")
+                .threads(4)
+                .rate(5_000));
+
+        ScenarioReport report = ScenarioRunner.run(scenario, amqpUrl(), null);
+
+        long confirmed = report.producers().stream()
+                .mapToLong(ScenarioReport.ProducerResult::confirmed).sum();
+        long consumed = report.queues().stream()
+                .mapToLong(ScenarioReport.QueueResult::consumed).sum();
+
+        assertThat(confirmed).as("the run published something worth counting").isGreaterThan(10_000);
+        // Asserted against the broker's own view as well, so a report that balanced by counting
+        // nothing twice would still fail: an empty queue at the end means everything confirmed
+        // really did leave it.
+        long depthAtEnd = report.queues().get(0).depthAtEnd();
+        assertThat(depthAtEnd).as("the queue is empty, so nothing is still waiting").isZero();
+
+        // Not equality, in one direction only. `consumed` counts deliveries, so a redelivery is
+        // counted twice and the total can exceed what was confirmed -- measured at 100,047 against
+        // 100,040 on one run here. That is duplication, and noMessagesLost says in as many words
+        // that it does not detect it: telling two deliveries of one message from two messages
+        // needs the sequence numbers, which is a different measurement.
+        //
+        // The direction that matters is the other one. Everything confirmed was either consumed or
+        // is still in the queue, and nothing else is "unaccounted for". That is exactly the
+        // quantity the rule subtracts, and before the drain's deliveries were counted it came out
+        // positive on about half of all healthy runs at this rate.
+        assertThat(confirmed - consumed)
+                .as("confirmed, not consumed, not still queued -- which is what 'lost' means")
+                .isLessThanOrEqualTo(depthAtEnd);
+    }
 }

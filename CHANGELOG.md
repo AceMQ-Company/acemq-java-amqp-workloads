@@ -8,6 +8,34 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
+## [Unreleased]
+
+### Fixed
+
+- **`noMessagesLost` failed about half of all healthy runs.** At 5,000/s a run that
+  lost nothing reported three or four messages "unaccounted for" — beside a queue
+  depth of nought that disproved the finding in the same breath. The rule gates
+  builds, and a gate that fails half the time on a good run is a gate somebody
+  deletes.
+
+  The counts could not balance. A publisher latches whether it is measuring at the
+  moment it publishes, and its confirm callback honours that latch however late the
+  confirm arrives, so a message sent in the last milliseconds of the window counts
+  as confirmed. The consumer side read the same flag at *delivery* time — so that
+  message, delivered a moment later while the queue drained, was never counted as
+  consumed. Confirmed in, consumed out, and the difference was reported as loss.
+
+  Deliveries during the drain are now counted. Nothing else can arrive then:
+  publishers have stopped and been joined, so whatever the drain delivers was
+  published inside the window, which is what the publisher's latch already meant.
+  Ten healthy runs at 5,000/s: five failures before, none after.
+
+- **End-to-end latency dropped the slowest messages of every run.** The same flag
+  gated the latency recording, so the messages still in flight when publishing
+  stopped — the slowest of the run, by construction — were excluded from the
+  distribution their own tail is read from. Every percentile above p99 was
+  flattered by exactly the messages that took longest. They are recorded now.
+
 ## [0.3.1] - 2026-09-23
 
 ### Changed
