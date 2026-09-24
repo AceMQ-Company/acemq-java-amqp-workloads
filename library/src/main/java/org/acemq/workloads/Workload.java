@@ -67,6 +67,21 @@ import org.acemq.workloads.rules.Rules;
  */
 public final class Workload {
 
+    /**
+     * The duration of a run that ends only when it is stopped.
+     *
+     * <p>A sentinel rather than a flag, because every layer beneath this — the engine, its deadline,
+     * the sampler — already takes a duration and already watches a stop flag. A second way of saying
+     * "how long" would have to be threaded through all of them, and the two would eventually
+     * disagree about which wins.
+     *
+     * <p>Ten years. Long enough that nothing reaches it, small enough that adding it to
+     * {@code System.nanoTime()} is nowhere near overflowing a long — which a value like
+     * {@code Duration.ofNanos(Long.MAX_VALUE)} would do, turning "forever" into a deadline already
+     * in the past.
+     */
+    static final Duration UNTIL_STOPPED = Duration.ofDays(3650);
+
     private final String name;
     private final TopologySpec topology;
     private final PublisherSpec publishers;
@@ -121,6 +136,13 @@ public final class Workload {
 
     public Duration duration() {
         return duration;
+    }
+
+    /**
+     * @return true when this run ends only on being stopped, rather than after a set window
+     */
+    public boolean runsUntilStopped() {
+        return UNTIL_STOPPED.equals(duration);
     }
 
     public List<Rule> rules() {
@@ -278,6 +300,27 @@ public final class Workload {
                 throw new IllegalArgumentException("a run needs a positive duration");
             }
             this.duration = duration;
+            return this;
+        }
+
+        /**
+         * Measure until something stops the run.
+         *
+         * <p>For a workload that exists to occupy a broker rather than to answer a question with a
+         * number — a generator kept beside a cluster somebody else is experimenting on, a queue that
+         * must have consumers on it for as long as the experiment lasts. Such a run has no natural
+         * length, and making it guess one is how it ends early: an experiment that outlasts the guess
+         * spends its last minutes against a broker nobody is using, which is the condition the
+         * workload was there to prevent.
+         *
+         * <p>It still measures everything it otherwise would, and the report still describes the
+         * window that happened rather than the one that was asked for. Stopping is the only way it
+         * ends — {@link RunHandle#stop()}, or SIGTERM on the command line.
+         *
+         * @return this builder
+         */
+        public Builder runUntilStopped() {
+            this.duration = UNTIL_STOPPED;
             return this;
         }
 

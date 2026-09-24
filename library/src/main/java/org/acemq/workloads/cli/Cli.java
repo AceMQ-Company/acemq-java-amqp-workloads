@@ -19,13 +19,17 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 
+import org.acemq.workloads.RunHandle;
+import org.acemq.workloads.RunListener;
 import org.acemq.workloads.Workload;
 import org.acemq.workloads.WorkloadReport;
 import org.acemq.workloads.report.Reports;
@@ -202,7 +206,7 @@ public final class Cli {
                     out.println("running " + workload.name() + " against "
                             + WorkloadFile.redact(file.brokerUrl(i)) + " ...");
                 }
-                WorkloadReport report = workload.run(file.brokerUrl(i));
+                WorkloadReport report = runStoppably(workload, file.brokerUrl(i));
                 reports.add(report);
                 if (!options.quiet) {
                     out.println(report.format());
@@ -408,6 +412,80 @@ public final class Cli {
             Path target = options.reportDir.resolve("scenario-" + stamp + "." + extension);
             Files.writeString(target, body);
             out.println("wrote " + target);
+        }
+    }
+
+    /**
+     * How long a stopped run is given to finish measuring and hand back a report.
+     *
+     * <p>Kubernetes sends SIGTERM and SIGKILL thirty seconds later by default, so a longer grace
+     * period would be spent inside a process that is about to be killed regardless. Twenty seconds
+     * leaves room to drain, summarise and write.
+     */
+    private static final Duration STOP_GRACE = Duration.ofSeconds(20);
+
+    /**
+     * Runs a workload so that stopping the process still produces a report.
+     *
+     * <p>The command line used to call the blocking {@code run}, so a run could only be ended by
+     * letting it finish or by killing it — and killing it discarded everything it had measured. No
+     * report file, no exit code, nothing to look at. That is wrong for any run somebody might
+     * interrupt, and it makes the tool unusable as a long-lived sidecar: the case that prompted this
+     * is a generator running beside a cluster being deliberately broken, stopped when the experiment
+     * ends, whose measurements are the entire point.
+     *
+     * <p>The engine already supported it. {@link Workload#start} returns a {@link RunHandle} with
+     * {@code stop()} and a future report, and the runner has always watched a stop flag; only the
+     * command line had no way to ask.
+     *
+     * <p>A shutdown hook asks, and then waits for this thread. The waiting is the part that matters:
+     * a hook that only set the flag would return immediately and the JVM would exit while the report
+     * was still being summarised, which looks exactly like the behaviour being fixed.
+     *
+     * @param workload what to run
+     * @param brokerUrl where to run it
+     * @return what it measured, whether it ran to completion or was stopped
+     */
+    private static WorkloadReport runStoppably(Workload workload, String brokerUrl) {
+        RunHandle handle = workload.start(brokerUrl, RunListener.NONE);
+
+        Thread runner = Thread.currentThread();
+        Thread hook = new Thread(() -> {
+            handle.stop();
+            try {
+                runner.join(STOP_GRACE.toMillis());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "acemq-workload-stop");
+        Runtime.getRuntime().addShutdownHook(hook);
+
+        try {
+            return handle.report().get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while waiting for the run to finish", e);
+        } catch (ExecutionException e) {
+            // Unwrapped, because the caller catches RuntimeException to turn a broker failure into
+            // an exit code. An ExecutionException wrapping it would be reported as an internal
+            // error rather than as the broker problem it is.
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException(cause);
+        } finally {
+            // Removed because a file can hold several workloads: one hook per run would accumulate,
+            // and each would wait for a thread that is no longer running that run. Removal throws
+            // once shutdown is under way, which is precisely when the hook is doing its job.
+            try {
+                Runtime.getRuntime().removeShutdownHook(hook);
+            } catch (IllegalStateException alreadyShuttingDown) {
+                // Nothing to undo.
+            }
         }
     }
 

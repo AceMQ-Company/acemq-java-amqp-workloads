@@ -86,6 +86,35 @@ will retry the one that can never succeed.
 Latencies are in microseconds — integers, so no float comparison surprises when
 diffing two runs.
 
+### `samples` — the run as it went
+
+Everything above is one number for the whole window, which is the right shape for
+"how fast is this broker" and the wrong one for "what happened at 14:02". A run
+that idles at 3ms and spends twelve seconds at 900ms has the same summary as one
+that sat at 40ms throughout, and only one of those is a broker anybody would ship.
+
+```json
+"samples": [
+  {"at": "2026-09-24T18:00:01Z", "elapsedMillis": 1000, "phase": "WARMUP",
+   "published": 200, "confirmed": 200, "failed": 0, "consumed": 198,
+   "publishRatePerSecond": 200.0, "consumeRatePerSecond": 199.5,
+   "blocked": false, "queueDepth": 7,
+   "endToEndP50Micros": 1131, "endToEndP99Micros": 4823}
+]
+```
+
+One entry per sampling interval, oldest first. `at` is wall-clock and
+`elapsedMillis` is measured from the start of the run, so a reader keeping its own
+record of events — a deployment, an incident timeline, a fault drill — can line the
+two up without having to trust either clock alone.
+
+`phase` separates `WARMUP` from `MEASURING`. Only the measured intervals are in the
+aggregate above, and anything graphing all of them should say which is which.
+
+The key is absent, not empty, when a run was shorter than one interval.
+`"samples": []` reads as a run that was idle, which is a different statement from
+having nothing to report.
+
 ## HTML
 
 Self-contained: no external stylesheet, no CDN, no fonts to fetch. Openable from

@@ -69,6 +69,8 @@ public final class Reports {
             latency(out, "publish", report.publishLatency());
             latency(out, "sendLag", report.sendLag());
 
+            samples(out, report.samples());
+
             out.append("      \"findings\": [\n");
             List<Finding> findings = report.findings();
             for (int f = 0; f < findings.size(); f++) {
@@ -192,6 +194,59 @@ public final class Reports {
             return (nanos / 1_000) + "&#181;s";
         }
         return String.format("%.1fms", nanos / 1_000_000.0);
+    }
+
+    /**
+     * The run as it went, one object per sampling interval.
+     *
+     * <p>Written because the aggregate above cannot answer "what happened at 14:02". A run that
+     * idles at 3ms and spends twelve seconds at 900ms has the same summary as one that sat at 40ms
+     * the whole way, and only one of those is a broker anybody would ship. Whoever reads this — a
+     * dashboard, a pipeline, a fault drill lining a run up against its own timeline — can now see
+     * which it was.
+     *
+     * <p>Each entry carries the wall-clock instant as well as the elapsed time, so it can be aligned
+     * with records kept by something that was not this process.
+     *
+     * <p>Omitted entirely when there are none, rather than written as an empty list: a run shorter
+     * than one interval measured no intervals, and `"samples": []` invites the reader to conclude
+     * the run was idle.
+     *
+     * @param out the document so far
+     * @param samples what the engine saw, oldest first
+     */
+    private static void samples(StringBuilder out, List<org.acemq.workloads.Sample> samples) {
+        if (samples.isEmpty()) {
+            return;
+        }
+        out.append("      \"samples\": [\n");
+        for (int s = 0; s < samples.size(); s++) {
+            org.acemq.workloads.Sample sample = samples.get(s);
+            out.append("        {")
+                    .append("\"at\": \"").append(sample.at()).append("\", ")
+                    .append("\"elapsedMillis\": ").append(sample.elapsed().toMillis()).append(", ")
+                    .append("\"phase\": \"").append(sample.phase()).append("\", ")
+                    .append("\"published\": ").append(sample.published()).append(", ")
+                    .append("\"confirmed\": ").append(sample.confirmed()).append(", ")
+                    .append("\"failed\": ").append(sample.failed()).append(", ")
+                    .append("\"consumed\": ").append(sample.consumed()).append(", ")
+                    .append("\"publishRatePerSecond\": ").append(round(sample.publishRate()))
+                    .append(", ")
+                    .append("\"consumeRatePerSecond\": ").append(round(sample.consumeRate()))
+                    .append(", ")
+                    .append("\"blocked\": ").append(sample.blocked());
+            if (sample.queueDepth() != null) {
+                out.append(", \"queueDepth\": ").append(sample.queueDepth());
+            }
+            if (!sample.endToEnd().isEmpty()) {
+                out.append(", \"endToEndP50Micros\": ")
+                        .append(sample.endToEnd().p50().toNanos() / 1000)
+                        .append(", \"endToEndP99Micros\": ")
+                        .append(sample.endToEnd().p99().toNanos() / 1000);
+            }
+            out.append("}").append(s < samples.size() - 1 ? ",\n" : "\n");
+        }
+        out.append("      ],\n");
     }
 
     private static void latency(StringBuilder out, String name, LatencySummary summary) {
