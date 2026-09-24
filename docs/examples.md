@@ -1075,16 +1075,37 @@ CONTROL=1 ./examples/14-node-loss/run.sh    # the healthy cluster, first
 ./examples/14-node-loss/run.sh              # the same run, losing a node
 ```
 
-**Do the control run first.** One measurement of a cluster losing a node is a
-number with nothing to compare it against: p99.9 of 380ms means nothing until
-you know what the same cluster does with nothing stopped. The difference between
-the two runs is the answer; either figure alone is trivia.
+**Expect the two runs to look the same.** That is the result rather than a
+failure of the experiment, and it is the thing worth knowing: a quorum queue
+keeps its majority when one of three replicas goes away, so the leader never
+changes, no election happens, and the remaining two carry on committing. The
+applications do not notice.
+
+Six runs on one laptop, **real output**, p99 for the measured window:
+
+| nothing stopped | 6ms | 8ms | 565ms |
+| **a follower stopped** | **7ms** | **70ms** | **794ms** |
+
+The same range on both legs, with the outliers landing on whichever run met a
+busy machine. So do not read a single pair of runs as a measurement: two runs
+cannot separate an effect this small from the noise of the host under them, and
+comparing one figure against one other figure tells you what the scheduler was
+doing that minute. Run each leg several times and compare the distributions if
+you want a number; otherwise read the shape, which is that nothing happened.
+
+For a cost you *can* see, stop the **leader** instead. That forces an election,
+and an election is a real pause rather than a statistical one. The script prints
+which node holds the leader so you can do it by hand — it deliberately does not
+do it for you, because the leader moves between runs and an experiment that
+targets a different node each time is not repeatable.
 
 The script starts the cluster and waits for all three nodes to agree that they
 are one — a node that has started is not a node that has joined — then starts the
 workload in the background, sleeps until the middle of the measured window, asks
 the management API which node holds the queue's leader, and stops one of the
-other two. It exits with the workload's exit code, so it works as a gate.
+other two. It exits with the workload's exit code, so it works as a gate — and
+note what that gate is worth: it passes because the queue kept working, not
+because a latency target was met.
 
 Only node one publishes its ports. That is deliberate: the generator connects to
 node one and stays connected, so what you measure is the queue losing a replica

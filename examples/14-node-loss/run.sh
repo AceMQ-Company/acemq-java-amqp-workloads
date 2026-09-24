@@ -1,16 +1,35 @@
 #!/usr/bin/env bash
 #
-# Measure a quorum queue while it loses a node.
+# What a quorum queue costs when it loses a follower. The answer is nothing you
+# can measure, and that is the point of running it.
 #
 #   ./examples/14-node-loss/run.sh              # start the cluster, run, tear it down
 #   CONTROL=1 ./examples/14-node-loss/run.sh    # the same run with nothing stopped
 #   KEEP=1 ./examples/14-node-loss/run.sh       # leave the cluster running afterwards
 #
-# **Do the control run first.** One measurement of a cluster losing a node is a
-# number with nothing to compare it against — p99.9 of 380ms means nothing until
-# you know the same cluster idles at 40ms. Run it with CONTROL=1, keep the
-# numbers, then run it again without and put the two side by side. That
-# difference is the answer; either figure alone is trivia.
+# **Expect the two runs to be indistinguishable.** That is the result, not a
+# failure of the experiment. A quorum queue keeps its majority when one of three
+# replicas goes away: the leader never changes, no election happens, and the
+# remaining two carry on committing. Six runs on one laptop gave p99 figures of
+# 6ms, 8ms and 565ms with nothing stopped, and 7ms, 70ms and 794ms with a
+# follower stopped — the same range, in the same order of magnitude, with the
+# outliers landing on whichever leg happened to meet a busy machine.
+#
+# So do not read a single pair of runs as a measurement. Two runs cannot separate
+# an effect this small from the noise of the host they run on, and a reader who
+# compares one figure against one other figure will conclude whatever the
+# scheduler decided that minute. If you want a number rather than a shape, run
+# each leg several times and compare the distributions.
+#
+# The useful thing to take away is the shape: **a replica can go away under
+# production load and the applications do not notice.** That is worth knowing
+# before a rolling restart, and it is what the run demonstrates.
+#
+# For a cost you *can* see, stop the leader instead. That forces an election, and
+# an election is a real pause rather than a statistical one. The script prints
+# which node holds the leader so you can do it by hand — it does not do it for
+# you, because the leader moves between runs and an experiment that targets a
+# different node each time is not repeatable.
 #
 # The sequence, and why it is in this order:
 #
@@ -20,9 +39,7 @@
 #   2. Start the workload against node one, in the background.
 #   3. Wait for the warm-up plus half the measured window, then ask the
 #      management API which node holds the queue's leader, and stop one of the
-#      other two. Stopping a follower is the repeatable experiment; stopping
-#      the leader also costs an election, and the script says which node that
-#      would have been so you can try it by hand.
+#      other two.
 #   4. Let the run finish and print its verdict and its exit code.
 #
 # The exit code is the workload's, so this script is usable as a gate.
