@@ -8,6 +8,38 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
+## [Unreleased]
+
+### Added
+- **A run can end when it is stopped rather than after a fixed window.**
+  `runFor: until-stopped` in a workload file, or `runUntilStopped()` in the DSL.
+  For a generator that exists to occupy a broker rather than to answer a question
+  with a number — a queue that has to have consumers on it for as long as somebody
+  else's experiment lasts. Such a run has no natural length, and making it guess one
+  is how it ends early: an experiment that outlasts the guess spends its last
+  minutes measuring a broker nobody is using. The report still describes the window
+  that happened rather than the one that was asked for.
+- **The report keeps the run as it went**, one entry per sampling interval, with the
+  wall-clock instant, the elapsed time, the phase, the rates, the queue depth and
+  the end-to-end p50 and p99. The engine has always emitted these to a
+  `RunListener` while a run was happening; nothing kept them, so a report read
+  afterwards could not say what happened at 14:02 — a run that idles at 3ms and
+  spends twelve seconds at 900ms has the same summary as one that sat at 40ms
+  throughout, and only one of those is a broker anybody would ship. Published as
+  `samples` in the JSON, carrying wall-clock times so a reader with its own timeline
+  can line the two up. Omitted rather than written empty when a run was shorter than
+  one interval, because `"samples": []` reads as an idle run.
+
+### Fixed
+- **Stopping the command line no longer throws away what it measured.** It called
+  the blocking `run`, so a run could only be ended by letting it finish or by
+  killing it, and killing it left no report file, no exit code and nothing to look
+  at. The engine has always supported stopping — `RunHandle.stop()` and a flag the
+  runner watches — and only the command line had no way to ask. On SIGTERM it now
+  stops the run, waits for the report, writes it and exits as usual. That is what
+  makes the tool usable as a long-lived sidecar, the case where the measurements are
+  the entire point and were exactly what got discarded.
+
 ## [0.3.1] - 2026-09-23
 
 ### Changed

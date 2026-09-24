@@ -15,6 +15,28 @@ java -jar acemq-workload.jar -f <file> [options]
 | `-h, --help` | usage |
 | `--version` | version and exit |
 
+## Stopping it keeps the measurements
+
+`SIGTERM` — `docker stop`, a pod being deleted, `kill` — stops the run, waits for it
+to finish measuring, and writes the report. Nothing it measured is discarded.
+
+**The exit code is the signal's**, `143` (128 + 15), not one of the four below. A
+process killed by a signal reports that signal and a shutdown hook cannot overrule
+it, so the verdict lives in the report: a pipeline that stops a run deliberately
+should read the report rather than the code. Measured rather than assumed — a run
+stopped after twelve seconds exited `143` having written a report covering nine
+measured seconds.
+
+That matters most for a run with no fixed end (`runFor: until-stopped`), where
+being stopped is the only way it ever finishes. It also means an ordinary run
+interrupted halfway still produces a report of the part that happened, rather than
+nothing at all.
+
+The wait is bounded at twenty seconds, which is inside the thirty Kubernetes
+allows between `SIGTERM` and `SIGKILL`. A run that cannot summarise in that time
+is killed, and the report is lost — the same outcome as before, for a case that
+should not arise.
+
 ## Exit codes are the interface
 
 More important than the report format. A pipeline reads the exit code; a person

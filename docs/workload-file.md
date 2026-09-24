@@ -50,7 +50,26 @@ expect:
 | `management` | | management URL, for the queue depth at the end |
 | `managementUser` / `managementPassword` | | default `guest` |
 | `warmup` | `10s` | run this long before measuring anything |
-| `runFor` | `60s` | the measured window |
+| `runFor` | `60s` | the measured window, or `until-stopped` (`forever` is accepted too) for a run that ends only when something stops it |
+
+### A run with no fixed end
+
+```yaml
+runFor: until-stopped
+```
+
+For a workload that exists to occupy a broker rather than to answer a question
+with a number: a queue that has to have consumers on it for as long as somebody
+else's experiment lasts, a generator kept beside a cluster being deliberately
+broken. A run like that has no natural length, and making it guess one is how it
+ends early — an experiment that outlasts the guess spends its last minutes
+measuring a broker nobody is using, which is the condition the workload was there
+to prevent.
+
+It measures everything an ordinary run measures, and the report describes the
+window that actually happened rather than the one that was asked for. The only way
+it ends is being stopped: `SIGTERM` on the command line, or `RunHandle.stop()` in
+the DSL. Both write the report.
 
 ## `topology`
 

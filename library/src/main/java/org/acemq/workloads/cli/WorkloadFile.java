@@ -279,7 +279,15 @@ public final class WorkloadFile {
             builder.warmup(Durations.parse(node.get("warmup").asText(), "warmup"));
         }
         if (node.has("runFor")) {
-            builder.runFor(Durations.parse(node.get("runFor").asText(), "runFor"));
+            String runFor = node.get("runFor").asText().trim();
+            // Two spellings on purpose. "until-stopped" says what it does and "forever" is what
+            // somebody writes when they mean it; refusing either in favour of the other buys a
+            // configuration error and nothing else.
+            if (runFor.equalsIgnoreCase("until-stopped") || runFor.equalsIgnoreCase("forever")) {
+                builder.runUntilStopped();
+            } else {
+                builder.runFor(Durations.parse(runFor, "runFor"));
+            }
         }
         if (node.has("management")) {
             builder.management(node.get("management").asText(),
@@ -411,7 +419,14 @@ public final class WorkloadFile {
             out.append("  ").append(workload.publishers()).append('\n');
             out.append("  ").append(workload.consumers()).append('\n');
             out.append("  warmup      ").append(Durations.format(workload.warmup())).append('\n');
-            out.append("  runFor      ").append(Durations.format(workload.duration())).append('\n');
+            // Not the sentinel's own value. `--dry-run' is read to check what a run is about to do,
+            // and "87600h" is a number somebody would try to explain rather than a run that ends
+            // when it is stopped.
+            out.append("  runFor      ")
+                    .append(workload.runsUntilStopped()
+                            ? "until stopped"
+                            : Durations.format(workload.duration()))
+                    .append('\n');
             out.append("  rules       ").append(workload.rules().size()).append('\n');
         }
         return out.toString();

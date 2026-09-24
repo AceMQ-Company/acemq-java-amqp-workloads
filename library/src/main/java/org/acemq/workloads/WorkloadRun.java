@@ -15,7 +15,11 @@
  */
 package org.acemq.workloads;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import org.acemq.rabbitmq.admin.RabbitAdmin;
 import org.acemq.workloads.metrics.LatencySummary;
@@ -61,9 +65,13 @@ final class WorkloadRun {
     }
 
     WorkloadReport execute() {
+        // Collected as they arrive rather than reconstructed afterwards: the engine is the only
+        // thing that sees a run while it is happening, and a report built only from totals cannot
+        // say when anything happened.
+        List<Sample> samples = Collections.synchronizedList(new ArrayList<>());
         ScenarioReport report = ScenarioRunner.run(asScenario(), brokerUrl, null,
-                new Adapter(listener), stopRequested);
-        return translate(report);
+                new Adapter(listener, samples::add), stopRequested);
+        return translate(report, samples);
     }
 
     /**
@@ -134,7 +142,7 @@ final class WorkloadRun {
      * @param report what the engine measured
      * @return the same run, said the way a workload says it
      */
-    private WorkloadReport translate(ScenarioReport report) {
+    private WorkloadReport translate(ScenarioReport report, List<Sample> samples) {
         ScenarioReport.ProducerResult producer = report.producers().isEmpty()
                 ? null : report.producers().get(0);
         ScenarioReport.QueueResult queue = report.queues().isEmpty()
@@ -149,7 +157,8 @@ final class WorkloadRun {
                 producer == null ? LatencySummary.empty("publish") : producer.publishLatency(),
                 producer == null ? LatencySummary.empty("send lag") : producer.sendLag(),
                 depthAtEnd(queue),
-                report.blockedFor().toNanos(), report.blockedReason());
+                report.blockedFor().toNanos(), report.blockedReason(),
+                samples);
     }
 
     /**
@@ -188,9 +197,11 @@ final class WorkloadRun {
     private static final class Adapter implements ScenarioListener {
 
         private final RunListener listener;
+        private final Consumer<Sample> keep;
 
-        Adapter(RunListener listener) {
+        Adapter(RunListener listener, Consumer<Sample> keep) {
             this.listener = listener;
+            this.keep = keep;
         }
 
         @Override
@@ -200,7 +211,7 @@ final class WorkloadRun {
             ScenarioSample.QueueSample queue = sample.queues().isEmpty()
                     ? null : sample.queues().get(0);
 
-            listener.onSample(new Sample(
+            Sample translated = new Sample(
                     sample.at(),
                     sample.elapsed(),
                     sample.phase(),
@@ -213,7 +224,12 @@ final class WorkloadRun {
                     queue == null ? LatencySummary.empty("end-to-end") : queue.endToEnd(),
                     producer == null ? LatencySummary.empty("send lag") : producer.sendLag(),
                     queue == null ? null : queue.depth(),
-                    sample.blocked()));
+                    sample.blocked());
+
+            // Kept first, then handed on. A listener that throws is the caller's problem and must
+            // not cost the report a sample it had already measured.
+            keep.accept(translated);
+            listener.onSample(translated);
         }
 
         @Override

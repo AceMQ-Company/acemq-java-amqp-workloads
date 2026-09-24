@@ -51,11 +51,23 @@ public final class WorkloadReport {
     private final long blockedNanos;
     private final String blockedReason;
     private final List<Finding> findings;
+    private final List<Sample> samples;
 
     WorkloadReport(Workload spec, Instant startedAt, Duration duration,
             long published, long confirmed, long failed, long consumed,
             LatencySummary endToEnd, LatencySummary publishLatency, LatencySummary sendLag,
             Long queueDepthAtEnd, long blockedNanos, String blockedReason) {
+        this(spec, startedAt, duration, published, confirmed, failed, consumed,
+                endToEnd, publishLatency, sendLag, queueDepthAtEnd, blockedNanos, blockedReason,
+                List.of());
+    }
+
+    WorkloadReport(Workload spec, Instant startedAt, Duration duration,
+            long published, long confirmed, long failed, long consumed,
+            LatencySummary endToEnd, LatencySummary publishLatency, LatencySummary sendLag,
+            Long queueDepthAtEnd, long blockedNanos, String blockedReason,
+            List<Sample> samples) {
+        this.samples = List.copyOf(samples);
         this.spec = spec;
         this.startedAt = startedAt;
         this.duration = duration;
@@ -84,6 +96,27 @@ public final class WorkloadReport {
 
     public Workload spec() {
         return spec;
+    }
+
+    /**
+     * What the run looked like as it went, one entry per sampling interval.
+     *
+     * <p>Everything else here is one number for the whole window, which is the right shape for "how
+     * fast is this broker" and the wrong one for "what happened at 14:02". A run whose p99 is 40ms
+     * throughout and one that idles at 3ms and spends twelve seconds at 900ms have the same
+     * aggregate; only the first is healthy, and only this tells them apart.
+     *
+     * <p>The engine has always emitted these to a {@link RunListener} during the run. They were not
+     * kept, so anything reading a report afterwards — a pipeline, a dashboard, another tool
+     * correlating this against its own timeline — could not see them. Keeping them costs one entry
+     * per interval and makes the report answer a question it could not answer before.
+     *
+     * <p>Empty for a run that ended before the first interval elapsed.
+     *
+     * @return the samples, oldest first, never null
+     */
+    public List<Sample> samples() {
+        return samples;
     }
 
     public String name() {
