@@ -39,6 +39,10 @@ public final class TopologySpec {
     private String exchangeType = "topic";
     private String queue = "acemq.workload";
     private String routingKey = "acemq.workload";
+    // Whether anybody asked for that key, as opposed to it being the field initialiser. On the
+    // default exchange the two mean different things: an unset key follows the queue, a set one
+    // is obeyed and then refused by the validator if it cannot route.
+    private boolean routingKeyWasSet;
     private String queueType = "classic";
     private final Map<String, Object> queueArguments = new LinkedHashMap<>();
     private boolean declare = true;
@@ -76,6 +80,7 @@ public final class TopologySpec {
     public TopologySpec boundTo(String exchangeName, String key) {
         this.exchange = Objects.requireNonNull(exchangeName, "exchangeName");
         this.routingKey = Objects.requireNonNull(key, "key");
+        this.routingKeyWasSet = true;
         return this;
     }
 
@@ -85,6 +90,7 @@ public final class TopologySpec {
      */
     public TopologySpec routingKey(String key) {
         this.routingKey = Objects.requireNonNull(key, "key");
+        this.routingKeyWasSet = true;
         return this;
     }
 
@@ -144,8 +150,25 @@ public final class TopologySpec {
         return queue;
     }
 
+    /**
+     * The key publishes go out with.
+     *
+     * <p>On the default exchange the routing key <em>is</em> the queue name — that is the whole of
+     * how the default exchange routes — so naming a queue and not naming a key has exactly one
+     * sensible reading, and it is the queue. Returning the unrelated default instead published
+     * every message to a queue of that name, which in general does not exist, and the broker drops
+     * an unroutable message on the default exchange without saying anything. Publishers publishing,
+     * confirms arriving, queue empty, consumers idle: a run that looks alive and changes nothing.
+     * A drill cluster ran that way for a while before anybody noticed.
+     *
+     * <p>Only when the key was never set. Someone who writes both a queue and a routing key means
+     * both, even on the default exchange where that combination cannot route — and the scenario's
+     * own validation refuses that by name rather than it being quietly corrected here.
+     *
+     * @return the routing key, which on the default exchange defaults to the queue name
+     */
     public String routingKey() {
-        return routingKey;
+        return usesDefaultExchange() && !routingKeyWasSet ? queue : routingKey;
     }
 
     public String queueType() {
@@ -167,7 +190,10 @@ public final class TopologySpec {
 
     @Override
     public String toString() {
+        // routingKey() rather than the field: --dry-run prints this, and printing the field showed
+        // the key that would not be used. The whole point of reading a dry run is to see what the
+        // run will actually do.
         return "TopologySpec{" + (usesDefaultExchange() ? "(default)" : exchange)
-                + " -> " + queue + " [" + routingKey + "] " + queueType + "}";
+                + " -> " + queue + " [" + routingKey() + "] " + queueType + "}";
     }
 }
