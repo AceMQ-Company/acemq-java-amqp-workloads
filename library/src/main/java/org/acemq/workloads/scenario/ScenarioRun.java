@@ -49,6 +49,15 @@ import org.acemq.workloads.metrics.LatencySummary;
  */
 final class ScenarioRun {
 
+    /**
+     * How old a depth reading may be before it is reported as unknown.
+     *
+     * <p>Three refreshes. One missed tick is a slow call; three in a row is a management API that
+     * has stopped answering, and at that point saying nothing is more accurate than repeating a
+     * number from before the trouble started.
+     */
+    private static final long DEPTH_STALE_AFTER_NANOS = 3_000_000_000L;
+
     private final Scenario scenario;
     private final String brokerUrl;
     private final Security security;
@@ -72,6 +81,20 @@ final class ScenarioRun {
     // does. They differ for the length of the drain, and everything delivered in that gap was
     // published inside the window -- which is the only reason the counts can be made to balance.
     private final AtomicBoolean accounting = new AtomicBoolean(false);
+    // Queue depths, read by a thread of their own.
+    //
+    // The sampler used to read them inline, and a management call is the one thing in that loop
+    // that can wait: under a memory or disk alarm the management API slows or stops answering, so
+    // the reading that would say "the broker is in trouble" could not be emitted *because* the
+    // broker was in trouble. Measured on a real alarm: twelve seconds with no sample at all, and
+    // `blocked` never reported true once, though it was true the whole time and read correctly.
+    //
+    // So the sampler now never waits. It takes whatever this holds, and treats anything older
+    // than DEPTH_STALE_AFTER as unknown rather than as current -- a stale depth presented as a
+    // live one is worse than no depth, because nothing downstream can tell them apart.
+    private final Map<String, Long> depths = new java.util.concurrent.ConcurrentHashMap<>();
+    private final AtomicLong depthsReadAt = new AtomicLong();
+
     private final AtomicLong blockedNanos = new AtomicLong();
     private final AtomicReference<String> blockedReason = new AtomicReference<>();
     private final AtomicReference<Sample.Phase> phase =
@@ -145,6 +168,7 @@ final class ScenarioRun {
             AtomicBoolean stop = new AtomicBoolean(false);
             Thread blockWatcher = startBlockWatcher(broker, stop);
             Thread sampler = startSampler(broker, stop);
+            Thread depthReader = startDepthReader(broker, stop);
 
             try {
                 List<Thread> publishers = startProducers(broker, stop);
@@ -203,6 +227,7 @@ final class ScenarioRun {
                 stop.set(true);
                 blockWatcher.interrupt();
                 sampler.interrupt();
+                depthReader.interrupt();
                 for (ConsumerGroup group : groups) {
                     group.close();
                 }
@@ -523,6 +548,45 @@ final class ScenarioRun {
         }
     }
 
+    /**
+     * Refreshes queue depths out of band, so nothing that emits a reading has to wait for one.
+     *
+     * <p>Its own thread precisely because it is the part that can hang. When it does, it stops
+     * updating {@link #depthsReadAt} and the sampler starts reporting the depth as unknown, which
+     * is the truth: nobody can currently see it.
+     */
+    private Thread startDepthReader(AceMq broker, AtomicBoolean stop) {
+        Thread reader = new Thread(() -> {
+            while (!stop.get()) {
+                for (QueueNode queue : scenario.activeQueues()) {
+                    Long depth = depthOf(brokerFor(queue, broker), queue.name());
+                    if (depth != null) {
+                        depths.put(queue.name(), depth);
+                    }
+                }
+                depthsReadAt.set(System.nanoTime());
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }, "scenario-depths");
+        reader.setDaemon(true);
+        reader.start();
+        return reader;
+    }
+
+    /** @return the last depth read for this queue, or null when nobody can currently see it */
+    private Long lastKnownDepth(String queue) {
+        long readAt = depthsReadAt.get();
+        if (readAt == 0 || System.nanoTime() - readAt > DEPTH_STALE_AFTER_NANOS) {
+            return null;
+        }
+        return depths.get(queue);
+    }
+
     private Thread startSampler(AceMq broker, AtomicBoolean stop) {
         Thread sampler = new Thread(() -> {
             Instant startedAt = Instant.now();
@@ -567,7 +631,7 @@ final class ScenarioRun {
                     queueSamples.add(new ScenarioSample.QueueSample(
                             queue.name(), consumed,
                             seconds <= 0 ? 0 : Math.max(0, (consumed - previous) / seconds),
-                            depthOf(brokerFor(queue, broker), queue.name()),
+                            lastKnownDepth(queue.name()),
                             counters.endToEnd.summary(),
                             queue.consumersNode().isEnabled()));
                 }

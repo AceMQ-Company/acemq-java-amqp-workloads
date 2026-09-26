@@ -87,6 +87,9 @@ public final class Cli {
                   --format <list>     html, md, json (comma separated; default html,json)
                   --dry-run           resolve and print the configuration, run nothing
                   --quiet             only print the final verdict
+                  --emit-samples      one line of JSON per reading, on stdout, as
+                                      the run takes them -- for a standing load
+                                      something else is watching
               -h, --help              this
                   --version           version and exit
 
@@ -206,7 +209,8 @@ public final class Cli {
                     out.println("running " + workload.name() + " against "
                             + WorkloadFile.redact(file.brokerUrl(i)) + " ...");
                 }
-                WorkloadReport report = runStoppably(workload, file.brokerUrl(i));
+                WorkloadReport report = runStoppably(workload, file.brokerUrl(i),
+                        options.emitSamples ? new SampleLines(out) : RunListener.NONE);
                 reports.add(report);
                 if (!options.quiet) {
                     out.println(report.format());
@@ -446,8 +450,9 @@ public final class Cli {
      * @param brokerUrl where to run it
      * @return what it measured, whether it ran to completion or was stopped
      */
-    private static WorkloadReport runStoppably(Workload workload, String brokerUrl) {
-        RunHandle handle = workload.start(brokerUrl, RunListener.NONE);
+    private static WorkloadReport runStoppably(Workload workload, String brokerUrl,
+            RunListener listener) {
+        RunHandle handle = workload.start(brokerUrl, listener);
 
         Thread runner = Thread.currentThread();
         Thread hook = new Thread(() -> {
@@ -544,6 +549,7 @@ public final class Cli {
         Set<String> formats = new LinkedHashSet<>(List.of("html", "json"));
         boolean dryRun;
         boolean quiet;
+        boolean emitSamples;
         boolean help;
         boolean version;
 
@@ -560,6 +566,7 @@ public final class Cli {
                     case "--version" -> options.version = true;
                     case "--dry-run" -> options.dryRun = true;
                     case "--quiet" -> options.quiet = true;
+                    case "--emit-samples" -> options.emitSamples = true;
                     case "-f", "--file" -> options.file = Path.of(value(args, ++i, arg));
                     case "--report" -> options.reportDir = Path.of(value(args, ++i, arg));
                     // The same file against staging and then production is the ordinary

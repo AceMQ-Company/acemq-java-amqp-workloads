@@ -8,6 +8,36 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
+## [Unreleased]
+
+### Added
+
+- **`--emit-samples`**, one line of JSON per reading on standard output, as the run
+  takes them. The report says what a run measured once it is over, which is the
+  wrong shape for a standing load that has no end and for anything asking what is
+  true *right now* — a fault drill wanting to know whether the client noticed the
+  broker blocking, at the moment it was blocked. Standard output rather than a
+  port: a container's log is already collected by whatever runs it, so this needs
+  no volume, no socket and no second failure mode.
+
+### Fixed
+
+- **The sampler could not report trouble while there was trouble.** It read every
+  queue's depth from the management API inline, before emitting, and that is the
+  one call in the loop that can wait. Under a memory alarm the management API
+  slows or stops answering, so the reading that would have said `blocked: true`
+  was never emitted at all. Measured against a real alarm: twelve seconds with no
+  sample of any kind, and `blocked` never once true — though it was true
+  throughout and was being read correctly.
+
+  Depths are refreshed on a thread of their own now and the sampler never waits
+  for one. A depth older than three refreshes is reported as unknown rather than
+  as current, because a stale number presented as a live one is worse than no
+  number: nothing downstream can tell the two apart. The same alarm now produces
+  `blocked: true` within a second, a publish rate collapsing to nought, the depth
+  going unknown while the API is silent, and the unblocking a second after it
+  clears.
+
 ## [0.4.0] - 2026-09-25
 
 ### Added
