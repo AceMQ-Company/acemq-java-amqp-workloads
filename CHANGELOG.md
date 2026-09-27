@@ -8,6 +8,51 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
+## [0.6.0] - 2026-09-26
+
+### Fixed
+
+- **`--broker` can now give a workload file the broker it does not name, and could
+  not previously even override the one it did.** `broker:` was required of the file
+  while it was being parsed, and the command line is not in the file — so a run with
+  no `broker:` and `--broker amqp://...` on the command line was refused with
+  `'broker' is required` before the flag that supplies the broker was looked at, and
+  the flag documented as "overriding the file" could only ever override. It did not
+  do that either: on the workload path the value was parsed into the options and then
+  never read again, so a run given both went to the file's broker and printed the
+  file's broker while doing it.
+
+  The point of the flag is that a workload file is meant to be committed and
+  reviewed, and the broker is the part of it that is not the same twice — a
+  repository has no business naming somebody's staging cluster, and a file that
+  leaves the broker out is the right shape rather than an invalid one. Where the
+  broker comes from is now settled after the file is read and the flag is known,
+  which is the only place that can see both. Missing from both is still an error,
+  exit `3`, and it names the workload that has nowhere to run instead of naming a
+  key. One `--broker` replaces every broker in a suite; replacing some of them would
+  leave a run half against one broker and half against another with nothing saying
+  which half is which.
+
+- **`--tls`, `--truststore`, `--truststore-password` and
+  `--allow-development-certificates` reach a workload run.** They were read only for
+  a scenario file, and a workload file has no `security:` key of its own, so for a
+  workload run they were the only source of a TLS policy and were dropped without a
+  word. That is the worst way for this particular setting to fail: a certificate
+  authority supplied on the command line never reached the connection, so the run
+  failed to verify a certificate the caller had just handed it the authority for,
+  and the failure looks like a network problem rather than a flag that went nowhere.
+  The engine underneath already took a policy — the workload path was passing it
+  `null`.
+
+### Added
+
+- **`Workload.run(String, Security)` and `Workload.start(String, Security,
+  RunListener)`**, for a workload against a broker a URL alone cannot describe: a
+  private certificate authority, a client certificate, or a broker that signed its
+  own certificate. What the command line now uses, and the only way a caller of the
+  library could reach it. The existing two-argument forms are unchanged and pass no
+  policy, which leaves the decision to the URL as before.
+
 ## [0.5.0] - 2026-09-26
 
 ### Added
