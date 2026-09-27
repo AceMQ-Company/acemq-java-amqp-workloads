@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
+import org.acemq.amqp.security.Security;
 import org.acemq.rabbitmq.admin.RabbitAdmin;
 import org.acemq.workloads.metrics.LatencySummary;
 import org.acemq.workloads.scenario.QueueType;
@@ -49,17 +50,19 @@ final class WorkloadRun {
 
     private final Workload workload;
     private final String brokerUrl;
+    private final Security security;
     private final RunListener listener;
     private final AtomicBoolean stopRequested;
 
-    WorkloadRun(Workload workload, String brokerUrl) {
-        this(workload, brokerUrl, RunListener.NONE, new AtomicBoolean(false));
+    WorkloadRun(Workload workload, String brokerUrl, Security security) {
+        this(workload, brokerUrl, security, RunListener.NONE, new AtomicBoolean(false));
     }
 
-    WorkloadRun(Workload workload, String brokerUrl, RunListener listener,
+    WorkloadRun(Workload workload, String brokerUrl, Security security, RunListener listener,
             AtomicBoolean stopRequested) {
         this.workload = workload;
         this.brokerUrl = brokerUrl;
+        this.security = security;
         this.listener = listener;
         this.stopRequested = stopRequested;
     }
@@ -69,7 +72,7 @@ final class WorkloadRun {
         // thing that sees a run while it is happening, and a report built only from totals cannot
         // say when anything happened.
         List<Sample> samples = Collections.synchronizedList(new ArrayList<>());
-        ScenarioReport report = ScenarioRunner.run(asScenario(), brokerUrl, null,
+        ScenarioReport report = ScenarioRunner.run(asScenario(), brokerUrl, security,
                 new Adapter(listener, samples::add), stopRequested);
         return translate(report, samples);
     }

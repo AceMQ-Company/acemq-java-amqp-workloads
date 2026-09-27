@@ -46,7 +46,7 @@ expect:
 | Setting | | |
 |---|---|---|
 | `name` | required | identifies the run in the report |
-| `broker` | required | AMQP URL |
+| `broker` | | AMQP URL. Required unless [`--broker`](cli.md) supplies it, which also overrides it |
 | `management` | | management URL, for the queue depth at the end |
 | `managementUser` / `managementPassword` | | default `guest` |
 | `warmup` | `10s` | run this long before measuring anything |

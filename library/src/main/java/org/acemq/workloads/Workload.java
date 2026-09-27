@@ -168,7 +168,19 @@ public final class Workload {
      * @return what happened
      */
     public WorkloadReport run(String brokerUrl) {
-        return new WorkloadRun(this, brokerUrl).execute();
+        return run(brokerUrl, null);
+    }
+
+    /**
+     * Runs it against a broker that needs more than a URL to reach.
+     *
+     * @param brokerUrl an AMQP URL, for example {@code amqps://guest:guest@localhost:5671}
+     * @param security which certificates to believe, or null to let the URL decide — plaintext for
+     *     {@code amqp://} and the JVM's own trust store for {@code amqps://}
+     * @return what happened
+     */
+    public WorkloadReport run(String brokerUrl, org.acemq.amqp.security.Security security) {
+        return new WorkloadRun(this, brokerUrl, security).execute();
     }
 
     /**
@@ -189,6 +201,19 @@ public final class Workload {
      * @return a handle on the run
      */
     public RunHandle start(String brokerUrl, RunListener listener) {
+        return start(brokerUrl, null, listener);
+    }
+
+    /**
+     * Starts it against a broker that needs more than a URL to reach.
+     *
+     * @param brokerUrl an AMQP URL
+     * @param security which certificates to believe, or null to let the URL decide
+     * @param listener told about each reading, or {@link RunListener#NONE}
+     * @return a handle on the run
+     */
+    public RunHandle start(String brokerUrl, org.acemq.amqp.security.Security security,
+            RunListener listener) {
         java.util.Objects.requireNonNull(brokerUrl, "brokerUrl");
         java.util.Objects.requireNonNull(listener, "listener");
 
@@ -199,8 +224,8 @@ public final class Workload {
 
         Thread thread = new Thread(() -> {
             try {
-                WorkloadReport result =
-                        new WorkloadRun(this, brokerUrl, listener, stopRequested).execute();
+                WorkloadReport result = new WorkloadRun(this, brokerUrl, security, listener,
+                        stopRequested).execute();
                 // The listener is told before the future completes, so anything watching sees the
                 // readings and the report in the order they happened.
                 try {

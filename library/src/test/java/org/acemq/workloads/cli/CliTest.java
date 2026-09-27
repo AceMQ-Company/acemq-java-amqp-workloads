@@ -90,6 +90,88 @@ class CliTest {
                 .doesNotContain("hunter2");
     }
 
+    @Nested
+    @DisplayName("--broker")
+    class BrokerFlag {
+
+        private static final String NO_BROKER = """
+                name: portable
+                topology: { queue: q }
+                publishers: { rate: 1000 }
+                consumers: { concurrency: 1 }
+                runFor: 30s
+                """;
+
+        @Test
+        @DisplayName("supplies the broker for a file that names none")
+        void supplies(@TempDir Path dir) throws Exception {
+            Path file = dir.resolve("w.yaml");
+            Files.writeString(file, NO_BROKER);
+
+            // This exited 3 with "'broker' is required": the file was refused for not naming a
+            // broker before the flag that names one was read. A workload file is meant to be
+            // committed, and the broker is the part of it that is not the same twice.
+            assertThat(run("-f", file.toString(), "--broker",
+                    "amqp://guest:hunter2@supplied:5672", "--dry-run")).isEqualTo(Cli.OK);
+            assertThat(stdout())
+                    .contains("portable")
+                    .contains("amqp://guest:***@supplied:5672")
+                    .doesNotContain("hunter2");
+        }
+
+        @Test
+        @DisplayName("overrides the broker a file does name")
+        void overrides(@TempDir Path dir) throws Exception {
+            Path file = dir.resolve("w.yaml");
+            Files.writeString(file, """
+                    name: staging-then-production
+                    broker: amqp://guest:guest@from-the-file:5672
+                    topology: { queue: q }
+                    runFor: 30s
+                    """);
+
+            assertThat(run("-f", file.toString(), "--broker", "amqp://from-the-flag:5672",
+                    "--dry-run")).isEqualTo(Cli.OK);
+            // The flag was parsed and then never consulted on this path, so the run went to the
+            // file's broker while the output said nothing about it.
+            assertThat(stdout())
+                    .contains("amqp://from-the-flag:5672")
+                    .doesNotContain("from-the-file");
+        }
+
+        @Test
+        @DisplayName("missing from the file and the flag is a config error naming what is missing")
+        void missingFromBoth(@TempDir Path dir) throws Exception {
+            Path file = dir.resolve("w.yaml");
+            Files.writeString(file, NO_BROKER);
+
+            assertThat(run("-f", file.toString())).isEqualTo(Cli.BAD_CONFIG);
+            assertThat(stderr())
+                    .contains("no broker to run 'portable' against")
+                    .contains("'broker' is missing from the file")
+                    .contains("--broker was not given");
+        }
+    }
+
+    @Test
+    @DisplayName("--tls reaches a workload run rather than being dropped")
+    void tlsOnTheWorkloadPath(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("w.yaml");
+        Files.writeString(file, """
+                name: over-tls
+                broker: amqps://guest:guest@127.0.0.1:1
+                topology: { queue: q }
+                runFor: 30s
+                """);
+
+        // A workload file has no `security:' key, so the flags are the only source -- and they
+        // were read only for a scenario file. An unusable mode proves they are read at all here:
+        // silently ignoring it is what a --truststore that never reached the connection did.
+        assertThat(run("-f", file.toString(), "--tls", "sideways", "--quiet"))
+                .isEqualTo(Cli.BAD_CONFIG);
+        assertThat(stderr()).contains("not one of required, insecure or disabled");
+    }
+
     @Test
     @DisplayName("PDF is refused with the reason, rather than silently ignored")
     void pdfRefused(@TempDir Path dir) throws Exception {

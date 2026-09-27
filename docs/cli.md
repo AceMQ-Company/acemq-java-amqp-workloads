@@ -7,13 +7,44 @@ java -jar acemq-workload.jar -f <file> [options]
 | Option | |
 |---|---|
 | `-f, --file <path>` | the workload or [scenario](scenario-file.md) file, `.yaml` or `.json`. Required |
-| `--broker <url>` | run against this broker rather than the one in the file |
+| `--broker <url>` | the broker to run against: overrides the one in the file, or supplies it for a file that names none |
+| `--tls <mode>` | `required`, `insecure` or `disabled`, overriding the file |
+| `--truststore <path>` | keystore holding the CA to trust, and a client certificate if one is needed |
+| `--truststore-password <pw>` | its password |
+| `--allow-development-certificates` | accept a certificate the broker generated for itself |
 | `--report <dir>` | write reports into this directory |
 | `--format <list>` | `html`, `md`, `json` — comma separated. Default `html,json` |
 | `--dry-run` | resolve and print the configuration, run nothing |
 | `--quiet` | print only the final verdict |
+| `--emit-samples` | one line of JSON per reading, on stdout, as the run takes them |
 | `-h, --help` | usage |
 | `--version` | version and exit |
+
+All of these apply to both kinds of file. `--broker` and the TLS flags used to be
+read only for a [scenario](scenario-file.md); against a workload file they were
+parsed and then dropped without a word, which for `--broker` meant the run went to
+the file's broker anyway and for `--truststore` meant the certificate authority
+just supplied never reached the connection.
+
+## The broker need not be in the file
+
+`broker:` is optional in both file kinds, because `--broker` can supply it. That is
+the right shape for a file that is committed and pointed somewhere different each
+time it runs — a repository has no business naming somebody's staging cluster, and
+the broker is the part of a load test that is not the same twice.
+
+Missing from both the file and the flag is an error, exit `3`, naming the workload
+that has nowhere to run:
+
+```
+acemq-workload: no broker to run 'orders-peak' against: 'broker' is missing from
+the file and --broker was not given. Put one in the file as 'broker: amqp://...',
+or pass --broker amqp://guest:guest@localhost:5672.
+```
+
+In a suite, one `--broker` replaces every workload's broker. Replacing some of them
+would leave a run that is half against one broker and half against another with
+nothing in the report saying which half is which.
 
 ## Stopping it keeps the measurements
 
@@ -129,7 +160,8 @@ java -jar acemq-workload.jar -f scenario.json --broker "amqp://guest:$PASSWORD@p
 ```
 
 The ordinary way this gets used, and editing the file in between is how the two
-stop being the same test.
+stop being the same test. It works the same for a workload file, and the file need
+not name a broker of its own for it to work.
 
 ### Check a file without running it
 

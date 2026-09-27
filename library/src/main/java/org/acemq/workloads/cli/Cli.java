@@ -76,7 +76,8 @@ public final class Cli {
 
             options:
               -f, --file <path>       workload or scenario file, .yaml or .json (required)
-                  --broker <url>      the broker to run against, overriding the file
+                  --broker <url>      the broker to run against, overriding the file, or
+                                      supplying it for a file that names none
                   --tls <mode>        required, insecure or disabled, overriding the file
                   --truststore <path> keystore holding the CA to trust, and a client
                                       certificate if one is needed
@@ -190,8 +191,19 @@ public final class Cli {
 
         WorkloadFile file;
         try {
-            file = WorkloadFile.read(options.file);
+            // The flag is applied here rather than inside the parser, because the parser cannot
+            // see it: `broker' used to be required of the file, so a file that left the broker to
+            // the command line was refused before the command line was consulted.
+            file = WorkloadFile.read(options.file).withBroker(options.broker);
         } catch (ConfigException e) {
+            err.println("acemq-workload: " + e.getMessage());
+            return BAD_CONFIG;
+        }
+
+        Security security;
+        try {
+            security = securityFromFlags(options);
+        } catch (RuntimeException e) {
             err.println("acemq-workload: " + e.getMessage());
             return BAD_CONFIG;
         }
@@ -209,7 +221,7 @@ public final class Cli {
                     out.println("running " + workload.name() + " against "
                             + WorkloadFile.redact(file.brokerUrl(i)) + " ...");
                 }
-                WorkloadReport report = runStoppably(workload, file.brokerUrl(i),
+                WorkloadReport report = runStoppably(workload, file.brokerUrl(i), security,
                         options.emitSamples ? new SampleLines(out) : RunListener.NONE);
                 reports.add(report);
                 if (!options.quiet) {
@@ -266,14 +278,34 @@ public final class Cli {
      * it off for production instead.
      */
     private static Security securityFor(Options options, ScenarioFile file) {
-        boolean fromFlags = options.tlsMode != null || options.truststore != null
-                || options.truststorePassword != null || options.allowDevelopmentCertificates;
-        if (fromFlags) {
-            return new ScenarioFile.SecurityJson(
-                    options.tlsMode, options.truststore, options.truststorePassword,
-                    options.allowDevelopmentCertificates ? Boolean.TRUE : null).toSecurity();
+        if (saidSomethingAboutTls(options)) {
+            return securityFromFlags(options);
         }
         return file.security() == null ? null : file.security().toSecurity();
+    }
+
+    /**
+     * The TLS policy the flags ask for, or null when they asked for nothing.
+     *
+     * <p>A workload file has no {@code security:} key, so for a workload run the flags are the only
+     * source — and they used to be read only on the scenario path. That is worse than it sounds:
+     * {@code --truststore} against an {@code amqps://} broker was dropped without a word, so the
+     * run failed to verify a certificate the caller had just supplied the authority for, and
+     * {@code --tls insecure} against a development broker was equally silent, which is the shape of
+     * mistake that gets diagnosed as a network problem.
+     */
+    private static Security securityFromFlags(Options options) {
+        if (!saidSomethingAboutTls(options)) {
+            return null;
+        }
+        return new ScenarioFile.SecurityJson(
+                options.tlsMode, options.truststore, options.truststorePassword,
+                options.allowDevelopmentCertificates ? Boolean.TRUE : null).toSecurity();
+    }
+
+    private static boolean saidSomethingAboutTls(Options options) {
+        return options.tlsMode != null || options.truststore != null
+                || options.truststorePassword != null || options.allowDevelopmentCertificates;
     }
 
     private static int runScenario(Options options, PrintStream out, PrintStream err) {
@@ -448,11 +480,12 @@ public final class Cli {
      *
      * @param workload what to run
      * @param brokerUrl where to run it
+     * @param security how to reach it over TLS, or null to let the URL decide
      * @return what it measured, whether it ran to completion or was stopped
      */
     private static WorkloadReport runStoppably(Workload workload, String brokerUrl,
-            RunListener listener) {
-        RunHandle handle = workload.start(brokerUrl, listener);
+            Security security, RunListener listener) {
+        RunHandle handle = workload.start(brokerUrl, security, listener);
 
         Thread runner = Thread.currentThread();
         Thread hook = new Thread(() -> {

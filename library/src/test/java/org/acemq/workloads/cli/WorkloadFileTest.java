@@ -224,15 +224,86 @@ class WorkloadFileTest {
         }
 
         @Test
-        @DisplayName("a missing name or broker is refused")
+        @DisplayName("a missing name is refused")
         void required() {
             assertThatThrownBy(() -> parse("broker: amqp://localhost"))
                     .isInstanceOf(ConfigException.class)
                     .hasMessageContaining("'name' is required");
+        }
+    }
 
-            assertThatThrownBy(() -> parse("name: x"))
+    @Nested
+    @DisplayName("the broker")
+    class Broker {
+
+        @Test
+        @DisplayName("comes from --broker when the file names none")
+        void suppliedByTheFlag() {
+            // The file parses. It used to be refused here, before anything could ask the command
+            // line whether it had a broker of its own.
+            WorkloadFile file = parse("name: x\nrunFor: 30s\n")
+                    .withBroker("amqp://guest:guest@supplied:5672");
+
+            assertThat(file.brokerUrl(0)).isEqualTo("amqp://guest:guest@supplied:5672");
+        }
+
+        @Test
+        @DisplayName("from --broker wins over the file's")
+        void overridesTheFile() {
+            WorkloadFile file = parse("name: x\nbroker: amqp://from-the-file\nrunFor: 30s\n")
+                    .withBroker("amqp://from-the-flag");
+
+            assertThat(file.brokerUrl(0)).isEqualTo("amqp://from-the-flag");
+            assertThat(file.describe()).contains("amqp://from-the-flag");
+        }
+
+        @Test
+        @DisplayName("from --broker replaces every broker in a suite")
+        void overridesEveryWorkloadInASuite() {
+            WorkloadFile file = parse("""
+                    broker: amqp://from-the-file
+                    runFor: 30s
+                    workloads:
+                      - { name: one }
+                      - { name: two, broker: amqp://its-own }
+                    """).withBroker("amqp://from-the-flag");
+
+            assertThat(file.brokerUrl(0)).isEqualTo("amqp://from-the-flag");
+            assertThat(file.brokerUrl(1)).isEqualTo("amqp://from-the-flag");
+        }
+
+        @Test
+        @DisplayName("missing from the file and from the flag is still an error, and says so")
+        void missingFromBoth() {
+            assertThatThrownBy(() -> parse("name: pointless\nrunFor: 30s\n").withBroker(null))
                     .isInstanceOf(ConfigException.class)
-                    .hasMessageContaining("'broker' is required");
+                    .hasMessageContaining("no broker to run 'pointless' against")
+                    .hasMessageContaining("'broker' is missing from the file")
+                    .hasMessageContaining("--broker was not given");
+        }
+
+        @Test
+        @DisplayName("a blank flag is no flag at all")
+        void blankFlagDoesNotCount() {
+            assertThatThrownBy(() -> parse("name: pointless\nrunFor: 30s\n").withBroker("  "))
+                    .isInstanceOf(ConfigException.class)
+                    .hasMessageContaining("no broker to run 'pointless' against");
+
+            assertThat(parse("name: x\nbroker: amqp://from-the-file\n").withBroker("  ")
+                    .brokerUrl(0)).isEqualTo("amqp://from-the-file");
+        }
+
+        @Test
+        @DisplayName("naming one workload in a suite and not another names the one that is short")
+        void namesTheWorkloadThatIsShort() {
+            assertThatThrownBy(() -> parse("""
+                    runFor: 30s
+                    workloads:
+                      - { name: has-one, broker: amqp://somewhere }
+                      - { name: has-none }
+                    """).withBroker(null))
+                    .isInstanceOf(ConfigException.class)
+                    .hasMessageContaining("no broker to run 'has-none' against");
         }
     }
 

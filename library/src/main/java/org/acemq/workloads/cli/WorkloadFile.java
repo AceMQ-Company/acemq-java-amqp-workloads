@@ -72,6 +72,13 @@ import org.acemq.workloads.scenario.YamlComments;
  * {@code ${VAR}} is substituted from the environment before parsing, and a password written
  * literally is a password in your git history.
  *
+ * <h2>The broker can come from outside the file</h2>
+ *
+ * <p>{@code broker} is optional here, because {@code --broker} can supply it. A file that names no
+ * broker is the right shape for one that is committed and pointed at a different cluster each time
+ * it runs, and refusing it would make the flag able only to override. Missing from both is still an
+ * error: see {@link #withBroker}.
+ *
  * <h2>Unknown keys are refused</h2>
  *
  * <p>A misspelled {@code prefech: 100} that is silently ignored produces a run with the default
@@ -136,11 +143,11 @@ public final class WorkloadFile {
             for (JsonNode entry : list) {
                 JsonNode merged = merge(root, entry);
                 workloads.add(toWorkload(merged));
-                brokers.add(requiredText(merged, "broker"));
+                brokers.add(optionalText(merged, "broker"));
             }
         } else {
             workloads.add(toWorkload(root));
-            brokers.add(requiredText(root, "broker"));
+            brokers.add(optionalText(root, "broker"));
         }
         return new WorkloadFile(workloads, brokers);
     }
@@ -342,6 +349,15 @@ public final class WorkloadFile {
         return value.asText();
     }
 
+    /** @return the field, or null when the file does not say. */
+    private static String optionalText(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull() || value.asText().isBlank()) {
+            return null;
+        }
+        return value.asText();
+    }
+
     /**
      * Replaces {@code ${VAR}} and {@code ${VAR:-default}} from the environment, outside comments.
      *
@@ -396,11 +412,53 @@ public final class WorkloadFile {
     }
 
     /**
+     * Settles which broker each workload runs against, the command line winning over the file.
+     *
+     * <p>Where the broker comes from cannot be decided while the file is being parsed, because the
+     * flag is not in the file. Deciding it there anyway is the bug this method exists to remove:
+     * {@code broker} was required of the file, so a file written to be pointed at a broker — one
+     * committed to a repository that has no business naming somebody's staging cluster — was
+     * refused before the flag that supplies the broker was ever looked at. The flag documented as
+     * overriding the file could therefore only override, never supply, and in fact did neither: the
+     * command line read it and then ran the file's broker regardless.
+     *
+     * <p>A suite gets the one override for every workload in it. That is the same reading as
+     * "overriding the file": the file's brokers are what is being replaced, and replacing some of
+     * them would leave a run that is half against one broker and half against another with nothing
+     * saying which half is which.
+     *
+     * @param override the {@code --broker} URL, or null when the command line did not say
+     * @return the same workloads, each with the broker it will run against
+     * @throws ConfigException if a workload is left without a broker from either source
+     */
+    public WorkloadFile withBroker(String override) {
+        boolean given = override != null && !override.isBlank();
+        List<String> resolved = new ArrayList<>(brokerUrls.size());
+        for (int i = 0; i < brokerUrls.size(); i++) {
+            String url = given ? override : brokerUrls.get(i);
+            if (url == null || url.isBlank()) {
+                throw new ConfigException("no broker to run '" + workloads.get(i).name()
+                        + "' against: 'broker' is missing from the file and --broker was not"
+                        + " given. Put one in the file as 'broker: amqp://...', or pass"
+                        + " --broker amqp://guest:guest@localhost:5672.");
+            }
+            resolved.add(url);
+        }
+        return new WorkloadFile(workloads, resolved);
+    }
+
+    /**
      * @param index which workload
      * @return the broker URL it runs against
+     * @throws ConfigException if neither the file nor {@link #withBroker} supplied one
      */
     public String brokerUrl(int index) {
-        return brokerUrls.get(index);
+        String url = brokerUrls.get(index);
+        if (url == null || url.isBlank()) {
+            throw new ConfigException("no broker to run '" + workloads.get(index).name()
+                    + "' against: 'broker' is missing from the file and none was supplied.");
+        }
+        return url;
     }
 
     /** @return how many workloads this file holds */
@@ -414,7 +472,7 @@ public final class WorkloadFile {
         for (int i = 0; i < workloads.size(); i++) {
             Workload workload = workloads.get(i);
             out.append(workload.name()).append('\n');
-            out.append("  broker      ").append(redact(brokerUrls.get(i))).append('\n');
+            out.append("  broker      ").append(redact(brokerUrl(i))).append('\n');
             out.append("  ").append(workload.topology()).append('\n');
             out.append("  ").append(workload.publishers()).append('\n');
             out.append("  ").append(workload.consumers()).append('\n');
