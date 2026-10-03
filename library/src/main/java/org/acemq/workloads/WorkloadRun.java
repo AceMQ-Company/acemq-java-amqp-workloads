@@ -221,6 +221,7 @@ final class WorkloadRun {
                     producer == null ? 0 : producer.published(),
                     producer == null ? 0 : producer.confirmed(),
                     producer == null ? 0 : producer.failed(),
+                    producer == null ? 0 : producer.refused(),
                     queue == null ? 0 : queue.consumed(),
                     producer == null ? 0 : producer.publishRate(),
                     queue == null ? 0 : queue.consumeRate(),

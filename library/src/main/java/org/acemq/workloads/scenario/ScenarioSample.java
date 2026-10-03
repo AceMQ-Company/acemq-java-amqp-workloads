@@ -59,6 +59,7 @@ public record ScenarioSample(
             long published,
             long confirmed,
             long failed,
+            long refused,
             double publishRate,
             LatencySummary sendLag) {
     }

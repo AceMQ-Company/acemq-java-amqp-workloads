@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 
+import org.acemq.amqp.api.PublishingPausedException;
 import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerGroup;
 import org.acemq.amqp.core.DefaultPublisher;
@@ -114,6 +115,19 @@ final class ScenarioRun {
         final AtomicLong published = new AtomicLong();
         final AtomicLong confirmed = new AtomicLong();
         final AtomicLong failed = new AtomicLong();
+
+        /**
+         * Sends this library declined because publishing was paused, kept apart from
+         * {@link #failed}.
+         *
+         * <p>Back pressure is not a failure, and counting it as one makes a library that
+         * reports it promptly look worse than one that hides it by blocking the caller
+         * for the length of an alarm. Go and .NET's standing loads have always split the
+         * two; this one did not, and a chaos drill measured the consequence — under one
+         * fault Java reported 92,673 failures where Ruby, .NET and Python reported about
+         * twenty, which made {@code failed} useless for comparing the five.
+         */
+        final AtomicLong refused = new AtomicLong();
         final LatencyRecorder publishLatency;
         final LatencyRecorder sendLag;
 
@@ -126,6 +140,7 @@ final class ScenarioRun {
             published.set(0);
             confirmed.set(0);
             failed.set(0);
+            refused.set(0);
             publishLatency.reset();
             sendLag.reset();
         }
@@ -532,17 +547,49 @@ final class ScenarioRun {
                 if (record) {
                     counters.published.incrementAndGet();
                 }
+            } catch (PublishingPausedException e) {
+                // Declined rather than lost: this library stopped publishing because the
+                // broker said it had stopped reading. Counted apart from `failed` for the
+                // reason ProducerCounters.refused gives.
+                window.release();
+                if (record) {
+                    counters.refused.incrementAndGet();
+                }
+                backOff();
             } catch (RuntimeException e) {
                 window.release();
                 if (record) {
                     counters.failed.incrementAndGet();
                 }
+                // A synchronous failure means the next attempt fails too, immediately,
+                // and this loop has no natural pause in it: against a dead socket it
+                // became a spin of roughly three thousand attempts a second, which is how
+                // 92,673 failures were counted in thirty seconds while `published` barely
+                // moved. The sleep makes a failing load a witness rather than a busy
+                // loop, and it is short enough not to hide a fault that clears.
+                backOff();
             }
             sequence++;
         }
 
         try {
             window.tryAcquire(producer.maxInFlight(), 10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Pauses a producer that has just been refused or has just failed.
+     *
+     * <p>Ten milliseconds, which is long enough to turn a spin into a trickle and short
+     * enough that a fault clearing is noticed on the next reading rather than the next
+     * second. A producer with no pause here attempted roughly three thousand publishes a
+     * second against a dead socket, which is a busy loop wearing a counter's clothes.
+     */
+    private static void backOff() {
+        try {
+            Thread.sleep(10);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -618,6 +665,7 @@ final class ScenarioRun {
                     producerSamples.add(new ScenarioSample.ProducerSample(
                             producer.name(), published, counters.confirmed.get(),
                             counters.failed.get(),
+                            counters.refused.get(),
                             seconds <= 0 ? 0 : Math.max(0, (published - previous) / seconds),
                             counters.sendLag.summary()));
                 }

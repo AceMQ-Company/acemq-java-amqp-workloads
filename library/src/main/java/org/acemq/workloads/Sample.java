@@ -37,7 +37,13 @@ import org.acemq.workloads.metrics.LatencySummary;
  * @param phase what the run was doing
  * @param published messages published so far in this phase
  * @param confirmed messages the broker has confirmed
- * @param failed publishes refused or errored
+ * @param failed publishes that errored, for a reason other than back pressure
+ * @param refused publishes this library declined because publishing was paused — back
+ *     pressure reported promptly, which is not a failure. Kept apart from {@code failed}
+ *     because counting the two together made this load report 92,673 failures under a
+ *     fault where Go, .NET, Python and Ruby reported about twenty, and a counter that
+ *     means something different in each language cannot be compared across them. Go and
+ *     .NET's standing loads split the same two the same way
  * @param consumed messages the consumers have handled
  * @param publishRate publishes per second since the previous reading
  * @param consumeRate consumes per second since the previous reading
@@ -53,6 +59,7 @@ public record Sample(
         long published,
         long confirmed,
         long failed,
+        long refused,
         long consumed,
         double publishRate,
         double consumeRate,

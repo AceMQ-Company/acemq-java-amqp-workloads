@@ -57,6 +57,10 @@ final class SampleLines implements RunListener {
                 .append(",\"published\":").append(sample.published())
                 .append(",\"confirmed\":").append(sample.confirmed())
                 .append(",\"failed\":").append(sample.failed())
+                // Apart from `failed`, as Go's and .NET's standing loads have always
+                // reported it: a send declined because publishing was paused is back
+                // pressure working, not a message lost.
+                .append(",\"refused\":").append(sample.refused())
                 .append(",\"consumed\":").append(sample.consumed())
                 .append(",\"publishRate\":").append(round(sample.publishRate()))
                 .append(",\"consumeRate\":").append(round(sample.consumeRate()))

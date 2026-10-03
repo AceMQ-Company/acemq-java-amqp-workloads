@@ -90,7 +90,7 @@ class StandingRunTest {
     private static Sample sample(long millis, long published, long consumed, Sample.Phase phase) {
         return new Sample(Instant.parse("2026-09-24T18:00:00Z").plusMillis(millis),
                 Duration.ofMillis(millis), phase,
-                published, published, 0, consumed,
+                published, published, 0, 0, consumed,
                 200.0, 199.5,
                 LatencySummary.empty("end-to-end"), LatencySummary.empty("send lag"),
                 7L, false);
