@@ -8,6 +8,21 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
+## [0.6.1] - 2026-10-04
+
+### Fixed
+
+- A publish the library declined because publishing was paused is counted as
+  `refused`, apart from one that failed and may have been lost, and the load
+  backs off 10ms after either instead of spinning. `Sample`, `ScenarioSample`,
+  `WorkloadRun` and the sample lines carry the new field.
+- `jackson-databind` 2.18.11, which applies three advisories to 2.18.9.
+
+### Changed
+
+- Built against acemq-java-amqp 0.7.10 (was 0.7.3), which counts a declined
+  publish as `outcome=refused` in its own telemetry too.
+
 ## [0.6.0] - 2026-09-26
 
 ### Fixed
