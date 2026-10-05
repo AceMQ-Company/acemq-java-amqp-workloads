@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AceMQ Workloads Console</title>
+<link rel="icon" href="/acemq-mark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&family=Outfit:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<link rel="stylesheet" href="console.css">
+</head>
+<body>
+<div class="stage">
+<div class="con" id="con" data-theme="obsidian" data-mode="dark">
+  <nav class="rail" role="tablist" aria-label="Sections" aria-orientation="vertical" id="rail"></nav>
+  <div class="top">
+    <div class="crumb" id="crumb"><b>acemq-java-amqp-workloads</b></div>
+    <span class="live" id="live" aria-live="polite">connecting</span>
+    <div class="grow"></div>
+    <div class="ask" id="askBox" role="button" tabindex="0" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg><span>Jump to a view or run a command</span><kbd>⌘K</kbd></div>
+  </div>
+
+  <main class="main">
+<!-- ============================== STANDING LOADS ============================== -->
+<section class="view" data-view="loads" role="tabpanel" aria-labelledby="tab-loads">
+  <div class="vh"><h2>Standing loads</h2><span class="sub" id="loadsSub">reading…</span>
+    <div class="tools"><button class="btn danger" id="stopRun" hidden>Stop the console's load</button><button class="btn pri" data-jump="studio">New load</button></div></div>
+  <div class="kpis">
+    <div class="kpi"><span class="k">Offered</span><span class="v" id="wOff">—</span><canvas id="spOff" aria-hidden="true"></canvas></div>
+    <div class="kpi"><span class="k">Confirmed</span><span class="v" id="wConf">—</span><canvas id="spConf" aria-hidden="true"></canvas></div>
+    <div class="kpi"><span class="k">Consumed</span><span class="v" id="wCons">—</span><span class="d" id="wLag">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Refused</span><span class="v" id="wRef">—</span><span class="d">declined unsent · back pressure</span></div>
+    <div class="kpi"><span class="k">Failed</span><span class="v" id="wFail">—</span><span class="d" id="wFailD">&nbsp;</span></div>
+    <div class="kpi"><span class="k">End-to-end p99</span><span class="v" id="wP99">—</span><span class="d" id="wP99D">&nbsp;</span></div>
+  </div>
+  <div id="loadsEmpty" hidden></div>
+  <div class="lcards" id="lcards"></div>
+  <div class="grid c2">
+    <div class="pn"><div class="ph"><h3>End-to-end latency · <span id="histLang">—</span></h3><span class="cnt" id="latCnt">HdrHistogram · log scale</span></div>
+      <div class="pb"><canvas class="chart" id="latChart" height="200" role="img" aria-label="Latency of the selected load"></canvas>
+        <div class="legend" id="latLegend"></div></div></div>
+    <div class="pn"><div class="ph"><h3>Load events</h3><span class="cnt">from the loads' own output</span></div>
+      <div class="pb"><ul class="log" id="loadLog" aria-live="polite"></ul></div></div>
+  </div>
+</section>
+
+<!-- ============================== ENDURANCE ============================== -->
+<section class="view" data-view="soak" role="tabpanel" aria-labelledby="tab-soak">
+  <div class="vh"><h2>Endurance</h2><span class="sub" id="soakSub">reading…</span>
+    <div class="tools"><div class="seg" id="soakMetric" role="group" aria-label="Measure"><button class="btn" data-m="rss" aria-pressed="true">Memory</button><button class="btn" data-m="fds" aria-pressed="false">File handles</button><button class="btn" data-m="thr" aria-pressed="false">Threads</button></div><button class="btn" id="soakRun">How to run one</button></div></div>
+  <div id="soakEmpty" hidden></div>
+  <div id="soakBody" hidden style="display:contents">
+  <div class="kpis">
+    <div class="kpi"><span class="k">Verdict</span><span class="v" id="sVerdict">—</span><span class="d" id="sVerdictD">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Recoveries</span><span class="v" id="sCycles">—</span><span class="d" id="sCyclesD">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Connections settled</span><span class="v" id="sSettled">—</span><span class="d" id="sSettledD">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Leaks found</span><span class="v" id="sLeaks">—</span><span class="d" id="sLeaksD">&nbsp;</span></div>
+  </div>
+  <div class="pn"><div class="ph"><h3 id="soakTitle">Resident memory, % of its own start</h3><span class="cnt">dashed line = the allowance a leak must cross</span></div>
+    <div class="pb"><canvas class="chart" id="soakChart" height="250" role="img" aria-label="Soak readings per client"></canvas><div class="legend" id="soakLegend"></div></div></div>
+  <div class="grid c2">
+    <div class="pn"><div class="ph"><h3>Before and after</h3><span class="cnt">measured from outside with ps and lsof</span></div>
+      <div class="tw"><table><thead><tr><th>Client</th><th class="num">Memory</th><th class="num">File handles</th><th class="num">Threads</th><th>Verdict</th></tr></thead><tbody id="soakT"></tbody></table></div></div>
+    <div class="insight" style="align-self:start">
+      <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l5-5 4 4 7-8"/></svg></div>
+      <div class="tx"><h4>Read from the workspace's soak report</h4>
+        <p id="soakSource"></p></div>
+    </div>
+  </div>
+  </div>
+</section>
+
+<!-- ============================== DELIVERY EVIDENCE ============================== -->
+<section class="view" data-view="evidence" role="tabpanel" aria-labelledby="tab-evidence">
+  <div class="vh"><h2>Delivery evidence</h2><span class="sub">the library's rules, checked against what each run measured</span>
+    <div class="tools"><label class="sr" for="evRun">Run</label><select class="btn" id="evRun"></select><button class="btn pri" id="evExport">Export evidence</button></div></div>
+  <div id="evEmpty" hidden></div>
+  <div class="grid c2" id="evBody">
+    <div class="pn"><div class="ph"><h3>Rules</h3><span class="cnt">every rule names its evidence</span></div>
+      <div class="pb" id="rules" style="gap:0"></div></div>
+    <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+      <div class="pn"><div class="ph"><h3>Run</h3><span class="cnt" id="evName"></span></div>
+        <div class="pb" id="evRunKv" style="gap:0"></div></div>
+      <div class="pn"><div class="ph"><h3>Crash drill</h3><span class="cnt">kill -9 mid-flight, then count</span></div>
+        <div class="pb"><div class="empty"><span class="tag coming">coming</span><p>The crash drill runs on the chaos side and keeps no report this console can read yet. When it does, its counts land here, per client: confirmed, what the broker holds, lost.</p></div></div></div>
+      <div class="pn"><div class="ph"><h3>Claim lease</h3><span class="cnt">idempotency claim held by a dead process</span></div>
+        <div class="pb"><div class="empty"><span class="tag coming">coming</span><p>The claim-lease drill comes from the chaos side too. Until it writes a report, nothing is shown here rather than a result nobody measured.</p></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== LOAD DESIGNER ============================== -->
+<section class="view" data-view="studio" role="tabpanel" aria-labelledby="tab-studio">
+  <div class="vh"><h2>Load designer</h2><span class="sub">describe the traffic · the file on the right is exactly what the library runs</span>
+    <div class="tools"><button class="btn" id="stValidate">Validate</button><button class="btn pri" id="stStart">Start this load</button></div></div>
+  <div class="grid c2">
+    <div class="pn" style="position:relative"><div class="ph"><h3>Traffic</h3><span class="cnt" id="stSummary"></span></div>
+      <div class="pb">
+        <div class="form" id="stForm"></div>
+        <div class="field"><span class="k" style="font-family:var(--c-mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--c-dim)">Options</span><div class="checks" id="stChecks" style="flex-direction:row;flex-wrap:wrap;gap:14px"></div></div>
+        <div class="field"><span style="font-family:var(--c-mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--c-dim)">Offered rate over the run</span><canvas class="chart" id="stChart" height="140" role="img" aria-label="Offered rate over the run"></canvas></div>
+        <div id="stLint" aria-live="polite"></div>
+      </div>
+    </div>
+    <div class="pn"><div class="ph"><h3>Workload file</h3><span class="cnt" id="stDir"></span></div>
+      <div class="pb"><pre class="plan" id="stYaml" tabindex="0" aria-label="Workload file"></pre></div>
+      <div class="actionbar"><span class="pend" id="stFiles"></span>
+        <div class="field saveas"><label for="stFile">Save as</label><input id="stFile" value="standing-load.yaml" spellcheck="false"></div>
+        <button class="btn" id="stSave">Save</button></div>
+    </div>
+  </div>
+</section>
+  </main>
+
+  <div class="palette" id="palette" hidden>
+    <div class="palbox" role="dialog" aria-modal="true" aria-label="Jump to">
+      <input id="palIn" placeholder="Type a view or a command" autocomplete="off" aria-label="Command">
+      <ul id="palList"></ul>
+    </div>
+  </div>
+  <div class="palette" id="settings" hidden>
+    <div class="palbox" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+      <div class="ph"><h3 id="setTitle">Theme</h3><span class="cnt">kept in this browser</span></div>
+      <div class="themes" id="themes"></div>
+      <div class="setfoot"><span id="themeNote"></span><button class="btn" id="modeBtn">Mode: dark</button></div>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+</div>
+</div>
+<script src="console.js"></script>
+</body>
+</html>
