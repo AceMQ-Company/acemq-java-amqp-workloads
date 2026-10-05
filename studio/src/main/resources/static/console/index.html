@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>AceMQ Workloads Console</title>
+<title>AceMQ Workloads Studio</title>
 <link rel="icon" href="/acemq-mark.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&family=Outfit:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
-<link rel="stylesheet" href="console.css">
+<link rel="stylesheet" href="/console/console.css">
 </head>
 <body>
 <div class="stage">
@@ -111,6 +111,110 @@
     </div>
   </div>
 </section>
+<!-- ============================== SCENARIOS ============================== -->
+<section class="view" data-view="scenarios" role="tabpanel" aria-labelledby="tab-scenarios">
+  <div class="vh"><h2>Scenarios</h2><span class="sub" id="scSub">producers, exchanges and queues · the file the command line runs</span>
+    <div class="tools"><button class="chip bk" id="scBroker" data-jump="broker" title="Change the broker"><span class="dot i"></span><span>no broker</span></button><button class="btn" id="scSave">Save</button><button class="btn pri" id="scRun">Run</button><button class="btn danger" id="scStop" hidden>Stop</button></div></div>
+  <div id="scLint" aria-live="polite"></div>
+  <div class="grid scdes">
+    <div class="pn scpal"><div class="ph"><h3>Build</h3><span class="cnt">add, open, export</span></div>
+      <div class="pb pal">
+        <h5>Add</h5>
+        <button class="tool" id="scAddX"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 9-9 9-9-9z"/></svg>Exchange</button>
+        <button class="tool n" id="scAddQ"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="1"/><path d="M8 7v10M13 7v10"/></svg>Queue</button>
+        <button class="tool r" id="scAddP"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h12M12 6l6 6-6 6"/></svg>Producer</button>
+        <h5>Start from</h5>
+        <button class="tool" id="scNew"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New scenario</button>
+        <button class="tool" id="scOpen" title="Open a scenario file: the one a pipeline runs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h6l2 2h10v10H3z"/></svg>Open a file</button>
+        <button class="tool" id="scImport" title="Read a topology off the broker and edit it here"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>Import from broker</button>
+        <h5>Export</h5>
+        <button class="tool" id="scJson"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9M7 14l5-5 5 5M4 4h16"/></svg>JSON</button>
+        <button class="tool" id="scYaml"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9M7 14l5-5 5 5M4 4h16"/></svg>YAML</button>
+        <input type="file" id="scFile" hidden accept=".json,.yaml,.yml,application/json,application/yaml,text/plain" aria-label="Scenario file">
+      </div></div>
+    <div class="pn"><div class="ph"><h3 id="scName">Topology</h3><span class="cnt">drag from an exchange to a queue to bind them · select anything to edit it</span></div>
+      <div class="canvas sccanvas" id="scCanvas"><div class="gridbg"></div><svg id="scSvg" role="group" aria-label="The scenario's topology"></svg></div></div>
+    <div class="pn"><div class="ph"><h3 id="scInsTitle">The scenario</h3><span class="cnt" id="scInsCnt"></span></div>
+      <div class="pb insp" id="scInspector"></div></div>
+  </div>
+  <div class="grid c2e">
+    <div class="pn"><div class="ph"><h3>Presets</h3><span class="cnt">one question each · open one to edit and run it</span></div>
+      <div class="pb" id="scPresets" style="gap:0"></div></div>
+    <div class="pn"><div class="ph"><h3>Saved scenarios</h3><span class="cnt" id="scSavedCnt"></span></div>
+      <div class="tw"><table><thead><tr><th>Name</th><th>What it is for</th><th><span class="sr">Actions</span></th></tr></thead><tbody id="scSaved"></tbody></table></div></div>
+  </div>
+</section>
+
+<!-- ============================== SCENARIO RUN ============================== -->
+<section class="view" data-view="runs" role="tabpanel" aria-labelledby="tab-runs">
+  <div class="vh"><h2>Scenario run</h2><span class="sub" id="rnSub">nothing running</span>
+    <div class="tools"><span class="savebar" id="rnSave" hidden><span class="sub">save the report</span><a class="btn" id="rnHtml" download>HTML</a><a class="btn" id="rnMd" download>Markdown</a><a class="btn" id="rnJson" download>JSON</a></span><button class="btn danger" id="rnStop" hidden>Stop, and report on what it measured</button></div></div>
+  <div id="rnEmpty" hidden></div>
+  <div id="rnBody" style="display:contents">
+  <div class="stepper rnsteps" id="rnSteps"></div>
+  <div class="kpis">
+    <div class="kpi"><span class="k">Phase</span><span class="v" id="rnPhase">—</span><span class="d" id="rnPhaseD">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Elapsed</span><span class="v" id="rnElapsed">—</span><span class="d" id="rnBlocked">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Published</span><span class="v" id="rnPub">—</span><span class="d" id="rnPubD">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Consumed</span><span class="v" id="rnCons">—</span><span class="d" id="rnConsD">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Waiting</span><span class="v" id="rnWait">—</span><span class="d">summed over every queue</span></div>
+  </div>
+  <div id="rnErr" aria-live="polite"></div>
+  <div id="rnVerdict"></div>
+  <div class="pn"><div class="ph"><h3>Published against consumed</h3><span class="cnt">while the two lines sit together the system keeps up · the gap is the backlog forming</span></div>
+    <div class="pb"><canvas class="chart" id="rnRate" height="230" role="img" aria-label="Published and consumed per second"></canvas><div class="legend" id="rnRateLegend"></div></div></div>
+  <div class="pn" id="rnDepthPn"><div class="ph"><h3>What is waiting, queue by queue</h3><span class="cnt">messages in each queue</span></div>
+    <div class="pb"><canvas class="chart" id="rnDepth" height="190" role="img" aria-label="Queue depth per queue"></canvas><div class="legend" id="rnDepthLegend"></div></div></div>
+  <div class="lcards" id="rnNodes"></div>
+  <div class="grid c2e" id="rnTables" hidden>
+    <div class="pn"><div class="ph"><h3>Queues</h3><span class="cnt">end-to-end latency</span></div>
+      <div class="tw"><table><thead><tr><th>Queue</th><th>Type</th><th class="num">Consumers</th><th class="num">Consumed/s</th><th class="num">p50</th><th class="num">p99</th><th class="num">p99.9</th><th class="num">Waiting at the end</th></tr></thead><tbody id="rnQT"></tbody></table></div></div>
+    <div class="pn"><div class="ph"><h3>Producers</h3><span class="cnt">offered against achieved</span></div>
+      <div class="tw"><table><thead><tr><th>Producer</th><th class="num">Offered</th><th class="num">Achieved</th><th class="num">Failed</th><th class="num">Send lag p99</th><th class="num">Confirm p99</th></tr></thead><tbody id="rnPT"></tbody></table></div></div>
+  </div>
+  </div>
+</section>
+
+<!-- ============================== REPORTS ============================== -->
+<section class="view" data-view="reports" role="tabpanel" aria-labelledby="tab-reports">
+  <div class="vh"><h2>Reports</h2><span class="sub" id="rpSub">every scenario run, newest first · each keeps its report and every reading</span>
+    <div class="tools"><span class="sub" id="rpHint">Tick two runs to compare them.</span><button class="btn" id="rpCompare" disabled>Compare</button><button class="btn ghost" id="rpClose" hidden>Close</button></div></div>
+  <div class="pn" id="rpCmp" hidden><div class="ph"><h3 id="rpCmpTitle"></h3><span class="cnt" id="rpCmpHint"></span></div>
+    <div class="tw"><table><thead><tr><th>Node</th><th>Measurement</th><th class="num">Before</th><th class="num">After</th><th class="num">Change</th></tr></thead><tbody id="rpCmpT"></tbody></table></div></div>
+  <div id="rpEmpty" hidden></div>
+  <div class="pn" id="rpRuns"><div class="ph"><h3>Runs</h3><span class="cnt" id="rpCnt"></span></div>
+    <div class="tw"><table><thead><tr><th><span class="sr">Compare</span></th><th>Scenario</th><th>Broker</th><th>Started</th><th>Result</th><th>Report</th><th><span class="sr">Actions</span></th></tr></thead><tbody id="rpT"></tbody></table></div></div>
+</section>
+
+<!-- ============================== BROKER ============================== -->
+<section class="view" data-view="broker" role="tabpanel" aria-labelledby="tab-broker">
+  <div class="vh"><h2>Broker</h2><span class="sub">every scenario runs against a real broker · the designer checks its queue types against it</span>
+    <div class="tools"><button class="btn" id="bkCheck">Check again</button><button class="btn pri" data-jump="scenarios">Design a scenario</button></div></div>
+  <div class="grid c2e">
+    <div class="pn"><div class="ph"><h3>Connection</h3><span class="cnt">Enter checks it</span></div>
+      <div class="pb">
+        <div class="field"><label for="bkAmqp">Broker (AMQP)</label><input id="bkAmqp" type="text" spellcheck="false" autocomplete="off"></div>
+        <div class="field"><label for="bkMgmt">Management API · optional, and worth having</label><input id="bkMgmt" type="text" spellcheck="false" autocomplete="off" placeholder="http://localhost:15672">
+          <p class="hint">A separate port, often closed. Without it the studio cannot tell which queue types this broker honours, and cannot import an existing topology.</p></div>
+        <div id="bkTls" hidden class="tlsbox">
+          <h5>TLS · this URL says amqps, so a handshake is made</h5>
+          <div class="field"><label for="bkCa">Certificate authority · a path</label><input id="bkCa" type="text" spellcheck="false" placeholder="/etc/rabbitmq/certs/ca.pem">
+            <p class="hint">The authority that signed the broker's certificate. Without it the studio trusts only what this machine already trusts, which is not a privately issued certificate.</p></div>
+          <div class="frow">
+            <div class="field"><label for="bkCert">Client certificate · for mutual TLS</label><input id="bkCert" type="text" spellcheck="false" placeholder="client.crt"></div>
+            <div class="field"><label for="bkKey">Its private key</label><input id="bkKey" type="text" spellcheck="false" placeholder="client.key"></div>
+          </div>
+          <p class="hint">Only needed when the broker asks who you are. PEM as it comes: the studio builds the keystores itself, and the key never leaves this machine.</p>
+          <div class="checks"><label><input type="checkbox" id="bkDev">Accept development certificates</label></div>
+          <p class="hint">The AceMQ generator stamps its certificates as development-only and the library refuses them unless this is on. That refusal is the feature: it is what stops one reaching production.</p>
+          <div class="checks"><label><input type="checkbox" id="bkAny">Trust any certificate</label></div>
+          <p class="hint">Encrypts the conversation and proves nothing about who is on the other end. For a first run against a broker whose certificate nobody can find, and not for anything else.</p>
+        </div>
+      </div></div>
+    <div class="pn"><div class="ph"><h3>What answered</h3><span class="cnt" id="bkWhen"></span></div>
+      <div class="pb" id="bkStatus" aria-live="polite"></div></div>
+  </div>
+</section>
   </main>
 
   <div class="palette" id="palette" hidden>
@@ -129,6 +233,7 @@
   <div class="toast" id="toast" role="status"></div>
 </div>
 </div>
-<script src="console.js"></script>
+<script src="/console/console.js"></script>
+<script src="/console/scenarios.js"></script>
 </body>
 </html>

@@ -99,9 +99,10 @@ public class StudioSecurity {
 
             String presented = presentedToken(request);
             if (presented != null && constantTimeEquals(expected, presented)) {
-                // Set here as well as by the React front end, because a page's stylesheet and
-                // script are requested before any of its own code has run: without the cookie,
-                // /console/?token=... loaded its HTML and was refused its CSS.
+                // Set here because a page's stylesheet, script, API calls, event stream and report
+                // downloads are all requested after the first navigation, and none of them carries
+                // the token in its URL: without the cookie, /?token=... loaded its HTML and was
+                // refused everything else.
                 if (request.getParameter("token") != null) {
                     response.addHeader("Set-Cookie", "acemq-studio-token=" + presented
                             + "; Path=/; HttpOnly; SameSite=Strict");

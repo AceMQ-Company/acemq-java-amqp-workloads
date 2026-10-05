@@ -111,9 +111,9 @@ class ConsoleApiTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/console", "/console/", "/console/index.html", "/console/console.css",
-        "/console/console.js"})
-    @DisplayName("serves every page and asset")
+    @ValueSource(strings = {"/", "/console", "/console/", "/console/index.html", "/console/console.css",
+        "/console/console.js", "/console/scenarios.js"})
+    @DisplayName("serves every page and asset, with the console as the home page")
     void servesEveryAsset(String path) {
         ResponseEntity<String> r = http.getForEntity(path, String.class);
 
@@ -127,9 +127,24 @@ class ConsoleApiTest {
             assertThat(type.getSubtype()).isEqualTo("javascript");
         } else {
             assertThat(type.getSubtype()).isEqualTo("html");
+            // One interface: every screen the studio has is in this page, scenarios included,
+            // and nothing of the React application it replaced is left to serve.
             assertThat(r.getBody()).contains("Standing loads", "Endurance", "Delivery evidence",
-                    "Load designer", "console.css", "console.js");
+                    "Load designer", "Scenarios", "Scenario run", "Reports", "Broker",
+                    "/console/console.css", "/console/console.js", "/console/scenarios.js");
+            assertThat(r.getBody()).doesNotContain("id=\"root\"", "/assets/");
         }
+    }
+
+    @Test
+    @DisplayName("serves the mark the console uses as its icon")
+    void servesTheMark() {
+        ResponseEntity<byte[]> r = http.getForEntity("/acemq-mark.svg", byte[].class);
+
+        assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(r.getBody()).isNotEmpty();
+        assertThat(r.getHeaders().getContentType()).isNotNull();
+        assertThat(r.getHeaders().getContentType().getType()).isEqualTo("image");
     }
 
     @Test

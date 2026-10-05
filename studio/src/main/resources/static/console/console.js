@@ -25,9 +25,10 @@ const ICON = {
  studio: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/>',
  set: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>'};
 const VIEWS = [['loads', 'Standing loads'], ['soak', 'Endurance'], ['evidence', 'Delivery evidence'], ['studio', 'Load designer']];
+/* Views added by other scripts (scenarios.js): {id, label, icon, show, redraw, live, running, cmds, home}. */
+const EXT = {};
 const MARK = '<path d="M2 16c3 0 3-9 6-9s3 16 6 16 3-16 6-16 3 9 6 9" fill="none" stroke="var(--c-acc)" stroke-width="3.4" stroke-linecap="round" transform="scale(.95) translate(1 -3)"/>';
-let view = (location.hash || '').slice(1);
-if (!VIEWS.some(v => v[0] === view)) view = 'loads';
+let view = 'loads';
 let overview = {drillWorkspace: null};
 
 function buildRail() {
@@ -59,15 +60,16 @@ function show(v) {
   if (v === 'soak') loadSoak();
   if (v === 'evidence') loadEvidence();
   if (v === 'studio') designerShown();
+  if (EXT[v]) EXT[v].show();
   requestAnimationFrame(redrawAll);
 }
 let liveText = {loads: 'reading', soak: 'reading', evidence: 'evidence', studio: 'designer'};
 function setLive() {
   const el = $('#live');
-  el.textContent = liveText[view];
-  el.className = 'live' + (view === 'loads' && loadsData && loadsData.clients.some(c => c.source === 'studio' && c.live) ? ' run' : '');
+  el.textContent = EXT[view] ? EXT[view].live() : liveText[view];
+  el.className = 'live' + ((view === 'loads' && loadsData && loadsData.clients.some(c => c.source === 'studio' && c.live)) || (EXT[view] && EXT[view].running && EXT[view].running()) ? ' run' : '');
 }
-$$('[data-jump]').forEach(b => b.onclick = () => show(b.dataset.jump));
+document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-jump]'); if (b) { e.preventDefault(); show(b.dataset.jump); } });
 
 /* ---------- themes ---------- */
 const THEMES = [
@@ -103,9 +105,11 @@ function closeSettings() { if ($('#settings').hidden) return; $('#settings').hid
 $('#settings').onclick = e => { if (e.target.id === 'settings') closeSettings(); };
 
 /* ---------- canvas helpers (the prototype's) ---------- */
-function fit(c) { const r = c.getBoundingClientRect(), d = devicePixelRatio || 1; const w = Math.max(10, r.width), h = +c.getAttribute('height') || r.height || 30; c.width = w * d; c.height = h * d; const x = c.getContext('2d'); x.setTransform(d, 0, 0, d, 0, 0); return [x, w, h]; }
+/* The CSS height is read once, from the markup, and kept: writing the device-pixel height back into
+   the attribute it was read from doubled the canvas on every redraw of a 2x screen. */
+function fit(c) { const r = c.getBoundingClientRect(), d = devicePixelRatio || 1; if (!c.dataset.h) c.dataset.h = c.getAttribute('height') || r.height || 30; const w = Math.max(10, r.width), h = +c.dataset.h; c.style.height = h + 'px'; c.width = w * d; c.height = h * d; const x = c.getContext('2d'); x.setTransform(d, 0, 0, d, 0, 0); return [x, w, h]; }
 function spark(c, data, col, opt = {}) {
-  if (!c || !c.offsetParent) return; const r = c.getBoundingClientRect(); c.setAttribute('height', r.height || 26);
+  if (!c || !c.offsetParent) return;
   const [x, w, h] = fit(c); if (!data || data.length < 2) return;
   const mn = opt.min ?? Math.min(...data), mx = opt.max ?? Math.max(...data), rg = (mx - mn) || 1;
   const px = i => i * (w - 4) / (data.length - 1) + 2, py = v => h - 3 - (v - mn) / rg * (h - 7);
@@ -456,16 +460,19 @@ $('#stStart').onclick = async () => {
 };
 
 /* ---------- command palette ---------- */
-const CMDS = [...VIEWS.map(v => [v[1], 'view', () => show(v[0])]),
+let CMDS = [];
+const baseCmds = () => [...VIEWS.map(v => [v[1], 'view', () => show(v[0])]),
  ['Start this load', 'command', () => { show('studio'); setTimeout(() => $('#stStart').click(), 300); }],
  ['Validate the workload file', 'command', () => { show('studio'); setTimeout(() => $('#stValidate').click(), 300); }],
  ['Stop the console\'s load', 'command', () => { show('loads'); $('#stopRun').click(); }],
  ...THEMES.map(t => ['Theme: ' + t[1], 'theme', () => { theme = t[0]; applyTheme(true); }]),
  ['Switch to light mode', 'theme', () => { mode = 'light'; modeChosen = true; applyTheme(true); }],
- ['Switch to dark mode', 'theme', () => { mode = 'dark'; modeChosen = true; applyTheme(true); }]];
+ ['Switch to dark mode', 'theme', () => { mode = 'dark'; modeChosen = true; applyTheme(true); }],
+ ...Object.values(EXT).flatMap(x => x.cmds ? x.cmds() : [])];
 function openPal() { opener = document.activeElement; $('#palette').hidden = false; $('#palIn').value = ''; listPal(''); $('#palIn').focus(); }
 function closePal() { if ($('#palette').hidden) return; $('#palette').hidden = true; opener && opener.focus && opener.focus(); }
 function listPal(q) {
+  CMDS = baseCmds();
   const m = CMDS.filter(c => c[0].toLowerCase().includes(q.toLowerCase()));
   $('#palList').innerHTML = m.map(c => `<li><button data-i="${CMDS.indexOf(c)}">${esc(c[0])}<span>${c[1]}</span></button></li>`).join('') || '<li style="padding:10px;color:var(--c-dim)">Nothing matches. Try "loads", "evidence" or "designer".</li>';
   $$('#palList button').forEach(b => { b.onclick = () => { closePal(); CMDS[+b.dataset.i][2](); }; b.onkeydown = palNav; });
@@ -487,15 +494,29 @@ addEventListener('keydown', e => {
 function toast(t) { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(e._t); e._t = setTimeout(() => e.classList.remove('on'), 3200); }
 
 /* ---------- boot + live loop ---------- */
-function redrawAll() { drawLoads(); drawSoak(); drawStudio(); }
-applyTheme(false);
-buildRail();
-crumb(null);
-api('/api/console/overview').then(o => { overview = o; crumb(loadsData && loadsData.clients); }).catch(() => {}).finally(() => show(view));
-setInterval(() => { if (view === 'loads' && !document.hidden) loadLoads(); }, 1000);
-addEventListener('hashchange', () => { const v = location.hash.slice(1); if (v !== view && VIEWS.some(x => x[0] === v)) show(v); });
+function redrawAll() { drawLoads(); drawSoak(); drawStudio(); Object.values(EXT).forEach(x => x.redraw && x.redraw()); }
+
 /* Charts follow their container, not only the window: a panel narrows when the grid changes. */
 let rafPending = false;
 const ro = new ResizeObserver(() => { if (!rafPending) { rafPending = true; requestAnimationFrame(() => { rafPending = false; redrawAll(); }); } });
-$$('.main canvas, .main .pn, .stage').forEach(e => ro.observe(e));
+
+/* What the other scripts on the page build on: the same helpers, the same palette, the same rail. */
+window.AceConsole = {
+  $, $$, esc, fmt, ms, api, css, fit, emptyChart, empty, toast, RM,
+  show: v => show(v), view: () => view, setLive: () => setLive(),
+  addView(d) { EXT[d.id] = d; VIEWS.push([d.id, d.label]); ICON[d.id] = d.icon; }
+};
+
+/* Booted once every script on the page has added its views, so the rail and the hash know them all. */
+document.addEventListener('DOMContentLoaded', () => {
+  const asked = (location.hash || '').slice(1);
+  view = VIEWS.some(v => v[0] === asked) ? asked : (Object.values(EXT).map(x => x.home && x.home()).find(Boolean) || 'loads');
+  applyTheme(false);
+  buildRail();
+  crumb(null);
+  api('/api/console/overview').then(o => { overview = o; crumb(loadsData && loadsData.clients); }).catch(() => {}).finally(() => show(view));
+  setInterval(() => { if (view === 'loads' && !document.hidden) loadLoads(); }, 1000);
+  addEventListener('hashchange', () => { const v = location.hash.slice(1); if (v !== view && VIEWS.some(x => x[0] === v)) show(v); });
+  $$('.main canvas, .main .pn, .stage').forEach(e => ro.observe(e));
+});
 })();

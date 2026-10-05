@@ -42,7 +42,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseBody;
 
 /**
- * The workloads console: four views over real data.
+ * The workloads console: the studio's one interface, served at {@code /}. Four of its views are
+ * backed here; scenarios, scenario runs, reports and the broker use the studio's own
+ * {@code /api/scenarios}, {@code /api/runs}, {@code /api/presets} and {@code /api/broker}.
  *
  * <ul>
  *   <li><b>Standing loads</b> — the drill workspace's sample files, one per language, and the
@@ -72,7 +74,13 @@ public class ConsoleController {
         this.json = json;
     }
 
-    @GetMapping({"/console", "/console/"})
+    /**
+     * The studio's one interface. {@code /} is its home and {@code /console} stays an alias, so a
+     * bookmark from before the two interfaces became one still opens it.
+     *
+     * @return the page
+     */
+    @GetMapping({"/", "/console", "/console/"})
     public String page() {
         return "forward:/console/index.html";
     }
