@@ -8,6 +8,36 @@ While the version is `0.x` the public API may change in any release.
 This library has its own version line, starting at `0.1.0`. It is not tied to
 the messaging library's release train.
 
+## [Unreleased]
+
+### Added
+
+- **The workloads console**, at `/console` in the studio: the approved AceMQ
+  console shell (icon rail, top bar, ⌘K palette, six themes in light and dark)
+  over four views of real data. *Standing loads* reads the drill workspace's
+  per-language sample lines and the load started from the console, every
+  second. *Load designer* writes the workload file the command line runs,
+  checks it with the library's own parser, saves it inside the workloads
+  directory only, and starts it on a click. *Delivery evidence* shows every
+  default rule and every objective on each run started from the console, with
+  the numbers it was decided on. *Endurance* reads the workspace's newest soak
+  report as an interim source; the crash drill and claim lease show a "coming"
+  state until the chaos side writes a report for them.
+- `WorkloadFile.parseYaml(String, Function)`, which reads workload YAML already
+  in memory exactly as `WorkloadFile.read(Path)` reads a file.
+- Studio settings `ACEMQ_STUDIO_WORKLOADS_DIR` (where the console saves files
+  and keeps evidence; beside the database by default) and
+  `ACEMQ_STUDIO_DRILL_WORKSPACE` (the AMQP libraries workspace to read standing
+  loads and soak reports from).
+
+### Fixed
+
+- An exposed studio opened with `?token=` now sets its cookie on that first
+  response, so the page's stylesheet and script are not refused before any of
+  its own code has run.
+- A scenario run and a console load refuse to run at the same time, in either
+  order: two load generators on one machine measure each other.
+
 ## [0.6.1] - 2026-10-04
 
 ### Fixed

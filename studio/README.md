@@ -109,6 +109,45 @@ somebody reading a chart. Per node rather than for the whole run, because the
 interesting property is usually asymmetric: the audit leg may lag as much as it
 likes while the fulfilment leg must not. [The fields](../docs/scenario-file.md#objectives).
 
+## The workloads console
+
+```bash
+java -jar acemq-workloads-studio.jar
+# http://localhost:8480/console
+```
+
+The same studio, in the AceMQ console shell the chaos framework uses: an icon
+rail on the left, a top bar, and a command palette on **⌘K** (Ctrl+K) that
+jumps to any view or runs a command. Every view reads real data; where there is
+none, it says why instead of drawing a sample.
+
+| View | What it shows | Where it comes from |
+|---|---|---|
+| **Standing loads** | One card per load: confirmed and consumed per second, refused and failed kept apart, state, and the end-to-end latency of the one you select. Totals across what is running on top, the loads' own output underneath as events. Refreshed every second | The drill workspace's `.chaos/workload-<language>.jsonl` (the `--emit-samples` lines each language's standing load writes), and the load started from this console |
+| **Load designer** | A form over the workload file, the file itself beside it, and the offered rate over the run. The file is the one `java -jar acemq-workload.jar -f` reads, checked by the library's own parser as you edit. **Validate**, **Save** and **Start this load** each do exactly that and nothing until clicked | The library: `WorkloadFile` parses what the designer writes |
+| **Delivery evidence** | For each run started here: every default rule and every objective the file set, passed or not, each with the numbers it was decided on, and the run's totals. **Export evidence** saves it as JSON | The library's `Rules` and `Objective`s, evaluated when the run ends and kept under the workloads directory |
+| **Endurance** | The newest soak: verdict, recoveries, connections, leaks found, memory / file handles / threads per client against its own start with the leak allowance drawn in, and before-and-after | Interim: the workspace's `reports/soak-*.md` and the readings it names. The soak moves into this repository later |
+
+The crash drill and the claim lease come from the chaos side. Until it writes a
+report the console can read, both panels in *Delivery evidence* say "coming"
+rather than show a result nobody measured.
+
+**Latency.** A load started from the console carries the HdrHistogram summary,
+drawn as the share of messages between each pair of percentiles on a log scale
+(50 % up to p50, 40 % up to p90, and so on). The drill files carry only p99,
+which is drawn over the last minute. A load whose readings have no latency says
+so.
+
+**Saving files.** The designer writes only inside `ACEMQ_STUDIO_WORKLOADS_DIR`,
+only a plain name ending in `.yaml` or `.yml`, and only a file the library
+accepts. `../anything`, a path, or a hidden file is refused.
+
+**Themes.** Obsidian, Blueprint, Gallery, Signal, Aurora and Access, each in
+light and dark, from the settings button at the foot of the rail or from ⌘K.
+The mode follows the system until you choose one; the choice is kept in this
+browser. Reduced motion is respected, and every control is reachable from the
+keyboard: the rail moves with the arrow keys, Escape closes the palette.
+
 ## TLS and mutual TLS
 
 An `amqps://` URL turns the TLS section on, and the studio **completes a
@@ -223,6 +262,8 @@ loses the measurement and leaves the broker holding the mess.
 | `ACEMQ_STUDIO_TOKEN` | the access token. Generated when the studio is exposed and nobody set one |
 | `ACEMQ_STUDIO_ALLOW_REMOTE_WITHOUT_TOKEN` | run exposed with no token. There is a legitimate case for it, and it has to be set deliberately |
 | `ACEMQ_STUDIO_DATABASE` | where the state lives. `~/.acemq/workloads-studio.db` by default |
+| `ACEMQ_STUDIO_WORKLOADS_DIR` | where the console saves workload files and keeps the evidence of its runs. `workloads/` beside the database by default |
+| `ACEMQ_STUDIO_DRILL_WORKSPACE` | the AMQP libraries workspace whose drill scripts write standing-load readings and soak reports. Unset, those views say there is nothing to read |
 
 ## Building it
 
