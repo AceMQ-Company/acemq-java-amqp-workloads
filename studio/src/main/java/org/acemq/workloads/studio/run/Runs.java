@@ -64,13 +64,17 @@ public class Runs {
     private final Map<String, Active> active = new ConcurrentHashMap<>();
 
     private final org.acemq.workloads.studio.console.ConsoleRuns console;
+    private final org.acemq.workloads.studio.console.EnduranceRuns soaks;
 
     public Runs(RunStore store, StudioProperties properties,
             @org.springframework.context.annotation.Lazy
-            org.acemq.workloads.studio.console.ConsoleRuns console) {
+            org.acemq.workloads.studio.console.ConsoleRuns console,
+            @org.springframework.context.annotation.Lazy
+            org.acemq.workloads.studio.console.EnduranceRuns soaks) {
         this.store = store;
         this.properties = properties;
         this.console = console;
+        this.soaks = soaks;
     }
 
     /** A run in progress, with whoever is watching it. */
@@ -121,6 +125,10 @@ public class Runs {
         if (console.isRunning()) {
             throw new IllegalStateException("a load started from the console is running. Two"
                     + " load generators on one machine measure each other, so stop that one first");
+        }
+        if (soaks.isRunning()) {
+            throw new IllegalStateException("a soak is running. It measures what processes on"
+                    + " this machine hold, and a run started now would be measured with them");
         }
         Scenario scenario = file.toScenario();
         List<String> problems = scenario.problems();

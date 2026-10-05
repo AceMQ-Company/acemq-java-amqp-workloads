@@ -456,3 +456,10 @@ td.wrap{white-space:normal;min-width:16ch}
   .chip.bk{min-height:40px}
 }
 #scSvg .lk{pointer-events:none}
+/* endurance: start a soak, and its progress */
+fieldset.field{border:0;padding:0;margin:0}
+#soakClients{flex-direction:row;flex-wrap:wrap;gap:6px 14px}
+#soakForm .tools{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+#soakForm .sub{margin:0}
+.err{color:var(--c-crit);font-size:12.5px;margin:0;overflow-wrap:anywhere}
+#soakLive .cnt{overflow-wrap:anywhere}

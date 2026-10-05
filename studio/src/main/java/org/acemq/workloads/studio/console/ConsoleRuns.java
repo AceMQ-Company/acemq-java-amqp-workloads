@@ -69,12 +69,15 @@ public class ConsoleRuns {
     private final StudioProperties properties;
     private final Runs scenarioRuns;
     private final ObjectMapper json;
+    private final EnduranceRuns soaks;
     private volatile Live live;
 
-    public ConsoleRuns(StudioProperties properties, @Lazy Runs scenarioRuns, ObjectMapper json) {
+    public ConsoleRuns(StudioProperties properties, @Lazy Runs scenarioRuns, ObjectMapper json,
+            @Lazy EnduranceRuns soaks) {
         this.properties = properties;
         this.scenarioRuns = scenarioRuns;
         this.json = json;
+        this.soaks = soaks;
     }
 
     /** A run started here, while it goes and after it ends. */
@@ -129,6 +132,10 @@ public class ConsoleRuns {
         if (scenarioRuns.current().isPresent()) {
             throw new IllegalStateException("a scenario run is going in the studio. Two load"
                     + " generators on one machine measure each other; stop it first");
+        }
+        if (soaks.isRunning()) {
+            throw new IllegalStateException("a soak is running. It measures what processes on"
+                    + " this machine hold, and a load started now would be measured with them");
         }
         WorkloadFile file = WorkloadFile.parseYaml(yaml, System::getenv);
         if (file.size() != 1) {

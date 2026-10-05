@@ -48,7 +48,19 @@
 <!-- ============================== ENDURANCE ============================== -->
 <section class="view" data-view="soak" role="tabpanel" aria-labelledby="tab-soak">
   <div class="vh"><h2>Endurance</h2><span class="sub" id="soakSub">reading…</span>
-    <div class="tools"><div class="seg" id="soakMetric" role="group" aria-label="Measure"><button class="btn" data-m="rss" aria-pressed="true">Memory</button><button class="btn" data-m="fds" aria-pressed="false">File handles</button><button class="btn" data-m="thr" aria-pressed="false">Threads</button></div><button class="btn" id="soakRun">How to run one</button></div></div>
+    <div class="tools"><div class="seg" id="soakMetric" role="group" aria-label="Measure"><button class="btn" data-m="rss" aria-pressed="true">Memory</button><button class="btn" data-m="fds" aria-pressed="false">File handles</button><button class="btn" data-m="thr" aria-pressed="false">Threads</button></div><button class="btn pri" id="soakRun" aria-expanded="false" aria-controls="soakForm">Start a soak</button><button class="btn danger" id="soakStop" hidden>Stop the soak</button></div></div>
+  <form class="pn" id="soakForm" hidden aria-label="Start a soak"><div class="ph"><h3>Start a soak</h3><span class="cnt">standing loads from the drill workspace · every connection closed once a cycle</span></div>
+    <div class="pb"><div class="form">
+      <div class="field"><label for="soakCycles">Cycles</label><input id="soakCycles" type="number" min="1" step="1" value="240" inputmode="numeric"></div>
+      <div class="field"><label for="soakEvery">Seconds between closes</label><input id="soakEvery" type="number" min="1" step="1" value="15" inputmode="numeric"></div>
+      <div class="field"><label for="soakWarm">Warm-up seconds</label><input id="soakWarm" type="number" min="0" step="1" value="120" inputmode="numeric"></div>
+      <fieldset class="field"><legend class="sr">Clients</legend><label>Clients</label><div class="checks" id="soakClients"></div></fieldset>
+    </div>
+    <p class="sub" id="soakEst"></p><p class="err" id="soakErr" role="alert" hidden></p>
+    <div class="tools"><button class="btn" type="button" id="soakCancel">Cancel</button><button class="btn pri" type="submit" id="soakGo">Start</button></div></div></form>
+  <div class="pn" id="soakLive" hidden><div class="ph"><h3>Soak in progress</h3><span class="cnt" id="soakLiveT" aria-live="polite"></span></div>
+    <div class="pb"><div class="stepper" id="soakSteps"></div>
+      <canvas class="chart" id="soakLiveChart" height="160" role="img" aria-label="Readings so far per client"></canvas><div class="legend" id="soakLiveLegend"></div></div></div>
   <div id="soakEmpty" hidden></div>
   <div id="soakBody" hidden style="display:contents">
   <div class="kpis">
@@ -60,11 +72,11 @@
   <div class="pn"><div class="ph"><h3 id="soakTitle">Resident memory, % of its own start</h3><span class="cnt">dashed line = the allowance a leak must cross</span></div>
     <div class="pb"><canvas class="chart" id="soakChart" height="250" role="img" aria-label="Soak readings per client"></canvas><div class="legend" id="soakLegend"></div></div></div>
   <div class="grid c2">
-    <div class="pn"><div class="ph"><h3>Before and after</h3><span class="cnt">measured from outside with ps and lsof</span></div>
+    <div class="pn"><div class="ph"><h3>Before and after</h3><span class="cnt">measured from outside: ps and lsof, or /proc</span></div>
       <div class="tw"><table><thead><tr><th>Client</th><th class="num">Memory</th><th class="num">File handles</th><th class="num">Threads</th><th>Verdict</th></tr></thead><tbody id="soakT"></tbody></table></div></div>
     <div class="insight" style="align-self:start">
       <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l5-5 4 4 7-8"/></svg></div>
-      <div class="tx"><h4>Read from the workspace's soak report</h4>
+      <div class="tx"><h4 id="soakSourceH">Where this came from</h4>
         <p id="soakSource"></p></div>
     </div>
   </div>

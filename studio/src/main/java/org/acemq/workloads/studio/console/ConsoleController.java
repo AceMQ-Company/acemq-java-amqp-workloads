@@ -31,8 +31,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.acemq.workloads.Sample;
 import org.acemq.workloads.cli.ConfigException;
 import org.acemq.workloads.cli.WorkloadFile;
+import org.acemq.workloads.endurance.EnduranceConfig;
 import org.acemq.workloads.studio.StudioProperties;
 import org.acemq.workloads.studio.net.BrokerReachability;
+import org.acemq.workloads.studio.store.RunStore;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -52,7 +54,9 @@ import org.springframework.web.bind.annotation.ResponseBody;
  *   <li><b>Load designer</b> — the form written as a workload file, checked by the library's
  *       parser, saved inside the workloads directory, and started on a click.
  *   <li><b>Delivery evidence</b> — the library's rules on each run started here.
- *   <li><b>Endurance</b> — the workspace's newest soak report, read as it is.
+ *   <li><b>Endurance</b> — the newest soak report in the drill workspace, as the library's
+ *       {@code endurance} command wrote it (JSON), or as the old script did (markdown); and a soak
+ *       started here, with its progress.
  * </ul>
  */
 @Controller
@@ -65,13 +69,15 @@ public class ConsoleController {
     private final ConsoleRuns runs;
     private final BrokerReachability reachability;
     private final ObjectMapper json;
+    private final EnduranceRuns soaks;
 
     public ConsoleController(StudioProperties properties, ConsoleRuns runs,
-            BrokerReachability reachability, ObjectMapper json) {
+            BrokerReachability reachability, ObjectMapper json, EnduranceRuns soaks) {
         this.properties = properties;
         this.runs = runs;
         this.reachability = reachability;
         this.json = json;
+        this.soaks = soaks;
     }
 
     /**
@@ -92,7 +98,7 @@ public class ConsoleController {
         out.put("workloadsDir", properties.workloadsDir().toString());
         Path ws = properties.drillWorkspace();
         out.put("drillWorkspace", ws == null ? null : ws.toString());
-        out.put("running", runs.isRunning());
+        out.put("running", runs.isRunning() || soaks.isRunning());
         return out;
     }
 
@@ -310,5 +316,81 @@ public class ConsoleController {
     @ResponseBody
     public Map<String, Object> endurance() throws IOException {
         return DrillFiles.latestSoak(properties.drillWorkspace());
+    }
+
+    /** What the Start a soak form sends; anything left out is the soak's default. */
+    public record SoakRequest(Integer cycles, Integer cycleSeconds, Integer warmupSeconds,
+            Integer sampleSeconds, List<String> clients, String broker, String management) {
+    }
+
+    /**
+     * Starts a soak, on a click and only then: one at a time, nothing else running, the drill
+     * workspace configured, and both the broker and its management API answering first -- a soak
+     * that discovers an unreachable broker after a two-minute warm-up has wasted the two minutes.
+     */
+    @PostMapping("/api/console/endurance/start")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> startSoak(@RequestBody SoakRequest body) {
+        Path ws = properties.drillWorkspace();
+        if (ws == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "no drill workspace is"
+                    + " configured. Set ACEMQ_STUDIO_DRILL_WORKSPACE to the AMQP libraries"
+                    + " workspace; the soak starts its standing loads from there"));
+        }
+        EnduranceConfig config = new EnduranceConfig();
+        config.workspace = ws.toString();
+        if (body.cycles() != null) {
+            config.cycles = body.cycles();
+        }
+        if (body.cycleSeconds() != null) {
+            config.cycleSeconds = body.cycleSeconds();
+        }
+        if (body.warmupSeconds() != null) {
+            config.warmupSeconds = body.warmupSeconds();
+        }
+        if (body.sampleSeconds() != null) {
+            config.sampleSeconds = body.sampleSeconds();
+        }
+        if (body.clients() != null && !body.clients().isEmpty()) {
+            config.clients = new ArrayList<>(body.clients());
+        }
+        if (body.broker() != null && !body.broker().isBlank()) {
+            config.broker = body.broker().strip();
+        }
+        if (body.management() != null && !body.management().isBlank()) {
+            config.management = body.management().strip();
+        }
+        try {
+            config.validate();
+        } catch (ConfigException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+        for (String url : List.of(config.broker, config.management)) {
+            BrokerReachability.Probe probe = reachability.probe(url);
+            if (!probe.isReachable()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "error", "the broker could not be reached at " + RunStore.redact(url),
+                        "explanation", probe.explain()));
+            }
+        }
+        try {
+            soaks.start(config);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(409).body(Map.of("error", String.valueOf(e.getMessage())));
+        }
+        return ResponseEntity.ok(Map.of("started", true, "cycles", config.cycles));
+    }
+
+    @PostMapping("/api/console/endurance/stop")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> stopSoak() {
+        return soaks.stop() ? ResponseEntity.ok(Map.of("stopping", true))
+                : ResponseEntity.notFound().build();
+    }
+
+    @GetMapping("/api/console/endurance/live")
+    @ResponseBody
+    public Map<String, Object> soakProgress() {
+        return soaks.progress();
     }
 }

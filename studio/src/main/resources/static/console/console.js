@@ -67,7 +67,7 @@ let liveText = {loads: 'reading', soak: 'reading', evidence: 'evidence', studio:
 function setLive() {
   const el = $('#live');
   el.textContent = EXT[view] ? EXT[view].live() : liveText[view];
-  el.className = 'live' + ((view === 'loads' && loadsData && loadsData.clients.some(c => c.source === 'studio' && c.live)) || (EXT[view] && EXT[view].running && EXT[view].running()) ? ' run' : '');
+  el.className = 'live' + ((view === 'loads' && loadsData && loadsData.clients.some(c => c.source === 'studio' && c.live)) || (view === 'soak' && soakLive && soakLive.running) || (EXT[view] && EXT[view].running && EXT[view].running()) ? ' run' : '');
 }
 document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-jump]'); if (b) { e.preventDefault(); show(b.dataset.jump); } });
 
@@ -262,15 +262,18 @@ $('#stopRun').onclick = async () => {
 };
 
 /* ---------- ENDURANCE ---------- */
-let soak = null, smet = 'rss';
+let soak = null, smet = 'rss', soakLive = null;
 const SC = ['--c-info', '--c-acc2', '--c-acc', '--c-warn', '--c-crit', '--c-ok'];
+const SOAK_CLIENTS = ['java', 'go', 'python', 'ruby', 'dotnet'];
+const SOAK_PH = [['starting', 'Start', 'loads up'], ['warmup', 'Warm-up', 'settling'], ['baseline', 'Baseline', 'three readings'], ['cycling', 'Cycling', 'close, recover'], ['cooldown', 'Cool-down', 'recovering'], ['final', 'Final', 'three readings']];
 async function loadSoak() {
+  pollSoak();
   try { soak = await api('/api/console/endurance'); } catch (e) { soak = {available: false, reason: e.message}; }
   if (!soak.available) {
     liveText.soak = 'no soak report'; setLive();
     $('#soakSub').textContent = 'resource probes over repeated recovery';
     $('#soakBody').hidden = true;
-    empty($('#soakEmpty'), 'No soak to show', esc(soak.reason) + ' The soak itself is planned to move into this repository; until then this view reads the workspace\'s report as it is.', 'coming');
+    empty($('#soakEmpty'), 'No soak to show', esc(soak.reason) + ' Start one here with <b>Start a soak</b>, or run <code>java -jar acemq-workload.jar endurance</code> (which <code>scripts/soak.sh</code> calls) in the workspace.');
     return;
   }
   $('#soakEmpty').hidden = true; $('#soakBody').hidden = false;
@@ -284,39 +287,99 @@ async function loadSoak() {
   $('#sCycles').innerHTML = soak.cycles != null ? fmt(soak.cycles) : '—';
   const mins = Math.max(0, ...Object.values(soak.series).map(s => s.length ? s[s.length - 1][0] : 0));
   $('#sCyclesD').textContent = mins ? Math.round(mins) + ' minutes of readings' : ' ';
-  const st = (soak.settled || '').match(/low (\d+), high (\d+)/);
+  const st = (soak.settled || '').match(/low (-?\d+), high (-?\d+)/);
   $('#sSettled').innerHTML = st ? `${st[1]}<small>/ ${st[2]}</small>` : '—';
   $('#sSettledD').textContent = soak.afterClose ? 'right after a close: ' + soak.afterClose : ' ';
-  const leaks = soak.clients.length - clean;
+  const leaks = soak.clients.filter(c => soakTag(c) === 'cr').length;
   $('#sLeaks').textContent = leaks; $('#sLeaks').className = 'v' + (leaks ? ' cr' : '');
   $('#sLeaksD').textContent = soak.allowances ? 'allowance: ' + soak.allowances : ' ';
-  $('#soakT').innerHTML = soak.clients.map(c => `<tr><td class="mono"><span class="dot${c.verdict === 'clean' ? '' : ' c'}"></span>${esc(c.library)}</td><td class="num">${esc(c.rssBefore)} → ${esc(c.rssAfter)}</td><td class="num">${esc(c.fdsBefore)} → ${esc(c.fdsAfter)}</td><td class="num">${esc(c.threadsBefore)} → ${esc(c.threadsAfter)}</td><td><span class="tag ${c.verdict === 'clean' ? 'ok' : 'cr'}">${esc(c.verdict)}</span></td></tr>`).join('');
-  $('#soakSource').innerHTML = `This is <code>${esc(soak.report)}</code>, written by <code>scripts/soak.sh</code> in <code>${esc(overview.drillWorkspace || '')}</code>, with its readings from <code>${esc(soak.readings || 'no readings file')}</code>. An interim source: the soak moves into this repository later, and until then the console shows what the script measured and nothing it did not.`;
+  $('#soakT').innerHTML = soak.clients.map(c => `<tr><td class="mono"><span class="dot${c.verdict === 'clean' ? '' : ' c'}"></span>${esc(c.library)}</td><td class="num">${esc(c.rssBefore)} → ${esc(c.rssAfter)}</td><td class="num">${esc(c.fdsBefore)} → ${esc(c.fdsAfter)}</td><td class="num">${esc(c.threadsBefore)} → ${esc(c.threadsAfter)}</td><td><span class="tag ${soakTag(c)}">${esc(c.verdict)}</span></td></tr>`).join('');
+  if (soak.source === 'framework') {
+    $('#soakSourceH').textContent = 'Written by the endurance command';
+    $('#soakSource').innerHTML = `This is <code>${esc(soak.report)}</code> and the JSON beside it, written by <code>java -jar acemq-workload.jar endurance</code> (which <code>scripts/soak.sh</code> calls) in <code>${esc(overview.drillWorkspace || '')}</code>. Readings: <code>${esc(soak.readings || 'none')}</code>.${(soak.known || []).length ? ' Known upstream: ' + soak.known.map(esc).join(' · ') : ''}`;
+  } else {
+    $('#soakSourceH').textContent = 'Read from an older soak report';
+    $('#soakSource').innerHTML = `This is <code>${esc(soak.report)}</code>, written by <code>scripts/soak.sh</code> before the soak moved into the workloads framework, with its readings from <code>${esc(soak.readings || 'no readings file')}</code>. The console shows what the script measured and nothing it did not.`;
+  }
   drawSoak();
 }
-function drawSoak() {
-  const c = $('#soakChart'); if (!c.offsetParent || !soak || !soak.available) return;
-  const libs = Object.keys(soak.series);
-  if (!libs.length) { emptyChart(c, 'the readings file named in the report is not there'); $('#soakLegend').innerHTML = ''; return; }
+/* clean, only known upstream breaches (allowed within their ceiling), or a finding */
+const soakTag = c => c.verdict === 'clean' ? 'ok' : c.verdict.split(', ').every(n => n.endsWith('(known)')) ? 'wn' : 'cr';
+/* One chart, for the last report and for a soak in progress: change from each client's own start. */
+function soakChart(c, series, legend, lim3) {
+  if (!c || !c.offsetParent) return;
+  const libs = Object.keys(series || {}).filter(l => series[l].length);
+  if (!libs.length) { emptyChart(c, 'no readings yet'); legend.innerHTML = ''; return; }
   const [x, w, h] = fit(c); const pad = {l: 44, r: 12, t: 12, b: 26};
   const idx = {rss: 1, fds: 2, thr: 3}[smet];
-  const val = (s, r) => smet === 'rss' ? r[1] / s[0][1] * 100 : r[idx] - s[0][idx];
-  const all = libs.flatMap(l => soak.series[l].map(r => val(soak.series[l], r)));
-  const lim = smet === 'rss' ? (soak.rssFactor || 2) * 100 : smet === 'fds' ? soak.fdSlack : soak.threadSlack;
-  const cfg = {rss: {lab: v => Math.round(v) + '%', t: 'Resident memory, % of its own start'}, fds: {lab: v => (v >= 0 ? '+' : '') + Math.round(v), t: 'Open file handles, change from start'}, thr: {lab: v => (v >= 0 ? '+' : '') + Math.round(v), t: 'Threads, change from start'}}[smet];
+  const base = s => s.find(r => r[1] > 0) || s[0];
+  const val = (s, r) => smet === 'rss' ? (base(s)[1] ? r[1] / base(s)[1] * 100 : 0) : r[idx] - base(s)[idx];
+  const all = libs.flatMap(l => series[l].map(r => val(series[l], r)));
+  const lim = smet === 'rss' ? (lim3.rss || 2) * 100 : smet === 'fds' ? lim3.fds : lim3.thr;
+  const cfg = {rss: v => Math.round(v) + '%', fds: v => (v >= 0 ? '+' : '') + Math.round(v), thr: v => (v >= 0 ? '+' : '') + Math.round(v)}[smet];
   const mn = Math.min(smet === 'rss' ? 90 : -2, ...all), mx = Math.max(lim != null ? lim * 1.1 : 0, ...all) || 1;
-  $('#soakTitle').textContent = cfg.t;
-  const tmax = Math.max(...libs.map(l => { const s = soak.series[l]; return s[s.length - 1][0]; })) || 1;
-  const px = t => pad.l + t / tmax * (w - pad.l - pad.r), py = v => pad.t + (1 - (v - mn) / (mx - mn)) * (h - pad.t - pad.b);
+  const t0 = Math.min(...libs.map(l => series[l][0][0]));
+  const tmax = Math.max(...libs.map(l => { const s = series[l]; return s[s.length - 1][0]; })) - t0 || 1;
+  const px = t => pad.l + (t - t0) / tmax * (w - pad.l - pad.r), py = v => pad.t + (1 - (v - mn) / (mx - mn)) * (h - pad.t - pad.b);
   x.font = '10px ' + css('--c-mono'); x.lineWidth = 1;
-  for (let k = 0; k <= 4; k++) { const v = mn + (mx - mn) * k / 4; const y = py(v); x.strokeStyle = css('--c-line'); x.beginPath(); x.moveTo(pad.l, y); x.lineTo(w - pad.r, y); x.stroke(); x.fillStyle = css('--c-dim'); x.fillText(cfg.lab(v), 4, y + 3); }
-  [0, .25, .5, .75, 1].forEach(f => { x.fillStyle = css('--c-dim'); x.fillText(f === 0 ? 'minute 0' : String(Math.round(tmax * f)), px(tmax * f) - (f ? 8 : 0), h - 8); });
+  for (let k = 0; k <= 4; k++) { const v = mn + (mx - mn) * k / 4; const y = py(v); x.strokeStyle = css('--c-line'); x.beginPath(); x.moveTo(pad.l, y); x.lineTo(w - pad.r, y); x.stroke(); x.fillStyle = css('--c-dim'); x.fillText(cfg(v), 4, y + 3); }
+  [0, .5, 1].forEach(f => { x.fillStyle = css('--c-dim'); x.fillText(f === 0 ? 'minute 0' : String(Math.round(tmax * f * 10) / 10), pad.l + f * (w - pad.l - pad.r) - (f ? 14 : 0), h - 8); });
   if (lim != null) { x.strokeStyle = css('--c-crit'); x.setLineDash([6, 4]); x.beginPath(); x.moveTo(pad.l, py(lim)); x.lineTo(w - pad.r, py(lim)); x.stroke(); x.setLineDash([]); x.fillStyle = css('--c-crit'); x.fillText('leak threshold', w - pad.r - 92, py(lim) - 5); }
-  libs.forEach((l, i) => { const s = soak.series[l], col = css(SC[i % SC.length]); x.strokeStyle = col; x.lineWidth = 1.8; x.beginPath(); s.forEach((r, j) => j ? x.lineTo(px(r[0]), py(val(s, r))) : x.moveTo(px(r[0]), py(val(s, r)))); x.stroke(); const e = s[s.length - 1]; x.beginPath(); x.arc(px(e[0]), py(val(s, e)), 3, 0, 7); x.fillStyle = col; x.fill(); });
-  $('#soakLegend').innerHTML = libs.map((l, i) => `<span><i style="background:var(${SC[i % SC.length]})"></i>${esc(l)}</span>`).join('');
+  libs.forEach((l, i) => { const s = series[l], col = css(SC[i % SC.length]); x.strokeStyle = col; x.lineWidth = 1.8; x.beginPath(); s.forEach((r, j) => j ? x.lineTo(px(r[0]), py(val(s, r))) : x.moveTo(px(r[0]), py(val(s, r)))); x.stroke(); const e = s[s.length - 1]; x.beginPath(); x.arc(px(e[0]), py(val(s, e)), 3, 0, 7); x.fillStyle = col; x.fill(); });
+  legend.innerHTML = libs.map((l, i) => `<span><i style="background:var(${SC[i % SC.length]})"></i>${esc(l)}</span>`).join('');
+}
+const SOAK_TITLE = {rss: 'Resident memory, % of its own start', fds: 'Open file handles, change from start', thr: 'Threads, change from start'};
+function drawSoak() {
+  if (soak && soak.available) {
+    $('#soakTitle').textContent = SOAK_TITLE[smet];
+    if (!Object.keys(soak.series || {}).length) emptyChart($('#soakChart'), 'the readings file named in the report is not there');
+    else soakChart($('#soakChart'), soak.series, $('#soakLegend'), {rss: soak.rssFactor, fds: soak.fdSlack, thr: soak.threadSlack});
+  }
+  if (soakLive && !$('#soakLive').hidden) soakChart($('#soakLiveChart'), soakLive.series, $('#soakLiveLegend'), {rss: 2, fds: 16, thr: 16});
 }
 $$('#soakMetric .btn').forEach(b => b.onclick = () => { smet = b.dataset.m; $$('#soakMetric .btn').forEach(x => x.setAttribute('aria-pressed', x === b)); drawSoak(); });
-$('#soakRun').onclick = () => toast('Run ./scripts/soak.sh in the workspace · this view reads the report it writes');
+
+/* Start a soak: a form, on a click, and the server checks the rest (nothing else running, the broker answering). */
+$('#soakClients').innerHTML = SOAK_CLIENTS.map(c => `<label><input type="checkbox" value="${c}" checked>${c}</label>`).join('');
+function soakEstimate() {
+  const n = +$('#soakCycles').value || 0, s = +$('#soakEvery').value || 0, w = +$('#soakWarm').value || 0;
+  $('#soakEst').textContent = `About ${Math.round((w + 15 + n * s + 60 + 15) / 60)} minutes: ${w}s warm-up, ${fmt(n)} closes ${s}s apart, a minute to cool down. Every client recovers ${fmt(n)} times.`;
+}
+['#soakCycles', '#soakEvery', '#soakWarm'].forEach(s => $(s).oninput = soakEstimate);
+function soakForm(open) { $('#soakForm').hidden = !open; $('#soakRun').setAttribute('aria-expanded', String(open)); if (open) { soakEstimate(); $('#soakErr').hidden = true; $('#soakCycles').focus(); } }
+$('#soakRun').onclick = () => soakForm($('#soakForm').hidden);
+$('#soakCancel').onclick = () => { soakForm(false); $('#soakRun').focus(); };
+$('#soakForm').onsubmit = async e => {
+  e.preventDefault();
+  const clients = $$('#soakClients input').filter(i => i.checked).map(i => i.value);
+  const err = $('#soakErr');
+  if (!clients.length) { err.textContent = 'Pick at least one client.'; err.hidden = false; return; }
+  $('#soakGo').disabled = true;
+  try {
+    await api('/api/console/endurance/start', {cycles: +$('#soakCycles').value, cycleSeconds: +$('#soakEvery').value, warmupSeconds: +$('#soakWarm').value, clients});
+    soakForm(false); toast('Soak started · the loads are starting'); pollSoak();
+  } catch (x) {
+    err.textContent = x.message + (x.data && x.data.explanation ? ' · ' + x.data.explanation : ''); err.hidden = false;
+  } finally { $('#soakGo').disabled = false; }
+};
+$('#soakStop').onclick = async () => { try { await api('/api/console/endurance/stop', {}); toast('Stopping the soak · the loads it started are being stopped'); } catch (e) { toast(e.message); } pollSoak(); };
+let soakWasRunning = false;
+async function pollSoak() {
+  try { soakLive = await api('/api/console/endurance/live'); } catch (e) { return; }
+  const run = !!soakLive.running, seen = run || soakLive.phase;
+  $('#soakLive').hidden = !seen; $('#soakStop').hidden = !run; $('#soakRun').hidden = run;
+  if (run) $('#soakForm').hidden = true;
+  if (seen) {
+    const ph = soakLive.phase, i = SOAK_PH.findIndex(p => p[0] === ph), at = i < 0 ? (['verdict', 'done'].includes(ph) ? SOAK_PH.length : -1) : i;
+    $('#soakSteps').innerHTML = SOAK_PH.map((p, k) => { const pct = k < at ? 100 : k === at && run ? (p[0] === 'cycling' ? Math.round(100 * soakLive.cycle / Math.max(1, soakLive.cycles)) : 50) : 0; return `<div class="step${k < at ? ' done' : ''}${k === at && run ? ' now' : ''}"><span class="n">${k + 1} · ${p[1]}</span><span class="t">${p[0] === 'cycling' && (k <= at) ? 'cycle ' + soakLive.cycle + '/' + soakLive.cycles : p[2]}</span><div class="bar"><span style="width:${pct}%"></span></div></div>`; }).join('');
+    $('#soakLiveT').textContent = run ? `cycle ${soakLive.cycle}/${soakLive.cycles}` + (soakLive.said ? ' · ' + soakLive.said : '')
+      : soakLive.error ? soakLive.error : soakLive.verdict ? `${soakLive.verdict} · ${soakLive.report || ''}` : soakLive.phase;
+    liveText.soak = run ? `soak · cycle ${soakLive.cycle}/${soakLive.cycles}` : liveText.soak;
+    setLive(); drawSoak();
+  }
+  if (soakWasRunning && !run && view === 'soak') { soakWasRunning = false; loadSoak(); }
+  soakWasRunning = run;
+}
 
 /* ---------- DELIVERY EVIDENCE ---------- */
 let evidence = [];
@@ -516,6 +579,7 @@ document.addEventListener('DOMContentLoaded', () => {
   crumb(null);
   api('/api/console/overview').then(o => { overview = o; crumb(loadsData && loadsData.clients); }).catch(() => {}).finally(() => show(view));
   setInterval(() => { if (view === 'loads' && !document.hidden) loadLoads(); }, 1000);
+  setInterval(() => { if (view === 'soak' && !document.hidden && soakLive && soakLive.running) pollSoak(); }, 2000);
   addEventListener('hashchange', () => { const v = location.hash.slice(1); if (v !== view && VIEWS.some(x => x[0] === v)) show(v); });
   $$('.main canvas, .main .pn, .stage').forEach(e => ro.observe(e));
 });

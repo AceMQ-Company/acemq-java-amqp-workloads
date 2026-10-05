@@ -133,7 +133,7 @@ real data; where there is none, it says why instead of drawing a sample.
 | **Standing loads** | One card per load: confirmed and consumed per second, refused and failed kept apart, state, and the end-to-end latency of the one you select. Totals across what is running on top, the loads' own output underneath as events. Refreshed every second | The drill workspace's `.chaos/workload-<language>.jsonl` (the `--emit-samples` lines each language's standing load writes), and the load started from this console |
 | **Load designer** | A form over the workload file, the file itself beside it, and the offered rate over the run. The file is the one `java -jar acemq-workload.jar -f` reads, checked by the library's own parser as you edit. **Validate**, **Save** and **Start this load** each do exactly that and nothing until clicked | The library: `WorkloadFile` parses what the designer writes |
 | **Delivery evidence** | For each run started here: every default rule and every objective the file set, passed or not, each with the numbers it was decided on, and the run's totals. **Export evidence** saves it as JSON | The library's `Rules` and `Objective`s, evaluated when the run ends and kept under the workloads directory |
-| **Endurance** | The newest soak: verdict, recoveries, connections, leaks found, memory / file handles / threads per client against its own start with the leak allowance drawn in, and before-and-after | Interim: the workspace's `reports/soak-*.md` and the readings it names. The soak moves into this repository later |
+| **Endurance** | The newest soak: verdict, recoveries, connections, leaks found, memory / file handles / threads per client against its own start with the leak allowance drawn in, and before-and-after | The newest `reports/soak-*.json` the library's [`endurance`](../docs/endurance.md) command wrote in the drill workspace; for an older report with no JSON, the markdown and the readings it names. **Start a soak** runs one from here — one at a time, never beside a load or a scenario run, and only once the broker and its management API answer — with the phase, `cycle n/N` and readings live |
 
 The crash drill and the claim lease come from the chaos side. Until it writes a
 report the console can read, both panels in *Delivery evidence* say "coming"
@@ -270,7 +270,7 @@ loses the measurement and leaves the broker holding the mess.
 | `ACEMQ_STUDIO_ALLOW_REMOTE_WITHOUT_TOKEN` | run exposed with no token. There is a legitimate case for it, and it has to be set deliberately |
 | `ACEMQ_STUDIO_DATABASE` | where the state lives. `~/.acemq/workloads-studio.db` by default |
 | `ACEMQ_STUDIO_WORKLOADS_DIR` | where the console saves workload files and keeps the evidence of its runs. `workloads/` beside the database by default |
-| `ACEMQ_STUDIO_DRILL_WORKSPACE` | the AMQP libraries workspace whose drill scripts write standing-load readings and soak reports. Unset, those views say there is nothing to read |
+| `ACEMQ_STUDIO_DRILL_WORKSPACE` | the AMQP libraries workspace: standing-load readings and soak reports are read from it, and a soak started from the console starts its loads there and writes its report there. Unset, those views say there is nothing to read |
 
 ## Building it
 

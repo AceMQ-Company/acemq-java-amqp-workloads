@@ -232,6 +232,56 @@ class ConsoleApiTest {
         assertThat(soak.path("clients")).hasSize(1);
         assertThat(soak.path("clients").get(0).path("threadsAfter").asText()).isEqualTo("16");
         assertThat(soak.path("series").path("go")).hasSize(3);
+        assertThat(soak.path("source").asText()).isEqualTo("script");
+    }
+
+    @Test
+    @DisplayName("prefers the endurance command's JSON report to the markdown beside it")
+    void readsTheFrameworksJson() throws Exception {
+        Path ws = Files.createTempDirectory("acemq-soak-json");
+        Path reports = Files.createDirectories(ws.resolve("reports"));
+        Files.writeString(reports.resolve("soak-20261005-170000.md"), "# Soak\n\n**FAILED**\n");
+        Files.writeString(reports.resolve("soak-20261005-170000.json"), """
+                {"id":"20261005-170000","verdict":"PASSED","cycles":10,"fdSlack":16,
+                 "clients":[{"library":"go","verdict":"clean"}],
+                 "series":{"go":[[0,20.1,14,15],[1.5,20.4,14,15]]}}
+                """);
+
+        Map<String, Object> soak = DrillFiles.latestSoak(ws);
+
+        assertThat(soak).containsEntry("available", true).containsEntry("source", "framework")
+                .containsEntry("verdict", "PASSED").containsEntry("report", "reports/soak-20261005-170000.md");
+        assertThat(String.valueOf(soak.get("series"))).contains("go");
+    }
+
+    @Test
+    @DisplayName("has no soak in progress until one is started")
+    void noSoakInProgress() throws Exception {
+        JsonNode live = json.readTree(http.getForObject("/api/console/endurance/live", String.class));
+        assertThat(live.path("running").asBoolean()).isFalse();
+        assertThat(http.postForEntity("/api/console/endurance/stop", Map.of(), String.class)
+                .getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    @DisplayName("checks the broker answers before a soak starts anything")
+    void refusesASoakAgainstABrokerThatDoesNotAnswer() throws Exception {
+        var response = http.postForEntity("/api/console/endurance/start",
+                Map.of("cycles", 2, "broker", "amqp://guest:guest@127.0.0.1:1"), String.class);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        assertThat(response.getBody()).contains("could not be reached");
+        assertThat(json.readTree(http.getForObject("/api/console/endurance/live", String.class))
+                .path("running").asBoolean()).isFalse();
+    }
+
+    @Test
+    @DisplayName("refuses a soak whose numbers make no sense, before probing anything")
+    void refusesNonsense() {
+        var response = http.postForEntity("/api/console/endurance/start",
+                Map.of("cycles", 0), String.class);
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        assertThat(response.getBody()).contains("cycles");
     }
 
     @Test

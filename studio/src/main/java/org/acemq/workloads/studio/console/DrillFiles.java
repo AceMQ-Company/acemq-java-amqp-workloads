@@ -37,8 +37,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * What the workspace's drill scripts leave on disk: standing-load sample lines and soak reports.
  *
- * <p>Both are read, never written, and both are an interim source until the soak moves into this
- * repository. The sample lines are the {@code --emit-samples} format every language's standing
+ * <p>Both are read, never written. Soak reports are the library's endurance command's JSON when
+ * there is one, and the old script's markdown otherwise. The sample lines are the {@code --emit-samples} format every language's standing
  * load writes, one JSON object a second; anything else in the file is the load's own output, such
  * as a stack trace, and is shown as an event rather than dropped.
  */
@@ -190,6 +190,7 @@ final class DrillFiles {
     // ---------------------------------------------------------------- endurance
 
     private static final Pattern SOAK = Pattern.compile("soak-(\\d{8}-\\d{6})\\.md");
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     /** The newest soak report and its readings, or why there is none. */
     static Map<String, Object> latestSoak(Path workspace) throws IOException {
@@ -217,8 +218,26 @@ final class DrillFiles {
         Path report = newest.get();
         Matcher idm = SOAK.matcher(report.getFileName().toString());
         idm.matches();
+        // The library's endurance command writes a JSON report beside the markdown: the same
+        // facts as data, with the readings already in it. Read that when it is there, and the
+        // markdown only for a report from before the soak moved into the library.
+        Path jsonReport = reports.resolve("soak-" + idm.group(1) + ".json");
+        if (Files.isRegularFile(jsonReport)) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> doc = JSON.readValue(jsonReport.toFile(), Map.class);
+                out.put("available", true);
+                out.putAll(doc);
+                out.put("source", "framework");
+                out.put("report", workspace.relativize(report).toString());
+                return out;
+            } catch (IOException e) {
+                // Half written, or not ours: fall back to the markdown, which is always complete.
+            }
+        }
         String text = Files.readString(report);
         out.put("available", true);
+        out.put("source", "script");
         out.put("id", idm.group(1));
         out.put("report", workspace.relativize(report).toString());
         out.put("verdict", find(text, "(?m)^\\*\\*([A-Z ]+)\\*\\*\\s*$").orElse("UNKNOWN"));
