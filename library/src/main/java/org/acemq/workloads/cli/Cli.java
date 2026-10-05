@@ -32,6 +32,7 @@ import org.acemq.workloads.RunHandle;
 import org.acemq.workloads.RunListener;
 import org.acemq.workloads.Workload;
 import org.acemq.workloads.WorkloadReport;
+import org.acemq.workloads.endurance.EnduranceCli;
 import org.acemq.workloads.report.Reports;
 import org.acemq.workloads.report.ScenarioReports;
 import org.acemq.workloads.scenario.Scenario;
@@ -73,6 +74,7 @@ public final class Cli {
 
             usage:
               java -jar acemq-workload.jar -f <file> [options]
+              java -jar acemq-workload.jar endurance [options]   the soak; endurance --help
 
             options:
               -f, --file <path>       workload or scenario file, .yaml or .json (required)
@@ -163,6 +165,11 @@ public final class Cli {
     }
 
     private static int execute(String[] args, PrintStream out, PrintStream err) {
+        // A subcommand rather than a file kind: a soak runs other programs and judges them, it
+        // is not a workload this tool generates.
+        if (args.length > 0 && args[0].equals("endurance")) {
+            return EnduranceCli.run(java.util.Arrays.copyOfRange(args, 1, args.length), out, err);
+        }
         Options options;
         try {
             options = Options.parse(args);
