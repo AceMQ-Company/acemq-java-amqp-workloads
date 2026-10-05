@@ -105,6 +105,22 @@ public final class WorkloadFile {
         return read(path, System::getenv);
     }
 
+    /**
+     * Reads workload YAML that is already in memory, exactly as {@link #read(Path)} reads a file.
+     *
+     * <p>For a tool that edits the file before it exists on disk — the studio's load designer
+     * validates what it is about to write with this, so "valid" there means what it means to the
+     * command line, rather than to a second parser that agrees most of the time.
+     *
+     * @param yaml the workload file's text
+     * @param environment how {@code ${VAR}} references are resolved
+     * @return the workloads in it
+     * @throws ConfigException with a reason somebody can act on, when the file is not valid
+     */
+    public static WorkloadFile parseYaml(String yaml, Function<String, String> environment) {
+        return parse(yaml, false, environment);
+    }
+
     static WorkloadFile read(Path path, Function<String, String> environment) {
         String text;
         try {
