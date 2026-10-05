@@ -1,0 +1,14 @@
+{
+  "name": "acemq-workloads-studio-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser tests for the studio's console: a real browser, the real jar, a real broker.",
+  "scripts": {
+    "test": "playwright test",
+    "screenshots": "playwright test --config playwright.screenshots.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}

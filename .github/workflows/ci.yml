@@ -82,9 +82,9 @@ jobs:
       - name: Verify the studio jar starts and serves the interface
         if: matrix.java == '17'
         # The same argument as the CLI check, for a jar that has more to go
-        # wrong: a Spring context that will not start, a front end that was
-        # never built into it, an SQLite driver that is not on the path. All
-        # three are silent until somebody opens a browser.
+        # wrong: a Spring context that will not start, a console whose pages
+        # never made it into the jar, an SQLite driver that is not on the path.
+        # All three are silent until somebody opens a browser.
         run: |
           test -f studio/target/acemq-workloads-studio.jar
           ACEMQ_STUDIO_DATABASE="$RUNNER_TEMP/studio-ci.db" \
@@ -97,8 +97,8 @@ jobs:
             sleep 2
           done
           curl -fs http://localhost:8480/actuator/health
-          # The front end is in the jar, not merely built beside it.
-          curl -fs http://localhost:8480/ | grep -q "AceMQ workloads studio"
+          # The console is the home page, served from inside the jar.
+          curl -fs http://localhost:8480/ | grep -q "AceMQ Workloads Studio"
           # And the API answers, which means the context came up whole.
           curl -fs http://localhost:8480/api/presets | grep -q quorum-vs-classic
           kill $studio
@@ -117,9 +117,9 @@ jobs:
   #
   # Separate from `build` because it needs a jar, a broker and a browser, and
   # because the matrix would run it three times to learn the same thing. The
-  # component tests in jsdom are part of the Maven build and run on all three
-  # JDKs; this is the layer that catches what jsdom cannot see, which is
-  # everything to do with layout.
+  # HTTP tests in the Maven build prove every page and asset is served; this is
+  # the layer that catches what they cannot see, which is everything to do with
+  # layout and every flow a person clicks through.
   ui:
     name: the interface, in a browser
     runs-on: ubuntu-latest
@@ -153,8 +153,8 @@ jobs:
         with:
           name: playwright-report
           path: |
-            studio/src/main/frontend/playwright-report/**
-            studio/src/main/frontend/test-results/**
+            studio/e2e/playwright-report/**
+            studio/e2e/test-results/**
           retention-days: 7
 
   tracks-the-release:

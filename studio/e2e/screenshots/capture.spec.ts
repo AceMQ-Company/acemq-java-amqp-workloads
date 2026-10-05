@@ -43,8 +43,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-// studio/src/main/frontend/screenshots -> the repository root.
-const REPO_ROOT = resolve(HERE, '../../../../..')
+// studio/e2e/screenshots -> the repository root.
+const REPO_ROOT = resolve(HERE, '../../..')
 const SHOTS = process.env.SHOT_DIR ?? join(REPO_ROOT, 'docs/assets')
 
 // The ports scripts/screenshots.sh publishes its broker on, and the ones the
@@ -64,170 +64,131 @@ const SECOND_RATE = 3_000
 test.beforeAll(() => mkdirSync(SHOTS, { recursive: true }))
 
 test('the studio, screen by screen', async ({ page }) => {
-  // ---------------------------------------------------------------- connect
-  await page.goto('/')
-  await page.getByLabel('Broker (AMQP)').fill(BROKER)
-  await page.getByPlaceholder('http://localhost:15672').fill(MANAGEMENT)
+  // ----------------------------------------------------------------- broker
+  await page.goto('/#broker')
+  await page.locator('#bkAmqp').fill(BROKER)
+  await page.locator('#bkMgmt').fill(MANAGEMENT)
 
-  // Press it until it answers. A broker container that has finished booting
-  // enough to answer `rabbitmq-diagnostics ping` is not always listening on
-  // 5672 yet, and the connect screen checks when it is asked rather than on a
-  // timer -- so a single press can photograph "Nothing answered" about a
-  // broker that came up a second later.
-  const gate = page.locator('.gate-card')
-  const found = gate.getByText(/^Found a broker at/)
+  // Ask until it answers. A broker container that answers `rabbitmq-diagnostics
+  // ping` is not always listening on 5672 yet, and the broker view checks when
+  // it is asked rather than on a timer.
+  const found = page.locator('#bkStatus .gstat.ok')
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    await page.getByRole('button', { name: /again/ }).click()
+    await page.locator('#bkCheck').click()
     const answered = await found.waitFor({ state: 'visible', timeout: 15_000 })
       .then(() => true, () => false)
     if (answered) break
     await page.waitForTimeout(3_000)
   }
-  await expect(found).toBeVisible()
+  await expect(found).toContainText('Found a broker at')
   // The management API answered, so the broker's own version and its queue
-  // types are on the screen. That sentence is what the guide promises, and a
-  // shot of it taken without a management URL would quietly contradict it.
-  await expect(gate.locator('.gate-note').filter({ hasText: 'RabbitMQ' })).toBeVisible()
-  await shoot(gate, 'studio-connect.png')
-
-  await page.getByRole('button', { name: 'Continue' }).click()
-  await expect(page.locator('.canvas')).toBeVisible({ timeout: 30_000 })
+  // types are on the screen. That sentence is what the guide promises.
+  await expect(found).toContainText('RabbitMQ')
+  await blur(page)
+  await shoot(page.locator('.view[data-view="broker"] .grid'), 'studio-connect.png')
 
   // ----------------------------------------------------------------- design
-  await page.getByRole('button', { name: 'presets' }).click()
-  await page.locator('.card').filter({ hasText: 'One slow consumer in a fan-out' }).click()
-  await expect(page.locator('.canvas')).toBeVisible()
-  await expect(page.locator('[data-id^="queue:"]')).toHaveCount(2)
+  await page.locator('#bkStatus').getByRole('button', { name: 'Design a scenario' }).click()
+  await page.locator('#scPresets [data-preset="slow-consumer"]').click()
+  await expect(page.locator('#scSvg .nd[data-kind="queue"]')).toHaveCount(2)
 
   // The window it measures, short enough to capture twice and long enough for
   // the charts to have something to draw.
-  const inspector = page.locator('.inspector')
-  await page.locator('.canvas').click({ position: { x: 6, y: 6 } })
+  const inspector = page.locator('#scInspector')
+  await page.locator('#scSvg').click({ position: { x: 3, y: 3 } })
   await inspector.getByLabel('Warm-up').fill('3s')
   await inspector.getByLabel('Measure for').fill('25s')
-
-  await page.locator('[data-id="producer:orders"]').click()
+  await page.locator('#scSvg [data-id="producer:orders"]').click()
   await inspector.getByLabel('Rate, messages a second').fill(String(FIRST_RATE))
 
-  // Fit, from the control the guide points at. A preset arrives on whatever
-  // viewport the canvas already had, so without this the framing depends on
-  // what was on the canvas before -- which is exactly the noise this capture
-  // is meant not to have.
-  await page.locator('.react-flow__controls-fitview').click()
-
-  // The whole design tab, with nothing selected: the canvas is the subject
-  // and the canvas is the size of the screen, so this is the one shot that is
-  // a screen rather than a crop of one.
-  await page.locator('.canvas').click({ position: { x: 6, y: 6 } })
+  // The whole view with nothing selected: the one shot that is a screen
+  // rather than a crop of one.
+  await page.locator('#scSvg').click({ position: { x: 3, y: 3 } })
+  await page.evaluate(() => scrollTo(0, 0))
+  // The "opened the preset" toast says nothing the picture does not already show.
+  await expect(page.locator('#toast')).not.toHaveClass(/on/, { timeout: 10_000 })
+  await blur(page)
   await settle(page)
   await page.screenshot({ path: join(SHOTS, 'studio-canvas.png'), animations: 'disabled' })
 
   // -------------------------------------------------------------- inspector
-  // The thin leg: one consumer against the fast leg's four, a handler ten
-  // times slower, a binding and an argument. Everything the guide says the
-  // inspector is for, on the queue the scenario is about.
-  await page.locator('[data-id="queue:orders.slow"]').click()
-  await expect(inspector.getByRole('heading', { name: 'Queue' })).toBeVisible()
-  await expect(inspector.getByRole('heading', { name: 'Bound to' })).toBeVisible()
+  // The thin leg: one consumer against the fast leg's four, a binding and an
+  // argument. Everything the guide says the inspector is for.
+  await page.locator('#scSvg [data-id="queue:orders.slow"]').click()
+  await expect(page.locator('#scInsTitle')).toHaveText('Queue')
   await inspector.getByRole('button', { name: '+ argument' }).click()
-  await inspector.locator('input[value="x-max-length"]')
-    .locator('xpath=following::input[1]').fill('200000')
+  await inspector.locator('[data-av]').fill('200000')
   await blur(page)
-  // Back to the top: the shot is the panel as it opens, not wherever adding
-  // an argument happened to leave the scroll.
-  await inspector.evaluate((el) => { el.scrollTop = 0 })
-  await shoot(inspector, 'studio-inspector.png')
+  const panel = page.locator('.pn').filter({ has: inspector })
+  await shootFrom(page, panel, inspector.getByRole('button', { name: '+ argument' }),
+    'studio-inspector.png', panel)
 
   // ------------------------------------------------------------- objectives
-  // What the same queue must prove. Filled in rather than photographed empty:
-  // an empty form does not show what the fields are for.
   await inspector.getByLabel('p99 under').fill('150ms')
   await inspector.getByLabel('p99.9 under').fill('500ms')
   await inspector.getByLabel('Handles at least, a second').fill('1400')
   await inspector.getByLabel('Must not be deeper at the end than at the start').check()
   await blur(page)
-  // The panel is at the foot of a long aside, so scroll it there and crop to
-  // it rather than photographing the whole scrolling column.
-  await inspector.evaluate((el) => { el.scrollTop = el.scrollHeight })
-  await settle(page)
-  await shootFrom(page, inspector.getByRole('heading', { name: 'What it must prove' }),
-    inspector.locator('.hint').last(), 'studio-objectives.png', inspector)
+  await shootFrom(page, inspector.locator('h5', { hasText: 'What it must prove' }),
+    inspector.locator('.hint').last(), 'studio-objectives.png', panel)
 
-  // An objective on the producer too, so the run has a producer finding under
-  // it. The guide sets them on both, and the verdict shows both.
-  await page.locator('[data-id="producer:orders"]').click()
+  // An objective on the producer too, so the verdict has a producer finding.
+  await page.locator('#scSvg [data-id="producer:orders"]').click()
   await inspector.getByLabel('At least, a second').fill('1400')
   await inspector.getByLabel('Within % of the rate').fill('10')
   await inspector.getByLabel('Every publish must succeed').check()
   await blur(page)
 
   // -------------------------------------------------------------------- run
-  await page.getByRole('button', { name: 'Run', exact: true }).click()
-
-  // A run in progress: the charts have readings in them and the phase chip
-  // still says the run is going.
-  await expect(page.locator('.recharts-wrapper').first()).toBeVisible({ timeout: 60_000 })
-  await expect(page.getByText(/elapsed/)).toBeVisible({ timeout: 60_000 })
-  await expect(page.locator('.run-view .chip[data-state="live"]')).toBeVisible()
+  await page.locator('#scRun').click()
+  await expect(page.locator('.view[data-view="runs"]')).toHaveClass(/on/)
+  await expect(page.locator('#rnElapsed')).toContainText('s', { timeout: 60_000 })
   // Far enough in that both charts have a line rather than a first point.
   await page.waitForTimeout(12_000)
-  await expect(page.locator('.run-view .chip[data-state="live"]')).toBeVisible()
+  await expect(page.locator('#rnStop')).toBeVisible()
   await settle(page)
-  await shootFrom(page, page.locator('.run-view .toolbar'),
-    page.locator('.panel').filter({ hasText: 'What is waiting' }), 'studio-run.png')
+  await shootFrom(page, page.locator('.view[data-view="runs"] .vh'), page.locator('#rnDepthPn'),
+    'studio-run.png')
 
   // ---------------------------------------------------------------- verdict
-  const verdict = page.locator('.verdict')
+  const verdict = page.locator('#rnVerdict .verdict')
   await expect(verdict).toBeVisible({ timeout: 4 * 60_000 })
-  await expect(verdict).toContainText(/Passed|Failed|Invalid/i)
-  // Findings carry the measurement that produced them; a verdict with no
-  // finding under it would not show what the guide is describing.
-  await expect(page.locator('.finding').first()).toBeVisible()
+  await expect(verdict.locator('.vt')).toHaveText(/Passed|Failed|Invalid/)
+  const findings = verdict.locator('.finding')
+  await expect(findings.first()).toBeVisible()
   await settle(page)
-  // The verdict box holds every finding the run produced, which is more than
-  // fits above the fold. Three is enough to show what one looks like.
-  const findings = page.locator('.finding')
   const shown = Math.min(3, await findings.count())
-  await shootFrom(page, verdict, findings.nth(shown - 1), 'studio-verdict.png')
+  await shootFrom(page, verdict, findings.nth(shown - 1), 'studio-verdict.png', verdict)
 
   // ------------------------------------------------------------ a second run
-  // Same scenario, twice the load, so there is something to compare.
-  await page.getByRole('button', { name: 'design' }).click()
-  await page.locator('[data-id="producer:orders"]').click()
+  // Same scenario, twice the load, so there is something to compare. Saved,
+  // so the guide's "Save keeps the scenario" has something behind it.
+  await page.locator('#tab-scenarios').click()
+  await page.locator('#scSvg [data-id="producer:orders"]').click()
   await inspector.getByLabel('Rate, messages a second').fill(String(SECOND_RATE))
   await blur(page)
+  await page.locator('#scSave').click()
+  await expect(page.locator('#scSaved tr').filter({ hasText: 'slow-consumer' })).toBeVisible()
+  await expect(page.locator('#scRun')).toBeEnabled()
+  await page.locator('#scRun').click()
+  await expect(page.locator('#rnVerdict .verdict')).toBeVisible({ timeout: 5 * 60_000 })
 
-  // Saved, so the guide's "Save keeps the scenario" has something behind it
-  // and the history screen is not just a list of runs.
-  await page.locator('.toolbar').getByRole('button', { name: 'Save' }).click()
-
-  await page.getByRole('button', { name: 'Run', exact: true }).click()
-  await expect(page.locator('.verdict')).toBeVisible({ timeout: 5 * 60_000 })
-
-  // ---------------------------------------------------------------- history
-  await page.getByRole('button', { name: 'history' }).click()
-  const saved = page.locator('.panel')
-    .filter({ has: page.getByRole('heading', { name: 'Saved scenarios' }) })
-  const runs = page.locator('.panel').filter({ has: page.getByRole('heading', { name: 'Runs' }) })
-  const ticks = runs.locator('table input[type=checkbox]:not([disabled])')
+  // ---------------------------------------------------------------- reports
+  await page.locator('#tab-reports').click()
+  const ticks = page.locator('#rpT input[type=checkbox]:not([disabled])')
   await expect(ticks.nth(1)).toBeVisible({ timeout: 30_000 })
-  // Both panels: the scenario that was saved and the runs it produced, which
-  // is what the section is about.
-  await expect(saved).toBeVisible()
+  await blur(page)
   await settle(page)
-  await shootFrom(page, saved, runs, 'studio-history.png')
+  await shoot(page.locator('#rpRuns'), 'studio-history.png')
 
   // ------------------------------------------------------------- comparison
   // The older one first. Whichever is ticked first is the "before" column, and
-  // the table lists the newest run at the top -- so ticking straight down the
-  // list compares the new run against the old one in that order and reports
-  // every improvement as a regression.
+  // the newest run is at the top -- so ticking straight down the list would
+  // report every improvement as a regression.
   await ticks.nth(1).check()
   await ticks.nth(0).check()
-  await runs.getByRole('button', { name: 'Compare' }).click()
-
-  const comparison = runs.locator('.panel').filter({ hasText: '→' }).first()
-  await expect(comparison).toBeVisible()
+  await page.locator('#rpCompare').click()
+  const comparison = page.locator('#rpCmp')
   await expect(comparison).toContainText(/better|worse|same/)
   await blur(page)
   await settle(page)
@@ -250,7 +211,8 @@ async function shoot(target: Locator, file: string) {
 async function shootFrom(
   page: Page, first: Locator, last: Locator, file: string, within?: Locator,
 ) {
-  await first.scrollIntoViewIfNeeded()
+  // The top of the region at the top of the window, so as much of it as fits is in the shot.
+  await first.evaluate((el) => el.scrollIntoView({ block: 'start' }))
   const top = await first.boundingBox()
   const bottom = await last.boundingBox()
   if (!top || !bottom) throw new Error(`nothing to photograph for ${file}`)

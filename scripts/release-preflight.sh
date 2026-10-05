@@ -172,9 +172,9 @@ if [ -f "$STUDIO" ]; then
   kill "$STUDIO_PID" 2>/dev/null || true
   wait "$STUDIO_PID" 2>/dev/null || true
 
-  if [ "$SERVED" = 1 ] && grep -q "<div id=\"root\"" "$WORK_DIR/index.html"; then
-    # The interface is built by a separate toolchain and copied in. A jar that
-    # starts and serves no interface is the failure this catches.
+  if [ "$SERVED" = 1 ] && grep -q "<div class=\"con\" id=\"con\"" "$WORK_DIR/index.html"; then
+    # The console is the studio's home page. A jar that starts and serves no
+    # interface is the failure this catches.
     ok "it starts and serves the interface"
   else
     fail "the studio jar did not serve its interface"

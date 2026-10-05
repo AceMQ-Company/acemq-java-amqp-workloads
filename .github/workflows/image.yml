@@ -11,8 +11,7 @@
 #
 # Each architecture is built on its own machine and the two are joined into one
 # tag afterwards. The alternative -- one machine building both under QEMU -- took
-# six minutes for the emulated half, and the emulated half is a JVM and a Node
-# toolchain, which is close to the worst thing to run under emulation.
+# six minutes for the emulated half, and the emulated half is a JVM build, which is close to the worst thing to run under emulation.
 name: image
 
 on:

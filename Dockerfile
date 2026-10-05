@@ -3,7 +3,7 @@
 #   docker build -t acemq-workloads-studio .
 #   docker run --rm -p 8480:8480 acemq-workloads-studio
 #
-# Two stages, because the build needs Maven, a JDK and Node and the result needs
+# Two stages, because the build needs Maven and a JDK and the result needs
 # none of them: a runtime image carrying a toolchain is several hundred
 # megabytes of attack surface for something that only has to run a jar.
 FROM maven:3.9-eclipse-temurin-17 AS build

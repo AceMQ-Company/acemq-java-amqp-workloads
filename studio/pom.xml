@@ -34,14 +34,6 @@
     <spring-boot.version>3.4.1</spring-boot.version>
     <testcontainers.version>1.21.4</testcontainers.version>
     <sqlite.version>3.47.1.0</sqlite.version>
-    <!-- 22.12 is the floor vitest 5 asks for, and this sat one patch below it
-         at 22.11.0, which npm reported as an EBADENGINE warning and then
-         installed anyway. A warning is not a guarantee: the engine field is
-         advisory here only because npm chooses to make it so, and the current
-         22 LTS costs nothing over the minimum. -->
-    <node.version>v22.23.2</node.version>
-    <npm.version>10.9.0</npm.version>
-    <frontend-plugin.version>1.15.1</frontend-plugin.version>
   </properties>
 
   <!-- The AceMQ artifacts are served from the family's own Maven repository. The
@@ -180,71 +172,6 @@
         </executions>
       </plugin>
 
-      <!--
-        The front end is built into the jar, so `java -jar` is the whole
-        installation. The plugin downloads its own Node into target/, which
-        means a machine with no Node builds this and a machine with the wrong
-        Node builds it the same way.
-      -->
-      <plugin>
-        <groupId>com.github.eirslett</groupId>
-        <artifactId>frontend-maven-plugin</artifactId>
-        <version>${frontend-plugin.version}</version>
-        <configuration>
-          <workingDirectory>src/main/frontend</workingDirectory>
-          <installDirectory>${project.build.directory}</installDirectory>
-        </configuration>
-        <executions>
-          <execution>
-            <id>install-node-and-npm</id>
-            <goals>
-              <goal>install-node-and-npm</goal>
-            </goals>
-            <configuration>
-              <nodeVersion>${node.version}</nodeVersion>
-              <npmVersion>${npm.version}</npmVersion>
-            </configuration>
-          </execution>
-          <execution>
-            <id>npm-install</id>
-            <goals>
-              <goal>npm</goal>
-            </goals>
-            <configuration>
-              <!-- ci rather than install: the lock file decides, so a build in
-                   six months resolves what this build resolved. -->
-              <arguments>ci</arguments>
-            </configuration>
-          </execution>
-          <execution>
-            <id>npm-build</id>
-            <goals>
-              <goal>npm</goal>
-            </goals>
-            <phase>generate-resources</phase>
-            <configuration>
-              <arguments>run build</arguments>
-            </configuration>
-          </execution>
-          <!-- The interface's own tests, in the same phase as everybody else's.
-               They run in jsdom and take a second, so there is no reason for
-               them to live outside the build: half the studio is TypeScript,
-               and until this existed none of it was covered by anything. The
-               browser tests need a broker and a jar, so those are the `ui` job
-               in CI and scripts/e2e.sh by hand. -->
-          <execution>
-            <id>npm-test</id>
-            <goals>
-              <goal>npm</goal>
-            </goals>
-            <phase>test</phase>
-            <configuration>
-              <arguments>run test</arguments>
-              <skip>${skipTests}</skip>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
 
       <!-- The studio's own integration test drives a real broker through the API, so it belongs
            to `verify` rather than `test`: pressing Run is the product, and until this ran nothing
@@ -270,27 +197,6 @@
         </executions>
       </plugin>
 
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-resources-plugin</artifactId>
-        <executions>
-          <execution>
-            <id>copy-frontend</id>
-            <phase>process-resources</phase>
-            <goals>
-              <goal>copy-resources</goal>
-            </goals>
-            <configuration>
-              <outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
-              <resources>
-                <resource>
-                  <directory>src/main/frontend/dist</directory>
-                </resource>
-              </resources>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
     </plugins>
   </build>
 

@@ -232,11 +232,10 @@ jobs:
           echo "the command line jar reports $reported"
 
       - name: Check the studio jar starts and serves its interface
-        # The studio's front end is built by a separate toolchain and copied in,
-        # so a jar that builds perfectly and serves nothing is a real outcome and
-        # an invisible one. Three things are silent until somebody opens a
-        # browser: a Spring context that will not start, a front end that was
-        # never built into the jar, and an SQLite driver that is not on the path.
+        # A jar that builds perfectly and serves nothing is a real outcome and an
+        # invisible one. Three things are silent until somebody opens a browser:
+        # a Spring context that will not start, a console whose pages never made
+        # it into the jar, and an SQLite driver that is not on the path.
         run: |
           set -euo pipefail
           test -f studio/target/acemq-workloads-studio.jar
@@ -247,14 +246,14 @@ jobs:
             curl -fs http://localhost:8480/actuator/health > /dev/null && break
             sleep 2
           done
-          curl -fs http://localhost:8480/ | grep -q "AceMQ workloads studio"
+          curl -fs http://localhost:8480/ | grep -q "AceMQ Workloads Studio"
           # And the API answers, which means the context came up whole rather
           # than serving a static page in front of a broken application.
           curl -fs http://localhost:8480/api/presets | grep -q quorum-vs-classic
           kill $studio
 
       - name: Run the end-to-end tests against the jar being released
-        # The layer jsdom cannot see, which is everything to do with layout, run
+        # The layer the HTTP tests cannot see, which is layout and every flow, run
         # against the actual artifact rather than a rebuild of it: e2e.sh uses
         # studio/target/acemq-workloads-studio.jar as it finds it, and E2E_REBUILD
         # is deliberately not set here so that it does. This is the equivalent of
@@ -272,8 +271,8 @@ jobs:
           path: |
             **/target/surefire-reports/**
             **/target/failsafe-reports/**
-            studio/src/main/frontend/playwright-report/**
-            studio/src/main/frontend/test-results/**
+            studio/e2e/playwright-report/**
+            studio/e2e/test-results/**
           retention-days: 7
 
       - name: Name the jars after what they are

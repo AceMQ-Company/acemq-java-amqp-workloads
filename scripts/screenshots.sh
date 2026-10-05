@@ -28,7 +28,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-FRONTEND="$REPO_ROOT/studio/src/main/frontend"
+E2E_DIR="$REPO_ROOT/studio/e2e"
 PORT="${SHOT_PORT:-8751}"
 BROKER="${E2E_BROKER:-}"
 MANAGEMENT="${E2E_MANAGEMENT:-}"
@@ -143,7 +143,7 @@ if ! curl -fsS "http://127.0.0.1:$PORT/" -o /dev/null 2>/dev/null; then
   exit 1
 fi
 
-cd "$FRONTEND"
+cd "$E2E_DIR"
 if [ ! -d node_modules ]; then
   npm ci
 fi

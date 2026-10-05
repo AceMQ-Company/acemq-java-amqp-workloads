@@ -20,14 +20,14 @@ import { defineConfig, devices } from '@playwright/test'
  * These exist because every interface bug this project has had was found by a
  * person clicking. A chart squeezed to two hundred pixels, a page that would not
  * scroll, a media query that caught a screen it was not meant for — none of them
- * are visible to a component test in jsdom, which has no layout at all.
+ * are visible without a layout engine, which is why these run in a browser.
  *
  * The studio and the broker are started by whoever runs this (the `ui` job in
  * CI, or `scripts/e2e.sh` by hand), because starting a broker is not something a
  * test runner should be doing.
  */
 export default defineConfig({
-  testDir: './e2e',
+  testDir: './tests',
   // A run takes seconds and the studio allows one at a time, so these are
   // deliberately serial. Parallel tests would fight over the one run slot and
   // fail for a reason that has nothing to do with the interface.
