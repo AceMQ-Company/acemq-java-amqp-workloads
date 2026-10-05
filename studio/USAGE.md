@@ -16,7 +16,8 @@ What this file kept is the part people opened it for:
 java -jar acemq-workloads-studio.jar
 ```
 
-Then open <http://localhost:8480>. Java 17 or newer; no installation, no
+Then open <http://localhost:8480>: one interface, the AceMQ console, with every
+screen the studio has as a view in it. Java 17 or newer; no installation, no
 database to set up, no configuration file.
 
 In a container:
@@ -31,9 +32,10 @@ writable layer and disappears with it.
 
 ## The workloads console
 
-<http://localhost:8480/console> is the same studio in the AceMQ console shell:
-standing loads, endurance, delivery evidence and a load designer, over real
-data. To see the drill workspace's five standing loads and its newest soak,
+Its views are scenarios, the scenario run, reports and the broker — the
+designer, live runs, history and comparison — and standing loads, endurance,
+delivery evidence and a load designer, over real data. <http://localhost:8480/console>
+is the same page, kept so older links open it. To see the drill workspace's five standing loads and its newest soak,
 point it at the workspace:
 
 ```bash

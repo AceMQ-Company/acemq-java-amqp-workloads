@@ -3,6 +3,14 @@
 Everything the studio does, in the order you meet it. [The studio](studio.md)
 says what it is and why; this says how to work it.
 
+The studio has one interface, the console: an icon rail down the left (a bar
+along the bottom on a phone), a ⌘K / Ctrl+K palette that jumps to any view or
+runs any command, and six themes in light and dark under the gear. Four views
+are about scenarios and are what this page walks through — **Broker**,
+**Scenarios**, **Scenario run** and **Reports**. The other four — **Standing
+loads**, **Endurance**, **Delivery evidence** and **Load designer** — are
+described in [the studio's README](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/blob/main/studio/README.md#the-workloads-console).
+
 The pictures are captures of the running application, taken by
 [`scripts/screenshots.sh`](https://github.com/AceMQ-Company/acemq-java-amqp-workloads/blob/main/scripts/screenshots.sh),
 which drives the studio through this walkthrough against a real broker. If a
@@ -27,7 +35,7 @@ you is right and this page is behind.
 java -jar acemq-workloads-studio.jar
 ```
 
-Then open <http://localhost:8480>. Java 17 or newer; no installation, no
+Then open <http://localhost:8480> (`/console` is the same page). Java 17 or newer; no installation, no
 database to set up, no configuration file.
 
 In a container:
@@ -49,28 +57,33 @@ java -jar acemq-workloads-studio.jar --server.port=9000 \
 
 ## 1. Connect to a broker
 
-The first screen, and for a moment the only one. Nothing else works without a
-broker — the designer asks it which queue types it honours, and a scenario is
-only worth drawing if it can be run.
+The **Broker** view. A scenario needs a broker — the designer asks it which
+queue types it honours, and a scenario is only worth drawing if it can be run —
+so **Run** will not start one without a broker that answered: it brings you here
+instead.
 
 | Field | |
 |---|---|
 | **Broker (AMQP)** | `amqp://guest:guest@localhost:5672`, or `amqps://…` for TLS |
 | **Management API** | `http://localhost:15672`. Optional, and worth having |
 
-![The connect screen. A heading, Connect to a broker, then two boxes: Broker
+![The Broker view. On the left a Connection panel with two boxes: Broker
 (AMQP) holding amqp://guest:guest@localhost:5781, and Management API holding
-http://localhost:15781. Below them a green panel reading "Found a broker at
-localhost:5781", with "RabbitMQ 4.3.6 — Classic, Quorum, Stream" underneath it.
-Two buttons at the foot: Continue, and Check
-again.](assets/studio-connect.png)
+http://localhost:15781. On the right a What answered panel with a green box
+reading "Found a broker at localhost:5781", and "RabbitMQ 4.3.6: Classic,
+Quorum, Stream" underneath it. Under that two buttons: Design a scenario, and
+Check again.](assets/studio-connect.png)
 
-It checks as soon as the screen opens, and again whenever you press **Try
-again** or **Check again**. Three things can come back:
+It checks the first time a scenario view opens, and again whenever you press
+**Enter** in either box, leave a box you changed, or press **Check again** or
+**Try again**. What answered is what a run uses: when the URL had to be changed
+to reach the broker, the box is updated to the one that worked. The broker chip
+beside **Run** in the Scenarios view always says which broker that is, and
+pressing it brings you back here. Three things can come back:
 
-- **Found a broker.** Press **Continue**. The line under it is the broker's own
-  version and the queue types it honours, which is what the management API was
-  asked for.
+- **Found a broker.** **Design a scenario** takes you to the designer. The line
+  under it is the broker's own version and the queue types it honours, which is
+  what the management API was asked for.
 - **Found it, but the management API did not answer.** You can continue. Without
   it the studio cannot tell which queue types this broker honours, so it offers
   only classic and quorum, and **Import from broker** is unavailable.
@@ -95,7 +108,7 @@ certificate in return.
 
 | | |
 |---|---|
-| **Certificate authority** | The authority that signed the broker's certificate. Paste the PEM or give a path |
+| **Certificate authority** | The authority that signed the broker's certificate, as a path |
 | **Client certificate and key** | For mutual TLS, when the broker asks who you are. PEM as it comes; the studio builds the keystores itself |
 | **Accept development certificates** | The AceMQ generator stamps its certificates development-only and the library refuses them unless this is on |
 | **Trust any certificate** | Encrypts and proves nothing. For a first run against a broker whose certificate nobody can find |
@@ -105,37 +118,40 @@ one. Holding your passphrase would make the studio the thing that leaked it.
 
 ## 2. Design a scenario
 
-The **design** tab. The canvas on the left, the inspector on the right, and what
-you have selected decides what the inspector shows.
+The **Scenarios** view. A **Build** panel of things to add, open and export; the
+topology in the middle; the inspector on the right, showing whatever you have
+selected. Below them, the presets and the scenarios you have saved. On a narrower
+screen the same panels stack, and on a phone the topology scrolls inside its own
+box rather than shrinking past legibility.
 
-![The design tab. Across the top: tabs for design, run, presets and history, the
-broker and management URLs, and a green Run button. Under that a toolbar reading
-slow-consumer, with + exchange, + queue, + producer, Save, Open file, Export
-JSON, YAML and Import from broker. The canvas below holds four nodes wired left
-to right — a producer "orders" publishing 1,500 a second at 512 bytes, a fanout
-exchange "orders", and two classic queues bound to it: "orders.fast" with four
-consumers and "orders.slow" with one. On the right the inspector shows the
-scenario itself: its name, what it is for, a warm-up of 3s, a measured window of
-25s, and a switch to declare the topology before
-running.](assets/studio-canvas.png)
+![The Scenarios view. Across the top: the heading Scenarios with "not saved · 1
+producer · 1 exchange · 2 queues · warm-up 3s · measure 25s", and on the right a
+green broker chip reading localhost:5781, Save, and an orange Run button. Below,
+three panels side by side. Build: Add Exchange, Queue and Producer; Start from
+New scenario, Open a file and Import from broker; Export JSON and YAML. The
+topology, titled slow-consumer: a producer "orders" publishing 1,500 a second
+at 512 bytes, a fanout exchange "orders", and two classic queues bound to it —
+"orders.fast" with four consumers and "orders.slow" with one. The inspector on
+the right shows the scenario itself: its name, what it is for, a warm-up of 3s,
+a measured window of 25s, and a switch to declare the topology before running.
+Under the three, the start of the Presets list and an empty Saved scenarios
+table.](assets/studio-canvas.png)
 
-### The canvas
+### The topology
 
 | To | Do |
 |---|---|
-| Add a node | **+ exchange**, **+ queue** or **+ producer** in the toolbar |
-| Bind a queue to an exchange | Drag from the dot on the exchange's right edge to the dot on the queue's left |
-| Select something | Click it |
-| Move things | Drag them; the layout is yours |
-| Zoom or fit | The controls at the bottom left |
+| Add a node | **Exchange**, **Queue** or **Producer** under *Add*, or from ⌘K |
+| Bind a queue to an exchange | Drag from the exchange to the queue, or **+ binding** in the queue's inspector |
+| Select something | Click it, or tab to it and press Enter |
+| Edit the scenario itself | Click the empty space around the nodes |
 
-Bindings are the edges, with the routing key on them. While a run is going, the
-edges carrying traffic animate and each node shows its own numbers.
-
-A scenario that arrives rather than being drawn — a preset, an opened file, an
-imported topology — lands on whatever view the canvas already had, so a large
-one can arrive partly off-screen. **Fit**, the lower of the controls at the
-bottom left, puts all of it back in frame.
+Producers sit on the left, exchanges in the middle and queues on the right,
+because that is the direction a message travels. Bindings are the edges, with
+the routing key on them. The drawing always fits everything in the scenario,
+however it arrived — a preset, an opened file, an imported topology — so there is
+nothing to zoom or pan. While a run is going, the edges carrying traffic animate
+and each node shows its own rate.
 
 ### The inspector
 
@@ -154,12 +170,13 @@ anything this broker will not honour disabled and saying why; a dead-letter
 exchange; its bindings; its arguments; its consumers.
 
 ![The inspector with a queue selected. The name orders.slow at the top, then
-Type as four radio cards: Classic, chosen and outlined in green; Classic,
+Type as four radio cards: Classic, chosen and outlined in orange; Classic,
 mirrored, greyed out and saying mirrored classic queues were removed in RabbitMQ
 4.0 and this broker is 4.3.6; Quorum; and Stream. Below them a dead-letter
-exchange set to "none: rejected messages are dropped", and then Bound to, with
-one binding — the orders exchange, an empty routing key, and an Unbind button
-beside it — and a + binding button underneath.](assets/studio-inspector.png)
+exchange set to "none: rejected messages are dropped"; Bound to, with one
+binding — the orders exchange, an empty routing key, and an Unbind button beside
+it — and + binding underneath; then Arguments, with x-max-length set to 200000,
+a Remove button, and + argument.](assets/studio-inspector.png)
 
 - **Bound to** — every binding, with the exchange and the routing key both
   editable, an **Unbind** button, and **+ binding**. A binding left pointing at
@@ -183,8 +200,8 @@ turn), its rate and message size, publisher confirms, and whether it takes part.
 
 ### Checking as you go
 
-Every edit is checked against what a broker would accept. Problems appear in a
-red banner and block the Run button; warnings appear in an amber one and do not.
+Every edit is checked against what a broker would accept. Problems appear in red
+above the panels and disable **Run**; warnings appear in amber and do not.
 A binding to an exchange nothing declares is a problem. A queue nobody consumes
 is a warning, because it is a legitimate thing to measure.
 
@@ -194,9 +211,11 @@ is a warning, because it is a legitimate thing to measure.
   consumers switched off. The fastest way to a useful scenario is not drawing one
   — it is taking the shape that already exists and putting load on the part in
   question.
-- **Open file** opens a scenario file, JSON or YAML: the one a pipeline runs, or
-  one exported from here a month ago.
-- **presets** gives you ten that answer a real question as they stand.
+- **Open a file** opens a scenario file, JSON or YAML: the one a pipeline runs,
+  or one exported from here a month ago.
+- **Presets**, under the designer, gives you ten that answer a real question as
+  they stand.
+- **New scenario** starts again from one exchange, one queue and one producer.
 
 ## 3. Say what it must prove
 
@@ -212,7 +231,7 @@ On a queue:
 | **Handles at least, a second** | Messages a second its consumers must manage |
 | **Must not be deeper at the end than at the start** | No growing backlog. Not checked for a stream, which retains what it has served |
 
-![The What it must prove panel at the foot of a queue's inspector. p99 under
+![The What it must prove section at the foot of a queue's inspector. p99 under
 holds 150ms and p99.9 under holds 500ms, side by side; Handles at least, a
 second holds 1400; a switch below them, "Must not be deeper at the end than at
 the start", is on. Under the lot, a line saying what is left blank is not
@@ -236,28 +255,35 @@ A missed objective is a `FAILED` finding naming the node and both numbers, and
 ## 4. Run it
 
 Press **Run**. The studio resolves the broker URL first — inside a container the
-one you typed may name the container rather than your machine — and then starts.
+one you typed may name the container rather than your machine — and then starts,
+and the **Scenario run** view opens. It follows the run over server-sent events,
+so a reload, or a second browser, picks it up where it is.
 
-The **run** tab shows:
+It shows:
 
+- **The phases** across the top — starting, warm-up, measuring, draining, report
+  — with the one in progress marked, and the elapsed time, the rates and what is
+  waiting in a row of figures underneath.
 - **Published against consumed**, on one chart. While the two lines sit together
   the system is keeping up; the gap between them is the backlog forming.
 - **What is waiting, queue by queue**, underneath. The same fact as a
   consequence.
 - **A card per producer and per queue**, with its own rate and totals.
 
-![A run in progress. A green chip reads "measuring", beside it "14s elapsed",
-and at the right a red "Stop, and report on what it measured" button. Below,
-the chart "Published against consumed": both lines climb to about 1,500 a
-second in the first three seconds and then run flat and together. Under it,
-"What is waiting, queue by queue": orders.fast sits on zero for the whole run
-while orders.slow climbs in a straight line past twenty thousand
-messages.](assets/studio-run.png)
+![A run in progress. The heading Scenario run with the scenario, the run's id
+and the broker, and at the right a red "Stop, and report on what it measured"
+button. A row of five phases with starting and warm-up done and measuring in
+progress; then the figures: Measuring, 14 s elapsed, 1,500 published a second,
+1,593 consumed a second, 19,643 waiting. Below, the chart "Published against
+consumed": both lines climb to about 1,500 a second after the warm-up and then
+run flat and together. Under it, "What is waiting, queue by queue": orders.fast
+sits on zero for the whole run while orders.slow climbs in a straight line
+towards twenty thousand messages.](assets/studio-run.png)
 
 Rates are per interval rather than averages since the start: an average cannot
 show a stall, it dips a little and recovers.
 
-The phase chip says what is happening. **Warming up** means the numbers are being
+The phase says what is happening. **Warm-up** means the numbers are being
 thrown away — class loading, JIT and the first collection land there rather than
 in your p99.
 
@@ -277,14 +303,18 @@ One run at a time. Two load generators on one machine measure each other.
 | **Failed** | Sound run, something it was asked for did not hold — the broker's answer is "no" |
 | **Invalid** | The generator never offered the load. This says nothing about the broker; fix the harness |
 
-![The verdict of a finished run, in a red-tinged panel: "Failed", and under it
-"25s measured · 37,502 published · 39,832 consumed". Then three findings, each
-a rule name with its severity in front of it, the measurement that produced it,
-and a sentence saying what that measurement means. WARNING
-consumers-kept-up:orders.slow, "orders.slow grew from 4133 to 39307 messages
-over the run". FAILED expected-p99:orders.slow, "orders.slow p99 was 26038.2ms,
+![The verdict of a finished run, in a red-edged panel: "Failed", and under it
+"25s measured · 37,500 published · 39,937 consumed". Then three findings, each
+with a badge for its severity, the measurement that produced it, a sentence
+saying what that measurement means, and the rule's name at the right. A warning,
+consumers-kept-up:orders.slow, "orders.slow grew from 4130 to 39301 messages
+over the run". FAILED expected-p99:orders.slow, "orders.slow p99 was 27044.9ms,
 and was asked for under 150ms". FAILED expected-p99.9:orders.slow, the same
 story at p99.9.](assets/studio-verdict.png)
+
+Under the verdict the run view keeps its charts and adds two tables: each queue's
+type, consumers, rate, p50, p99 and p99.9 and what was left waiting, and each
+producer's offered and achieved rate, failures, send lag and confirm latency.
 
 Every finding carries the measurement that produced it, and none of them tell you
 what to change. A tool that prints "increase prefetch to 250" is guessing, and a
@@ -295,31 +325,32 @@ confident wrong recommendation is worse than silence.
 Scenarios, runs and every reading go into one SQLite file, `~/.acemq/workloads-studio.db`
 by default.
 
-- **Save** keeps the scenario. Saved scenarios are listed in **history**, where
-  **Open** puts one back on the canvas.
+- **Save** keeps the scenario. Saved scenarios are listed under the designer,
+  where **Open** puts one back on the canvas and **Delete** forgets it.
 - **Export JSON** / **YAML** downloads `acemq-workload-<name>-<date>.json`, the
   file the command line reads.
-- On a finished run, **HTML**, **Markdown** and **JSON** in the run toolbar save
-  the report — the same document the command line writes, so what goes into a
-  ticket is the report rather than somebody's memory of it.
-- **history** lists every run: the scenario, the broker with its password
-  redacted, when it started and how it ended. **Open** draws a finished run again
-  exactly as it was watched. **Delete** forgets it and its readings.
+- On a finished run, **HTML**, **Markdown** and **JSON** at the top of the run
+  view save the report — the same document the command line writes, so what goes
+  into a ticket is the report rather than somebody's memory of it.
+- **Reports** lists every run: the scenario, the broker with its password
+  redacted, when it started, how it ended, and its report as HTML, Markdown and
+  JSON links. **Open** draws a finished run again exactly as it was watched.
+  **Delete** forgets it and its readings.
 
-![The history tab. A Saved scenarios panel at the top with one row —
-slow-consumer, its description, and Open and Delete buttons. Under it a Runs
-panel: a line saying to tick two runs to compare them, then a table with a tick
-box per row and columns for the scenario, the broker, when the run started and
-the result. Two runs of slow-consumer are listed, both against
-amqp://guest:***@localhost:5781 with the password replaced by asterisks, both
-finished, both reading failed in red.](assets/studio-history.png)
+![The Runs panel of the Reports view: a table with a tick box per row and
+columns for the scenario with the run's id under it, the broker, when the run
+started, the result, the report and the actions. Two runs of slow-consumer are
+listed, both against amqp://guest:***@localhost:5781 with the password replaced
+by asterisks, both reading FAILED in red, each with HTML, Markdown and JSON
+links and Open and Delete buttons.](assets/studio-history.png)
 
 The 200 most recent runs are kept and older ones are dropped as new ones finish.
 `--acemq.studio.keep-runs=1000` if you want more.
 
 ## 6. Compare two runs
 
-In **history**, tick two finished runs and press **Compare**.
+In **Reports**, tick two finished runs and press **Compare**. A third tick drops
+the oldest of the two rather than refusing.
 
 Tick the older one first. The one ticked first is the **before** column, and the
 table lists the newest run at the top — so ticking straight down the list puts
@@ -331,12 +362,12 @@ the new run in **before** and reports every improvement as a regression.
 > is the harness rather than the change being measured. Delete the queues, or
 > use a fresh broker, before comparing two runs that both build a backlog.
 
-![The comparison table, headed "slow-consumer → slow-consumer" and "10 of 12
+![The comparison table, headed "slow-consumer → slow-consumer" and "9 of 12
 measurements moved by more than 5%". A row per measurement the two runs have in
 common, with columns for the node, the measurement, before, after and the
 change. Doubling the producer's rate doubled what came out — published 37,502 to
-75,002, +100.0% better — and cost the fast leg its latency: orders.fast p99 went
-from 2.8ms to 88.1ms, shown as ×31.7 worse. orders.slow consumed 93 a second in
+75,003, +100.0% better — and cost the fast leg its latency: orders.fast p99 went
+from 1.6ms to 48.2ms, shown as ×30.7 worse. orders.slow consumed 99 a second in
 both runs, reported as same.](assets/studio-comparison.png)
 
 Every measurement the two have in common, with the direction made explicit: a
@@ -352,7 +383,8 @@ would hide the only thing that changed.
 
 ## Presets
 
-The **presets** tab. Click one and it lands on the canvas, yours to edit.
+Under the designer, or `Preset:` in the ⌘K palette. **Open** one and it lands on
+the canvas, yours to edit.
 
 *Measurements* isolate one variable:
 

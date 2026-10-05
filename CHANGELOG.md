@@ -12,7 +12,7 @@ the messaging library's release train.
 
 ### Added
 
-- **The workloads console**, at `/console` in the studio: the approved AceMQ
+- **The workloads console**, at `/` in the studio (and `/console`): the approved AceMQ
   console shell (icon rail, top bar, ⌘K palette, six themes in light and dark)
   over four views of real data. *Standing loads* reads the drill workspace's
   per-language sample lines and the load started from the console, every
@@ -30,8 +30,35 @@ the messaging library's release train.
   `ACEMQ_STUDIO_DRILL_WORKSPACE` (the AMQP libraries workspace to read standing
   loads and soak reports from).
 
+### Changed
+
+- **The studio has one interface: the React application is replaced by the
+  console.** Everything it did is a view in the console now, in the same design
+  as the rest: *Scenarios* (the multi-node designer with its canvas, inspector,
+  drag-to-bind, presets, saved scenarios, opening a JSON or YAML file, importing
+  a broker's topology, exporting JSON and YAML), *Scenario run* (live over the
+  same server-sent events, the phases, published against consumed, depth per
+  queue, a card per node, the verdict and its findings, and the report as HTML,
+  Markdown or JSON), *Reports* (every run kept, opened again, deleted, its
+  report linked in three forms, and two compared) and *Broker* (the probe, the
+  TLS settings, and what answered or what was tried). The console is the home
+  page at `/`; `/console` stays as an alias. Every command is in the ⌘K palette,
+  presets included.
+- A run is refused without a broker that answered, by taking you to the Broker
+  view, rather than the whole interface waiting behind a connect screen: the
+  standing loads and evidence views need no broker of their own.
+- The topology always fits the whole scenario, so the canvas's zoom, pan and
+  fit controls are gone with it; on a phone it scrolls inside its own box
+  instead of shrinking past legibility.
+- The jar no longer carries a Node build: no `frontend-maven-plugin`, no Node
+  or npm downloaded by Maven, no React, Vite or Recharts. The Playwright tests
+  moved to `studio/e2e/` and cover every view at 375, 768, 1280 and 1920 px.
+
 ### Fixed
 
+- The console's charts no longer double their own height on every redraw of a
+  2x screen, until the browser refused to draw them at all: the device-pixel
+  height was written back into the attribute it was read from.
 - An exposed studio opened with `?token=` now sets its cookie on that first
   response, so the page's stylesheet and script are not refused before any of
   its own code has run.

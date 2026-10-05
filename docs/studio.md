@@ -17,8 +17,8 @@ The full walkthrough, screen by screen and with pictures of each one, is
 
 ## A broker first
 
-Nothing in the studio works without one, so the first screen is a connection and
-the rest is not reachable until it answers. That is not ceremony: the designer
+A scenario does not run without one: **Run** takes you to the Broker view until
+a broker has answered. That is not ceremony: the designer
 asks the broker which queue types it honours, and drawing a scenario against
 assumptions is how you find out at the end of a run that mirrored classic queues
 were removed in RabbitMQ 4.0.

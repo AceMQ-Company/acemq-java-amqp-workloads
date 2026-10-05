@@ -8,7 +8,9 @@ java -jar acemq-workloads-studio.jar
 ```
 
 One jar. No database to install, no node to run, no configuration file to write
-before the first thing works.
+before the first thing works. One interface, too: the page at `/` is the AceMQ
+console, and every screen the studio has is a view in it (`/console` is the same
+page, kept so older links still open it).
 
 ## What it is for
 
@@ -113,16 +115,21 @@ likes while the fulfilment leg must not. [The fields](../docs/scenario-file.md#o
 
 ```bash
 java -jar acemq-workloads-studio.jar
-# http://localhost:8480/console
+# http://localhost:8480   (or /console, the same page)
 ```
 
-The same studio, in the AceMQ console shell the chaos framework uses: an icon
-rail on the left, a top bar, and a command palette on **⌘K** (Ctrl+K) that
-jumps to any view or runs a command. Every view reads real data; where there is
-none, it says why instead of drawing a sample.
+The studio's interface is the AceMQ console shell the chaos framework uses: an
+icon rail on the left (a bar along the bottom on a phone), a top bar, and a
+command palette on **⌘K** (Ctrl+K) that jumps to any view or runs a command —
+adding a node, saving, running, exporting, opening any preset. Every view reads
+real data; where there is none, it says why instead of drawing a sample.
 
 | View | What it shows | Where it comes from |
 |---|---|---|
+| **Scenarios** | The designer: a Build palette (add an exchange, queue or producer; a new scenario, a file, or the broker's own topology; export JSON or YAML), the topology drawn producers → exchanges → queues, and the inspector for whatever is selected. Under it the ten presets and the saved scenarios. Checked against the broker's rules as you edit; **Run** stays disabled while anything would be refused | `/api/scenarios`, `/api/presets`, `/api/broker/import` |
+| **Scenario run** | The run in progress or the one you opened: its phases, rates, what is waiting, published against consumed, depth per queue, a card per node, then the verdict with every finding and the queue and producer tables. **HTML**, **Markdown** and **JSON** save the report | `/api/runs`, live over server-sent events from `/api/runs/{id}/stream`, which replays on reconnect |
+| **Reports** | Every run kept, with its report as HTML, Markdown and JSON links, **Open** to draw it again, **Delete**, and two ticked runs compared measurement by measurement | `/api/runs`, `/api/runs/compare` |
+| **Broker** | The AMQP and management URLs, the TLS settings for `amqps://`, and what answered: the version and queue types, or every URL tried and what each said | `/api/broker/probe` |
 | **Standing loads** | One card per load: confirmed and consumed per second, refused and failed kept apart, state, and the end-to-end latency of the one you select. Totals across what is running on top, the loads' own output underneath as events. Refreshed every second | The drill workspace's `.chaos/workload-<language>.jsonl` (the `--emit-samples` lines each language's standing load writes), and the load started from this console |
 | **Load designer** | A form over the workload file, the file itself beside it, and the offered rate over the run. The file is the one `java -jar acemq-workload.jar -f` reads, checked by the library's own parser as you edit. **Validate**, **Save** and **Start this load** each do exactly that and nothing until clicked | The library: `WorkloadFile` parses what the designer writes |
 | **Delivery evidence** | For each run started here: every default rule and every objective the file set, passed or not, each with the numbers it was decided on, and the run's totals. **Export evidence** saves it as JSON | The library's `Rules` and `Objective`s, evaluated when the run ends and kept under the workloads directory |
@@ -230,7 +237,7 @@ docker compose up --build
 ```
 
 Inside that network the broker is called `broker`. `localhost` is the studio's
-own container, which is exactly what the first screen will tell you if you try
+own container, which is exactly what the Broker view will tell you if you try
 it.
 
 **In Kubernetes**, the two things worth setting:
@@ -272,46 +279,49 @@ mvn package          # both modules: the library and this
 java -jar studio/target/acemq-workloads-studio.jar
 ```
 
-The front end is built into the jar. Maven downloads its own Node into
-`target/`, so a machine with no Node builds this and a machine with the wrong
-Node builds it the same way.
-
-For working on the front end, run the studio from your IDE and then:
+The interface is three static files and an icon in
+`src/main/resources/static/` — `console/index.html`, `console.css`,
+`console.js` and `scenarios.js`, plain JavaScript with no build step — so the
+build needs a JDK and nothing else. To edit them with a reload rather than a
+rebuild, serve them from the source tree:
 
 ```bash
-cd src/main/frontend
-npm install
-npm run dev          # http://localhost:5173, API proxied to 8480
+java -jar studio/target/acemq-workloads-studio.jar \
+  --spring.web.resources.static-locations=file:studio/src/main/resources/static/
 ```
 
 ## Testing it
 
-Three layers, because they catch different things.
+Two layers, because they catch different things.
 
 ```bash
-mvn test                                   # Java, and the interface in jsdom
+mvn verify                                 # Java: the API, every page, the token
 ./scripts/e2e.sh                           # a real browser, a real broker
-./scripts/e2e.sh --grep "scrolls"          # one of them
+./scripts/e2e.sh amqp://guest:guest@localhost:5781 --grep "2x"   # one of them, your broker
 ```
 
-**Java** — the API without a broker, and `StudioRunIT` with one: starting a run,
-watching readings arrive, getting a verdict, taking the report away.
+**Java** — the API without a broker, and `StudioRunIT` and `ConsoleRunIT` with
+one: starting a run, watching readings arrive, getting a verdict, taking the
+report away. Every page and asset of the interface is fetched and checked, and
+`StudioTokenTest` proves that an exposed studio refuses all of it — pages,
+scripts, API, stream, report downloads — without the token and serves it with
+the token as a header, a parameter or the cookie the first page sets.
 
-**Component tests** run in jsdom as part of `mvn test`, and cover the parts of
-the interface that are decisions rather than pictures — whether a queue argument
-survives as a number, whether an objective is dropped when the last field is
-cleared, which way a comparison says a measurement moved.
+**End-to-end tests** live in `studio/e2e/` and run in headless Chromium against
+the real jar and a real broker, started by `scripts/e2e.sh` (it starts a broker
+in Docker unless you give it one). They open every view at 375, 768, 1280 and
+1920 px and fail if the page scrolls sideways or a phone's touch target is under
+40 px, and they walk each screen's flows: a run refused without a broker, a
+preset opened and run, the report downloaded in three forms, two runs compared
+and one forgotten, a binding dragged on the canvas, a designer edit followed
+into the exported file. Several are bugs this project actually had — a chart
+that doubled its own height on every redraw of a 2x screen is one.
 
-**End-to-end tests** run in headless Chromium against the real jar and a real
-broker, started by `scripts/e2e.sh` (it starts a broker in Docker unless you
-give it one). This layer exists because jsdom has no layout, and every interface
-bug this project has had was about layout: a run view that would not scroll,
-charts squeezed into two hundred pixels by a media query meant for the designer.
-Each test is one of those bugs.
-
-They run on every push — `mvn test` inside the build matrix, the browser tests in
-their own job with a RabbitMQ service container. A failure uploads the Playwright
-trace, which replays the run step by step with the DOM at each one.
+They run on every push — `mvn verify` inside the build matrix, the browser tests
+in their own job with a RabbitMQ service container. A failure uploads the
+Playwright trace, which replays the run step by step with the DOM at each one.
+`scripts/screenshots.sh` drives the same interface to take the pictures in
+[the guide](../docs/studio-guide.md).
 
 ## What it does not do
 
