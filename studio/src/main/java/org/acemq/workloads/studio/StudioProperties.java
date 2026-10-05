@@ -142,6 +142,44 @@ public class StudioProperties {
         return (parent == null ? Path.of(".") : parent).resolve("tls");
     }
 
+    private String workloadsDir;
+    private String drillWorkspace;
+
+    /**
+     * Where the console's load designer saves workload files, and where it keeps the evidence of
+     * the runs it started. Nothing is written outside it.
+     *
+     * @return the directory, beside the database unless {@code ACEMQ_STUDIO_WORKLOADS_DIR} moves it
+     */
+    public Path workloadsDir() {
+        if (workloadsDir != null && !workloadsDir.isBlank()) {
+            return Path.of(workloadsDir);
+        }
+        Path parent = databasePath().getParent();
+        return (parent == null ? Path.of(".") : parent).resolve("workloads");
+    }
+
+    public void setWorkloadsDir(String workloadsDir) {
+        this.workloadsDir = workloadsDir;
+    }
+
+    /**
+     * The AMQP libraries workspace whose drill scripts write standing-load readings
+     * ({@code .chaos/workload-*.jsonl}) and soak reports ({@code reports/soak-*.md}).
+     *
+     * <p>An interim source: the soak is planned to move into this repository, and until it does
+     * the console reads what the workspace scripts leave behind rather than inventing it.
+     *
+     * @return the workspace, or null when none is configured
+     */
+    public Path drillWorkspace() {
+        return drillWorkspace == null || drillWorkspace.isBlank() ? null : Path.of(drillWorkspace);
+    }
+
+    public void setDrillWorkspace(String drillWorkspace) {
+        this.drillWorkspace = drillWorkspace;
+    }
+
     private static String generateToken() {
         byte[] bytes = new byte[24];
         new SecureRandom().nextBytes(bytes);
