@@ -316,7 +316,7 @@ Nine guide pages and five tutorials, published at
 | | |
 |---|---|
 | **Start here** | [docs/index.md](docs/index.md) · [The studio](docs/studio.md) · [Getting started](docs/getting-started.md) |
-| **Reference** | [Command line](docs/cli.md) · [Workload file](docs/workload-file.md) · [Scenario file](docs/scenario-file.md) · [Rules](docs/rules.md) · [Reports](docs/reports.md) |
+| **Reference** | [Command line](docs/cli.md) · [Endurance](docs/endurance.md) · [Workload file](docs/workload-file.md) · [Scenario file](docs/scenario-file.md) · [Rules](docs/rules.md) · [Reports](docs/reports.md) |
 | **Why the numbers hold** | [Measurement](docs/measurement.md) — the schedule arithmetic and coordinated omission |
 | **Tutorials** | [Five, in order](docs/tutorials.md), each ending with something that runs |
 

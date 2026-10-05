@@ -12,6 +12,24 @@ the messaging library's release train.
 
 ### Added
 
+- **`endurance`, the soak, as a command**: `java -jar acemq-workload.jar endurance`.
+  Starts the five standing loads the way `chaos-drill.sh workload up` does (or adopts
+  ones already running, by pid file), closes every connection once a cycle through
+  the management API, reads each client process's resident memory, descriptors and
+  threads from outside (`/proc` on Linux, `ps` and `lsof` elsewhere), and judges
+  with the soak's allowances (+16 descriptors, +16 threads, 2x memory), its
+  "still publishing" and "the closes did something" checks, and configurable
+  known-upstream ceilings. Every number, client and launch command is settable in
+  a YAML file or by flag. Writes `reports/soak-<stamp>.md` byte for byte in the
+  format `release-preflight.sh` reads — tested against reports the script wrote,
+  from their own readings — plus `soak-<stamp>.json` for the console. Exit 0
+  passed, 1 failed, 2 could not run. [docs/endurance.md](docs/endurance.md).
+- **Start a soak from the console.** The Endurance view reads the command's JSON
+  report (the old markdown parser stays for reports written before it), and starts
+  a soak on a click with live progress: phase, `cycle n/N`, and every client's
+  readings charted as they are taken. One run at a time across loads, scenario
+  runs and soaks; the broker and its management API are checked first.
+
 - **The workloads console**, at `/` in the studio (and `/console`): the approved AceMQ
   console shell (icon rail, top bar, ⌘K palette, six themes in light and dark)
   over four views of real data. *Standing loads* reads the drill workspace's

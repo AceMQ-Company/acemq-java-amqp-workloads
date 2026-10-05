@@ -95,6 +95,7 @@ a wrong one worse than silence.
 - [Getting started](getting-started.md) — build it and run something
 - [Tutorials](tutorials.md) — step by step, five of them
 - [Command line](cli.md) — every option, with examples
+- [Endurance](endurance.md) — the soak: forced recoveries, resources read from outside, the leak verdict
 - [Workload file](workload-file.md) — every setting
 - [Scenario file](scenario-file.md) — a whole topology, and objectives per node
 - [API reference](apidocs/index.html) — the Java surface
