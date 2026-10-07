@@ -10,6 +10,8 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-07
+
 ### Added
 
 - **Delivery evidence shows the crash drill and the claim lease**, no longer

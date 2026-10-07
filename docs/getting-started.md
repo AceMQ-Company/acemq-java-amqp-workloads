@@ -29,7 +29,7 @@ To use the DSL from your own project instead:
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-java-amqp-workloads</artifactId>
-  <version>0.6.1</version>
+  <version>0.7.0</version>
 </dependency>
 ```
 
