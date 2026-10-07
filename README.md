@@ -15,7 +15,7 @@ DSL** a test uses. One open-loop rate schedule under all three, honest latency
 percentiles, and a report that says what it measured rather than what you should
 do about it.
 
-> **Status: `0.6.0`, published.** 191 Java tests including integration tests
+> **Status: `0.7.0`, published.** 191 Java tests including integration tests
 > against a real broker, on JDK 17, 21 and 25, plus 14 component tests and 8
 > end-to-end tests that drive the interface in a headless browser. The library
 > is on the [Maven repository](https://acemq-company.github.io/maven/), both
