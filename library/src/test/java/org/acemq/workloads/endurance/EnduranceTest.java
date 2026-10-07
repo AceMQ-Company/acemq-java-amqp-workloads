@@ -94,6 +94,7 @@ class EnduranceTest {
             Files.createDirectories(ws.resolve(".chaos"));
             long me = ProcessHandle.current().pid();
             Files.writeString(ws.resolve(".chaos/workload-fake.pid"), me + "\n");
+            Files.writeString(ws.resolve(".chaos/workload-fake.jsonl"), "{\"published\":1}\n");
             ClientLauncher launcher = new ClientLauncher(c, s -> { });
 
             List<ClientLauncher.Client> clients = launcher.start();
@@ -110,7 +111,7 @@ class EnduranceTest {
             c.launch.put("fake", command("sh", "-c", "echo no such vhost; exit 3"));
             assertThatThrownBy(() -> new ClientLauncher(c, s -> { }).start())
                     .isInstanceOf(ClientLauncher.LaunchException.class)
-                    .hasMessageContaining("exited immediately")
+                    .hasMessageContaining("exited before its first sample")
                     .hasMessageContaining("no such vhost");
         }
 
@@ -129,14 +130,14 @@ class EnduranceTest {
         void placeholdersAndEnvironmentReachTheProcess() throws Exception {
             EnduranceConfig c = config("fake");
             c.broker = "amqp://u:p@h:1/";
-            EnduranceConfig.Launch l = command("sh", "-c", "echo \"$URL|$1\"; exec sleep 60", "x", "${workspace}");
+            EnduranceConfig.Launch l = command("sh", "-c", "echo \"$URL|$1\"; echo '{}'; exec sleep 60", "x", "${workspace}");
             l.env = Map.of("URL", "${broker}/v");
             c.launch.put("fake", l);
             ClientLauncher launcher = new ClientLauncher(c, s -> { });
             List<ClientLauncher.Client> clients = launcher.start();
             launcher.stop(clients);
-            assertThat(Files.readString(ws.resolve(".chaos/workload-fake.jsonl")).strip())
-                    .isEqualTo("amqp://u:p@h:1/v|" + ws.toAbsolutePath().normalize());
+            assertThat(Files.readString(ws.resolve(".chaos/workload-fake.jsonl")).lines().findFirst())
+                    .hasValue("amqp://u:p@h:1/v|" + ws.toAbsolutePath().normalize());
         }
 
         @Test

@@ -20,10 +20,14 @@ java -jar acemq-workload.jar -f <file> [options]
 | `-h, --help` | usage |
 | `--version` | version and exit |
 
-One subcommand: `java -jar acemq-workload.jar endurance [options]` is the soak —
-standing loads in every language, every connection closed once a cycle, and what
-each client process holds read from outside. It has options and exit codes of its
-own; see [Endurance](endurance.md).
+Two subcommands, each with options and exit codes of its own:
+
+- `java -jar acemq-workload.jar endurance [options]` is the soak — standing loads
+  in every language, every connection closed once a cycle, and what each client
+  process holds read from outside. See [Endurance](endurance.md).
+- `java -jar acemq-workload.jar loads up|down|status [options]` starts, stops and
+  reports on those standing loads on their own, for a chaos drill to watch. See
+  [The standing loads on their own](endurance.md#the-standing-loads-on-their-own-loads).
 
 All of these apply to both kinds of file. `--broker` and the TLS flags used to be
 read only for a [scenario](scenario-file.md); against a workload file they were

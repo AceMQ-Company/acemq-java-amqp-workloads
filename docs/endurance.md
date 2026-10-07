@@ -37,9 +37,10 @@ reports compare.
    (`.chaos/workload-<client>.pid`) names a live process is adopted and left
    running at the end; otherwise it is built if it has a build step, started, its
    pid written, and its output appended to `.chaos/workload-<client>.jsonl` — the
-   same two files `scripts/chaos-drill.sh workload up` leaves, so `workload down`,
-   a chaos drill and the console all see it. A load that exits within
-   `startupSeconds` fails the run with its last lines of output.
+   same two files [`loads up`](#the-standing-loads-on-their-own-loads) leaves, so
+   `loads down`, a chaos drill and the console all see it. Every load then has
+   `startupSeconds` (60) to write its first sample; one that exits first, or stays
+   silent past it, fails the run with its last lines of output.
 2. **Warm up** (`warmupSeconds`, 120): a baseline taken during start-up measures
    start-up.
 3. **Baseline**: `readings` (3) readings, `readingGapSeconds` (5) apart.
@@ -135,7 +136,7 @@ sampleSeconds: 30
 cooldownSeconds: 60
 readings: 3
 readingGapSeconds: 5
-startupSeconds: 12
+startupSeconds: 60                      # for each load's first sample
 allowances: { descriptors: 16, threads: 16, memoryFactor: 2 }
 reportDir: reports
 stateDir: .chaos
@@ -167,6 +168,47 @@ belonging to `go run`, `bundle exec` or `dotnet run` measures the wrong process:
 
 Every one also gets `ACEMQ_EXAMPLE_SECONDS=0`: the standing loads stop after a
 minute unless told otherwise.
+
+## The standing loads on their own: `loads`
+
+```bash
+java -jar acemq-workload.jar loads up     [--workspace DIR] [--broker URL] [--clients java,go,python,dotnet,ruby] [--state DIR]
+java -jar acemq-workload.jar loads status [--workspace DIR] [--state DIR] [--json]
+java -jar acemq-workload.jar loads down   [--workspace DIR] [--state DIR]
+```
+
+The same loads, started and stopped without a soak around them — what a chaos
+drill watches while it breaks the cluster. Same launcher as `endurance`, same
+defaults and the same `launch.<client>` overrides from `-f <yaml>`, same two
+files per client in `--state` (`.chaos`, relative to the workspace):
+`workload-<client>.pid` and `workload-<client>.jsonl`. `scripts/chaos-drill.sh
+workload up|down|status` in the workspace is a thin call to these.
+
+- **`up`** adopts a client whose pid file names a live process, builds and starts
+  the rest (`ACEMQ_EXAMPLE_SECONDS=0`, output appended to the `.jsonl`), and
+  returns only once every one has written its first sample — a drill straight
+  afterwards reads a timeline, not an empty file. A client that exits first, or
+  writes nothing within `startupSeconds` (60), is named on stderr with its last
+  lines of output, and whatever this call started is stopped again.
+- **`down`** stops each client found by its pid file, whoever started it: TERM,
+  ten seconds, then KILL, checked. A pid file naming a dead process is removed.
+  Nothing running is still success.
+- **`status`** lists each client: running or stopped, pid, how long ago its last
+  sample was taken, and that sample's publish and consume rates. `--json`:
+
+```json
+{ "state": "/…/.chaos",
+  "clients": [ { "client": "java", "running": true, "pid": 29674,
+                 "lastSampleAgeSeconds": 1.0, "publishRate": 1999.5, "consumeRate": 2001.5,
+                 "samples": "/…/.chaos/workload-java.jsonl" } ] }
+```
+
+`pid`, `lastSampleAgeSeconds` and the rates are `null` when there is nothing to
+report. `--clients` (and `-f`) work with all three, so `down --clients go` stops one;
+`--broker` is accepted by `down` and `status` too, and ignored there.
+
+Exit codes: `0` done, `2` could not — a client that would not start or would not
+stop, or a bad argument. `status` exits `0` whatever it finds.
 
 ## From the console
 

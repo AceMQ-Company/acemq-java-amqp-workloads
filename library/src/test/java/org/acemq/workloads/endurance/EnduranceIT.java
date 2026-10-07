@@ -76,7 +76,7 @@ class EnduranceIT {
                 sampleSeconds: 4
                 cooldownSeconds: 4
                 readingGapSeconds: 1
-                startupSeconds: 3
+                startupSeconds: 60
                 clients: [java]
                 # a JVM's resident memory still climbs towards its heap in the first seconds,
                 # which a three-cycle soak would read as growth

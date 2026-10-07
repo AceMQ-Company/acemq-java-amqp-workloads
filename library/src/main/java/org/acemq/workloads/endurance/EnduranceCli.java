@@ -20,6 +20,7 @@ import java.io.PrintStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.function.Supplier;
 
 import org.acemq.workloads.cli.ConfigException;
@@ -111,18 +112,9 @@ public final class EnduranceCli {
             }
         };
 
-        Thread main = Thread.currentThread();
         // Ctrl-C: interrupt the run and wait for it to stop the loads it started, rather than
         // leaving five publishers behind with nobody holding their pids.
-        Thread hook = new Thread(() -> {
-            main.interrupt();
-            try {
-                main.join(30_000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
-        Runtime.getRuntime().addShutdownHook(hook);
+        Thread hook = interruptOnShutdown();
         try (Endurance.Fault fault = Endurance.managementFault(config)) {
             if (fault.connections() < 0) {
                 err.println("endurance: the management API at " + config.management
@@ -146,11 +138,30 @@ public final class EnduranceCli {
             err.println("endurance: " + e.getMessage());
             return COULD_NOT_RUN;
         } finally {
+            removeHook(hook);
+        }
+    }
+
+    /** @return a shutdown hook that interrupts this thread and waits up to 30s for it to finish */
+    static Thread interruptOnShutdown() {
+        Thread main = Thread.currentThread();
+        Thread hook = new Thread(() -> {
+            main.interrupt();
             try {
-                Runtime.getRuntime().removeShutdownHook(hook);
-            } catch (IllegalStateException e) {
-                // already shutting down
+                main.join(30_000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
+        });
+        Runtime.getRuntime().addShutdownHook(hook);
+        return hook;
+    }
+
+    static void removeHook(Thread hook) {
+        try {
+            Runtime.getRuntime().removeShutdownHook(hook);
+        } catch (IllegalStateException e) {
+            // already shutting down
         }
     }
 
@@ -180,8 +191,7 @@ public final class EnduranceCli {
                 case "--warmup" -> c.warmupSeconds = number(args, ++i);
                 case "--sample-seconds" -> c.sampleSeconds = number(args, ++i);
                 case "--cooldown" -> c.cooldownSeconds = number(args, ++i);
-                case "--clients" -> c.clients = new ArrayList<>(Arrays.stream(value(args, ++i).split(","))
-                        .map(String::strip).filter(s -> !s.isEmpty()).toList());
+                case "--clients" -> c.clients = list(value(args, ++i));
                 case "--broker" -> c.broker = value(args, ++i);
                 case "--management" -> c.management = value(args, ++i);
                 case "--report-dir" -> c.reportDir = value(args, ++i);
@@ -191,7 +201,12 @@ public final class EnduranceCli {
         return new Parsed(c, quiet, help);
     }
 
-    private static String value(String[] args, int i) {
+    static List<String> list(String commaSeparated) {
+        return new ArrayList<>(Arrays.stream(commaSeparated.split(","))
+                .map(String::strip).filter(s -> !s.isEmpty()).toList());
+    }
+
+    static String value(String[] args, int i) {
         if (i >= args.length) {
             throw new ConfigException(args[i - 1] + " needs a value");
         }

@@ -33,6 +33,7 @@ import org.acemq.workloads.RunListener;
 import org.acemq.workloads.Workload;
 import org.acemq.workloads.WorkloadReport;
 import org.acemq.workloads.endurance.EnduranceCli;
+import org.acemq.workloads.endurance.LoadsCli;
 import org.acemq.workloads.report.Reports;
 import org.acemq.workloads.report.ScenarioReports;
 import org.acemq.workloads.scenario.Scenario;
@@ -75,6 +76,7 @@ public final class Cli {
             usage:
               java -jar acemq-workload.jar -f <file> [options]
               java -jar acemq-workload.jar endurance [options]   the soak; endurance --help
+              java -jar acemq-workload.jar loads up|down|status  the standing loads; loads --help
 
             options:
               -f, --file <path>       workload or scenario file, .yaml or .json (required)
@@ -169,6 +171,9 @@ public final class Cli {
         // is not a workload this tool generates.
         if (args.length > 0 && args[0].equals("endurance")) {
             return EnduranceCli.run(java.util.Arrays.copyOfRange(args, 1, args.length), out, err);
+        }
+        if (args.length > 0 && args[0].equals("loads")) {
+            return LoadsCli.run(java.util.Arrays.copyOfRange(args, 1, args.length), out, err);
         }
         Options options;
         try {

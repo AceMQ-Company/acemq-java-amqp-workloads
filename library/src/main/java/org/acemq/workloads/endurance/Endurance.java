@@ -16,8 +16,6 @@
 package org.acemq.workloads.endurance;
 
 import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -267,42 +265,15 @@ public final class Endurance {
     }
 
     /**
-     * The counters the load itself writes, from the last readable lines of its sample file. A
-     * partly written final line is normal when a file is read mid-write.
+     * The counters the load itself writes, from the last readable line of its sample file.
      *
      * @return {published, consumed}, -1 for either that no line carried
      */
     long[] counters(Path samples) {
-        long published = -1;
-        long consumed = -1;
-        for (String line : tail(samples, 50)) {
-            String t = line.strip();
-            if (!t.startsWith("{")) {
-                continue;
-            }
-            try {
-                JsonNode n = json.readTree(t);
-                published = n.has("published") ? n.get("published").asLong() : published;
-                consumed = n.has("consumed") ? n.get("consumed").asLong() : consumed;
-            } catch (IOException e) {
-                // half a line
-            }
-        }
-        return new long[] {published, consumed};
-    }
-
-    private static List<String> tail(Path file, int lines) {
-        try (RandomAccessFile f = new RandomAccessFile(file.toFile(), "r")) {
-            long len = f.length();
-            long start = Math.max(0, len - 64 * 1024);
-            byte[] buf = new byte[(int) (len - start)];
-            f.seek(start);
-            f.readFully(buf);
-            List<String> all = List.of(new String(buf, StandardCharsets.UTF_8).split("\n"));
-            return all.subList(Math.max(0, all.size() - lines), all.size());
-        } catch (IOException e) {
-            return List.of();
-        }
+        Optional<JsonNode> n = ClientLauncher.lastSample(samples);
+        return new long[] {
+            n.map(x -> x.path("published").asLong(-1)).orElse(-1L),
+            n.map(x -> x.path("consumed").asLong(-1)).orElse(-1L)};
     }
 
     private static void sleep(int seconds) throws InterruptedException {

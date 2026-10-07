@@ -12,6 +12,17 @@ the messaging library's release train.
 
 ### Added
 
+- **`loads up|down|status`**: the standing loads a chaos drill watches, as a
+  command. `up` starts each client exactly as `chaos-drill.sh workload up` did (same
+  programs, `ACEMQ_EXAMPLE_SECONDS=0`, `.chaos/workload-<lang>.pid` and `.jsonl`),
+  adopts live pids, and returns only once every client has written its first
+  sample — a client that exits or stays silent is named on stderr with its last
+  lines of output (exit 2). `down` stops by pid file, TERM then KILL, and clears
+  stale pid files; `status` gives running/stopped, pid, last sample age and rates,
+  `--json` for scripts. `endurance` and `loads` share one launcher, so `endurance` now waits
+  for first samples the same way: `startupSeconds` is that wait and defaults to 60
+  (it was a fixed 12s pause followed by an is-it-alive check).
+  `scripts/chaos-drill.sh workload up|down|status` in the workspace now calls it.
 - **`endurance`, the soak, as a command**: `java -jar acemq-workload.jar endurance`.
   Starts the five standing loads the way `chaos-drill.sh workload up` does (or adopts
   ones already running, by pid file), closes every connection once a cycle through

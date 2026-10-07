@@ -17,30 +17,51 @@ package org.acemq.workloads.endurance;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 /**
- * Starts the standing loads, or adopts ones already running, and stops what it started.
+ * Starts the standing loads, or adopts ones already running, reports on them, and stops them.
+ * The one place that knows how a load is launched: {@code endurance} and {@code loads} both go
+ * through it.
  *
- * <p>Each load leaves the same two files {@code scripts/chaos-drill.sh workload up} leaves:
+ * <p>Each load leaves the two files {@code scripts/chaos-drill.sh workload up} always left:
  * {@code workload-<client>.pid} and {@code workload-<client>.jsonl} in the state directory, so
- * {@code chaos-drill.sh workload down}, a chaos drill and the console's Standing loads view all
- * see a load started here as the load it is.
+ * a chaos drill's client timeline, the console's Standing loads view and either command see a
+ * load started by any of them as the load it is.
  */
 public final class ClientLauncher {
 
-    /** A load being watched: its pid, and whether this run started it (and so stops it). */
+    /** A load being watched: its pid, and whether this call started it. */
     public record Client(String name, long pid, boolean launched, Path samples) {
     }
 
-    /** A load could not be started. */
+    /**
+     * What a load is doing right now.
+     *
+     * @param pid the live pid, or -1 when stopped
+     * @param lastSampleAge since the last sample's {@code at}, or null when it has none
+     * @param publishRate the last sample's, or NaN
+     * @param consumeRate the last sample's, or NaN
+     */
+    public record Status(String name, boolean running, long pid, Duration lastSampleAge,
+            double publishRate, double consumeRate, Path samples) {
+    }
+
+    /** A load could not be started or stopped. */
     public static final class LaunchException extends Exception {
         private static final long serialVersionUID = 1L;
 
@@ -48,6 +69,8 @@ public final class ClientLauncher {
             super(message);
         }
     }
+
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final EnduranceConfig config;
     private final Consumer<String> say;
@@ -66,12 +89,17 @@ public final class ClientLauncher {
     }
 
     /**
-     * @return every configured client, running
-     * @throws LaunchException if one could not be built or started, or exited straight away;
-     *     whatever this call had started by then is stopped again
+     * Starts every configured client that is not already running, adopts those that are, and
+     * waits until each one has written its first sample.
+     *
+     * @return every configured client, running and sampling
+     * @throws LaunchException naming every client that could not be built, could not be started,
+     *     exited, or wrote no sample within {@code startupSeconds}, each with its last lines of
+     *     output; whatever this call had started is stopped again
      */
     public List<Client> start() throws LaunchException, InterruptedException {
         List<Client> out = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
         try {
             Files.createDirectories(config.statePath());
             for (String name : config.clients) {
@@ -81,18 +109,15 @@ public final class ClientLauncher {
                     out.add(new Client(name, running.get(), false, samples(name)));
                     continue;
                 }
-                out.add(launch(name));
-            }
-            if (out.stream().anyMatch(Client::launched)) {
-                // One wait for all of them: the question is whether a load stays up, and a
-                // load that dies on a bad URL or a missing gem does it within seconds.
-                Thread.sleep(config.startupSeconds * 1000L);
-                for (Client c : out) {
-                    if (c.launched() && !alive(c.pid())) {
-                        throw new LaunchException(c.name() + ": the standing load exited"
-                                + " immediately. Its output:\n" + tail(c.samples(), 5));
-                    }
+                try {
+                    out.add(launch(name));
+                } catch (LaunchException e) {
+                    failed.add(e.getMessage());
                 }
+            }
+            failed.addAll(awaitFirstSamples(out));
+            if (!failed.isEmpty()) {
+                throw new LaunchException(String.join("\n", failed));
             }
             return out;
         } catch (LaunchException | InterruptedException e) {
@@ -104,6 +129,43 @@ public final class ClientLauncher {
         }
     }
 
+    /**
+     * A sample rather than a live pid is what "up" means: a drill straight afterwards reads the
+     * timeline, and a load that has not printed its first line yet reads as a client that could
+     * not be read.
+     *
+     * @return one message per client that died or stayed silent past the deadline
+     */
+    private List<String> awaitFirstSamples(List<Client> clients) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(config.startupSeconds);
+        List<Client> waiting = new ArrayList<>(clients);
+        List<String> failed = new ArrayList<>();
+        while (!waiting.isEmpty()) {
+            for (var it = waiting.iterator(); it.hasNext();) {
+                Client c = it.next();
+                if (lastSample(c.samples()).isPresent()) {
+                    say.accept(c.name() + ": running (pid " + c.pid() + "), readings in " + c.samples());
+                    it.remove();
+                } else if (!alive(c.pid())) {
+                    failed.add(c.name() + ": the standing load exited before its first sample."
+                            + " Its output:\n" + tail(c.samples(), 5));
+                    it.remove();
+                }
+            }
+            if (!waiting.isEmpty() && System.nanoTime() > deadline) {
+                for (Client c : waiting) {
+                    failed.add(c.name() + ": no sample within " + config.startupSeconds + "s (pid "
+                            + c.pid() + " is still running). Its output:\n" + tail(c.samples(), 5));
+                }
+                break;
+            }
+            if (!waiting.isEmpty()) {
+                Thread.sleep(200);
+            }
+        }
+        return failed;
+    }
+
     private Client launch(String name) throws LaunchException, IOException, InterruptedException {
         EnduranceConfig.Launch l = config.launchFor(name);
         File dir = new File(config.expand(l.dir != null ? l.dir : "${workspace}"));
@@ -112,8 +174,13 @@ public final class ClientLauncher {
         if (l.build != null && !l.build.isEmpty()) {
             say.accept(name + ": building");
             Path log = config.statePath().resolve("build-" + name + ".log");
-            Process build = builder(l.build, l.env, dir)
-                    .redirectOutput(log.toFile()).start();
+            Process build;
+            try {
+                build = builder(l.build, l.env, dir).redirectOutput(log.toFile()).start();
+            } catch (IOException e) {
+                throw new LaunchException(name + ": could not run the build ("
+                        + String.join(" ", expand(l.build)) + "): " + e.getMessage());
+            }
             if (build.waitFor() != 0) {
                 throw new LaunchException(name + ": the build failed (" + String.join(" ", expand(l.build))
                         + "). Its output:\n" + tail(log, 10));
@@ -157,28 +224,98 @@ public final class ClientLauncher {
         }
     }
 
+    /** @return each configured client's state, read from its pid file and sample file */
+    public List<Status> status() {
+        List<Status> out = new ArrayList<>();
+        for (String name : config.clients) {
+            Optional<Long> pid = runningPid(name);
+            Optional<JsonNode> last = lastSample(samples(name));
+            Duration age = last.map(n -> n.path("at").asText(null)).map(at -> {
+                try {
+                    return Duration.between(Instant.parse(at), Instant.now());
+                } catch (RuntimeException e) {
+                    return null;
+                }
+            }).orElse(null);
+            out.add(new Status(name, pid.isPresent(), pid.orElse(-1L), age,
+                    last.map(n -> n.path("publishRate").asDouble(Double.NaN)).orElse(Double.NaN),
+                    last.map(n -> n.path("consumeRate").asDouble(Double.NaN)).orElse(Double.NaN),
+                    samples(name)));
+        }
+        return out;
+    }
+
     /**
-     * Stops what this run started, as {@code workload down} does: a polite signal, ten seconds,
-     * then a kill. Adopted loads are left alone; they were somebody else's.
+     * Stops every configured client found by its pid file, whoever started it, and removes stale
+     * pid files.
+     *
+     * @throws LaunchException if a load survived both signals; the rest are still stopped
      */
-    public void stop(List<Client> clients) {
-        for (Client c : clients) {
-            if (!c.launched()) {
+    public void stopAll() throws LaunchException {
+        List<String> stuck = new ArrayList<>();
+        for (String name : config.clients) {
+            Path pidfile = pidfile(name);
+            if (!Files.exists(pidfile)) {
+                say.accept(name + ": nothing to stop");
                 continue;
             }
-            ProcessHandle.of(c.pid()).ifPresent(h -> {
-                h.destroy();
-                try {
-                    h.onExit().get(10, java.util.concurrent.TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    h.destroyForcibly();
-                }
-            });
-            try {
-                Files.deleteIfExists(pidfile(c.name()));
-            } catch (IOException e) {
-                // A stale pid file is read as "not running" next time.
+            Optional<Long> pid = runningPid(name);
+            if (pid.isEmpty()) {
+                delete(pidfile);
+                say.accept(name + ": nothing to stop (removed a stale pid file)");
+            } else if (kill(name, pid.get())) {
+                say.accept(name + ": stopped");
+            } else {
+                stuck.add(name + ": pid " + pid.get() + " would not stop. Kill it before starting"
+                        + " another load, or the next one shares a timeline with it.");
             }
+        }
+        if (!stuck.isEmpty()) {
+            throw new LaunchException(String.join("\n", stuck));
+        }
+    }
+
+    /** Stops what this run started. Adopted loads are left alone; they were somebody else's. */
+    public void stop(List<Client> clients) {
+        for (Client c : clients) {
+            if (c.launched()) {
+                kill(c.name(), c.pid());
+            }
+        }
+    }
+
+    /**
+     * A polite signal, ten seconds, then a kill, as {@code workload down} always did. Checked
+     * rather than assumed: a load that survives and keeps writing shares its timeline with the
+     * next one, and two clients' counters in one file make every delta in it meaningless.
+     *
+     * @return whether the process is gone; its pid file is removed only then
+     */
+    private boolean kill(String name, long pid) {
+        Optional<ProcessHandle> handle = ProcessHandle.of(pid);
+        if (handle.isPresent()) {
+            ProcessHandle h = handle.get();
+            h.destroy();
+            try {
+                h.onExit().get(10, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                h.destroyForcibly();
+                try {
+                    h.onExit().get(5, TimeUnit.SECONDS);
+                } catch (Exception again) {
+                    return false;
+                }
+            }
+        }
+        delete(pidfile(name));
+        return true;
+    }
+
+    private static void delete(Path file) {
+        try {
+            Files.deleteIfExists(file);
+        } catch (IOException e) {
+            // A stale pid file is read as "not running" next time.
         }
     }
 
@@ -186,13 +323,46 @@ public final class ClientLauncher {
         return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
     }
 
-    private static String tail(Path file, int lines) {
-        try {
-            List<String> all = Files.readAllLines(file, StandardCharsets.UTF_8);
-            return String.join("\n", all.subList(Math.max(0, all.size() - lines), all.size()));
-        } catch (IOException e) {
-            return "(nothing)";
+    /**
+     * @return the last whole JSON object in a sample file. Lines that are not one -- a banner, a
+     *     warning, half a line read mid-write -- are skipped.
+     */
+    static Optional<JsonNode> lastSample(Path samples) {
+        List<String> lines = tailLines(samples, 50);
+        for (int i = lines.size() - 1; i >= 0; i--) {
+            String t = lines.get(i).strip();
+            if (t.startsWith("{")) {
+                try {
+                    JsonNode n = JSON.readTree(t);
+                    if (n.isObject()) {
+                        return Optional.of(n);
+                    }
+                } catch (IOException e) {
+                    // half a line
+                }
+            }
         }
+        return Optional.empty();
+    }
+
+    /** @return up to the last {@code lines} lines, read from the last 64 KiB only */
+    static List<String> tailLines(Path file, int lines) {
+        try (RandomAccessFile f = new RandomAccessFile(file.toFile(), "r")) {
+            long len = f.length();
+            long start = Math.max(0, len - 64 * 1024);
+            byte[] buf = new byte[(int) (len - start)];
+            f.seek(start);
+            f.readFully(buf);
+            List<String> all = List.of(new String(buf, StandardCharsets.UTF_8).split("\n"));
+            return all.subList(Math.max(0, all.size() - lines), all.size());
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    private static String tail(Path file, int lines) {
+        List<String> t = tailLines(file, lines);
+        return t.isEmpty() || t.equals(List.of("")) ? "(nothing)" : String.join("\n", t);
     }
 
     static String redact(String url) {

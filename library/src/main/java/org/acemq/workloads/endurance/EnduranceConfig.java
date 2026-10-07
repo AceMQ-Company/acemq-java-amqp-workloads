@@ -64,8 +64,11 @@ public final class EnduranceConfig {
     /** Readings taken for the baseline and again at the end; the verdict takes the median. */
     public int readings = 3;
     public int readingGapSeconds = 5;
-    /** How long a freshly started load has to stay up before it counts as started. */
-    public int startupSeconds = 12;
+    /**
+     * How long a load has to write its first sample before it counts as one that will not start.
+     * Builds run before the clock starts.
+     */
+    public int startupSeconds = 60;
 
     public Allowances allowances = new Allowances();
 
