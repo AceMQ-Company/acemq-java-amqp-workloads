@@ -41,7 +41,7 @@
          lines for separate reasons, which is exactly how the admin client was
          left at 0.1.0 after 0.1.1 shipped while the messaging library was being
          kept current by hand. -->
-    <acemq.version>0.7.11</acemq.version>
+    <acemq.version>0.7.12</acemq.version>
     <acemq.admin.version>0.1.2</acemq.admin.version>
 
     <!-- Percentiles cannot be averaged, and keeping every sample in a list is
