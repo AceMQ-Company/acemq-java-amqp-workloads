@@ -463,3 +463,10 @@ fieldset.field{border:0;padding:0;margin:0}
 #soakForm .sub{margin:0}
 .err{color:var(--c-crit);font-size:12.5px;margin:0;overflow-wrap:anywhere}
 #soakLive .cnt{overflow-wrap:anywhere}
+
+/* Delivery evidence: the chaos framework's crash-drill and claim-lease results */
+#evDrills{margin-top:12px}
+#evDrills .pb .note{margin:8px 0 0;color:var(--c-dim);font-size:12px;overflow-wrap:anywhere}
+#evDrills .ph .cnt .tag{vertical-align:1px}
+#evDrills .ph{flex-wrap:wrap}
+#evDrills .ph .cnt{white-space:normal}

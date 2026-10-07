@@ -97,3 +97,24 @@ test.describe('the workloads console', () => {
     await expect(page.locator('.view[data-view="evidence"]')).toHaveClass(/on/)
   })
 })
+
+// The chaos framework's crash-drill and claim-lease results, as it writes them
+// (fixtures/drills, the studio's ACEMQ_STUDIO_DRILL_REPORTS in scripts/e2e.sh):
+// a table each in Delivery evidence, whatever run is selected, and only the
+// table scrolls on a phone.
+test.describe('delivery evidence shows the process drills', () => {
+  for (const width of WIDTHS) {
+    test(`crash drill and claim lease at ${width} px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto('/console/#evidence')
+      await expect(page.locator('#crashBody table tbody tr')).toHaveCount(5)
+      await expect(page.locator('#claimBody table tbody tr')).toHaveCount(6)
+      await expect(page.locator('#crashBody')).toContainText('accounted for')
+      await expect(page.locator('#claimBody')).toContainText('REFUSED')
+      await expect(page.locator('#evDrills')).not.toContainText('coming')
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+      expect(overflow).toBeLessThanOrEqual(0)
+    })
+  }
+})

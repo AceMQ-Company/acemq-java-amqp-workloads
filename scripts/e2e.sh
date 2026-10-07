@@ -65,6 +65,7 @@ echo "==> starting the studio on $PORT"
 java -jar "$JAR" \
   --server.port="$PORT" \
   --acemq.studio.database="$DATABASE" \
+  --acemq.studio.drill-reports="$REPO_ROOT/studio/e2e/fixtures/drills" \
   > "$(dirname "$DATABASE")/studio.log" 2>&1 &
 STUDIO_PID=$!
 

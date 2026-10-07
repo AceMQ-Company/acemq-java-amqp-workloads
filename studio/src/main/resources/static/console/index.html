@@ -94,11 +94,13 @@
     <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
       <div class="pn"><div class="ph"><h3>Run</h3><span class="cnt" id="evName"></span></div>
         <div class="pb" id="evRunKv" style="gap:0"></div></div>
-      <div class="pn"><div class="ph"><h3>Crash drill</h3><span class="cnt">kill -9 mid-flight, then count</span></div>
-        <div class="pb"><div class="empty"><span class="tag coming">coming</span><p>The crash drill runs on the chaos side and keeps no report this console can read yet. When it does, its counts land here, per client: confirmed, what the broker holds, lost.</p></div></div></div>
-      <div class="pn"><div class="ph"><h3>Claim lease</h3><span class="cnt">idempotency claim held by a dead process</span></div>
-        <div class="pb"><div class="empty"><span class="tag coming">coming</span><p>The claim-lease drill comes from the chaos side too. Until it writes a report, nothing is shown here rather than a result nobody measured.</p></div></div></div>
     </div>
+  </div>
+  <div class="grid" id="evDrills">
+    <div class="pn"><div class="ph"><h3>Crash drill</h3><span class="cnt" id="crashCnt">kill -9 mid-flight, then count</span></div>
+      <div class="pb" id="crashBody"></div></div>
+    <div class="pn"><div class="ph"><h3>Claim lease</h3><span class="cnt" id="claimCnt">idempotency claim held by a dead process</span></div>
+      <div class="pb" id="claimBody"></div></div>
   </div>
 </section>
 

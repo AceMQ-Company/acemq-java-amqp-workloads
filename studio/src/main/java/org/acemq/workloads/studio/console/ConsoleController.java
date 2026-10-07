@@ -312,6 +312,23 @@ public class ConsoleController {
         return runs.evidence();
     }
 
+    /**
+     * The chaos framework's two process drills, newest result of each: the crash drill (kill -9
+     * mid-flight, then count against the broker) and the claim lease (an idempotency claim left
+     * by a killed process). Read from {@code ACEMQ_STUDIO_DRILL_REPORTS}, by default the drill
+     * workspace's reports directory.
+     */
+    @GetMapping("/api/console/drills")
+    @ResponseBody
+    public Map<String, Object> drills() {
+        Path dir = properties.drillReports();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("dir", dir == null ? null : dir.toString());
+        out.put("crash", DrillFiles.latestDrill(dir, "crash-drill"));
+        out.put("claim", DrillFiles.latestDrill(dir, "claim-lease"));
+        return out;
+    }
+
     @GetMapping("/api/console/endurance")
     @ResponseBody
     public Map<String, Object> endurance() throws IOException {

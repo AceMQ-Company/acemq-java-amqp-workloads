@@ -132,12 +132,15 @@ real data; where there is none, it says why instead of drawing a sample.
 | **Broker** | The AMQP and management URLs, the TLS settings for `amqps://`, and what answered: the version and queue types, or every URL tried and what each said | `/api/broker/probe` |
 | **Standing loads** | One card per load: confirmed and consumed per second, refused and failed kept apart, state, and the end-to-end latency of the one you select. Totals across what is running on top, the loads' own output underneath as events. Refreshed every second | The drill workspace's `.chaos/workload-<language>.jsonl` (the `--emit-samples` lines each language's standing load writes), and the load started from this console |
 | **Load designer** | A form over the workload file, the file itself beside it, and the offered rate over the run. The file is the one `java -jar acemq-workload.jar -f` reads, checked by the library's own parser as you edit. **Validate**, **Save** and **Start this load** each do exactly that and nothing until clicked | The library: `WorkloadFile` parses what the designer writes |
-| **Delivery evidence** | For each run started here: every default rule and every objective the file set, passed or not, each with the numbers it was decided on, and the run's totals. **Export evidence** saves it as JSON | The library's `Rules` and `Objective`s, evaluated when the run ends and kept under the workloads directory |
+| **Delivery evidence** | For each run started here: every default rule and every objective the file set, passed or not, each with the numbers it was decided on, and the run's totals. **Export evidence** saves it as JSON. Below, whatever run is selected, the chaos framework's newest **crash drill** (per client: what it said it had confirmed, what the broker accepted · acked · left, unconfirmed, the verdict, whether the load started again) and **claim lease** (per client: the answer inside the lease and after it, the lease, any client not built) | The library's `Rules` and `Objective`s, evaluated when the run ends and kept under the workloads directory; the drills from `/api/console/drills`, which passes through the newest `evidence-crash-drill-<stamp>.json` and `evidence-claim-lease-<stamp>.json` in the drill reports directory |
 | **Endurance** | The newest soak: verdict, recoveries, connections, leaks found, memory / file handles / threads per client against its own start with the leak allowance drawn in, and before-and-after | The newest `reports/soak-*.json` the library's [`endurance`](../docs/endurance.md) command wrote in the drill workspace; for an older report with no JSON, the markdown and the readings it names. **Start a soak** runs one from here — one at a time, never beside a load or a scenario run, and only once the broker and its management API answer — with the phase, `cycle n/N` and readings live |
 
-The crash drill and the claim lease come from the chaos side. Until it writes a
-report the console can read, both panels in *Delivery evidence* say "coming"
-rather than show a result nobody measured.
+The crash drill and the claim lease are the chaos framework's process drills
+(`chaos crash-drill`, `chaos claim-lease`, and the `process_kill` scenarios the
+chaos gate runs). Each run writes `evidence-<drill>-<stamp>.json` to the
+workspace's `reports/`; the console shows the newest of each as written, and
+until there is one, says which command writes it rather than show a result
+nobody measured.
 
 **Latency.** A load started from the console carries the HdrHistogram summary,
 drawn as the share of messages between each pair of percentiles on a log scale
@@ -270,6 +273,7 @@ loses the measurement and leaves the broker holding the mess.
 | `ACEMQ_STUDIO_ALLOW_REMOTE_WITHOUT_TOKEN` | run exposed with no token. There is a legitimate case for it, and it has to be set deliberately |
 | `ACEMQ_STUDIO_DATABASE` | where the state lives. `~/.acemq/workloads-studio.db` by default |
 | `ACEMQ_STUDIO_WORKLOADS_DIR` | where the console saves workload files and keeps the evidence of its runs. `workloads/` beside the database by default |
+| `ACEMQ_STUDIO_DRILL_REPORTS` | where the chaos framework's crash-drill and claim-lease results are read from. Default: the drill workspace's `reports/` |
 | `ACEMQ_STUDIO_DRILL_WORKSPACE` | the AMQP libraries workspace: standing-load readings and soak reports are read from it, and a soak started from the console starts its loads there and writes its report there. Unset, those views say there is nothing to read |
 
 ## Building it

@@ -1,0 +1,62 @@
+{
+  "kind": "claim-lease",
+  "stamp": "20261007-044615",
+  "started": "2026-10-07T04:46:15.627403Z",
+  "ended": "2026-10-07T04:46:43.856516Z",
+  "verdict": "passed",
+  "exit": 0,
+  "reason": "every client drilled honours the lease in both directions: go python ruby dotnet java java-sqlite",
+  "signal": "SIGKILL",
+  "lease_seconds": 3,
+  "rows": [
+    {
+      "client": "go",
+      "verdict": "ok",
+      "ok": true,
+      "detail": "go: REFUSED while the lease was live, CLAIMED once it expired",
+      "during": "REFUSED",
+      "after": "CLAIMED"
+    },
+    {
+      "client": "python",
+      "verdict": "ok",
+      "ok": true,
+      "detail": "python: REFUSED while the lease was live, CLAIMED once it expired",
+      "during": "REFUSED",
+      "after": "CLAIMED"
+    },
+    {
+      "client": "ruby",
+      "verdict": "ok",
+      "ok": true,
+      "detail": "ruby: REFUSED while the lease was live, CLAIMED once it expired",
+      "during": "REFUSED",
+      "after": "CLAIMED"
+    },
+    {
+      "client": "dotnet",
+      "verdict": "ok",
+      "ok": true,
+      "detail": "dotnet: REFUSED while the lease was live, CLAIMED once it expired",
+      "during": "REFUSED",
+      "after": "CLAIMED"
+    },
+    {
+      "client": "java",
+      "verdict": "ok",
+      "ok": true,
+      "detail": "java: REFUSED while the lease was live, CLAIMED once it expired",
+      "during": "REFUSED",
+      "after": "CLAIMED"
+    },
+    {
+      "client": "java-sqlite",
+      "verdict": "ok",
+      "ok": true,
+      "detail": "java-sqlite: REFUSED while the lease was live, CLAIMED once it expired",
+      "during": "REFUSED",
+      "after": "CLAIMED"
+    }
+  ],
+  "note": "No broker: this drills the store across a real process death and a real database. That a consumer wires the store in is each library's own integration tests' business."
+}

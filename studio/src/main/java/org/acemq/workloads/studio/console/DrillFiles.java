@@ -35,7 +35,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * What the workspace's drill scripts leave on disk: standing-load sample lines and soak reports.
+ * What the workspace's drills leave on disk: standing-load sample lines, soak reports, and the
+ * chaos framework's crash-drill and claim-lease results.
  *
  * <p>Both are read, never written. Soak reports are the library's endurance command's JSON when
  * there is one, and the old script's markdown otherwise. The sample lines are the {@code --emit-samples} format every language's standing
@@ -296,6 +297,55 @@ final class DrillFiles {
                 // A reading the script could not take (a dead process) is a gap in the line.
             }
         }
+        return out;
+    }
+
+    // ------------------------------------------------------------ process drills
+
+    /**
+     * The newest result of one of the chaos framework's process drills -- {@code crash-drill}
+     * or {@code claim-lease} -- as it wrote it, or why there is none. The file is the
+     * framework's, read and passed through: its rows already carry the numbers and the verdict,
+     * and a second opinion computed here could only disagree with the one the gate used.
+     */
+    static Map<String, Object> latestDrill(Path reports, String kind) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        String run = kind.equals("claim-lease") ? "chaos claim-lease (./scripts/claim-lease-drill.sh)"
+                : "chaos crash-drill (./scripts/crash-drill.sh)";
+        if (reports == null) {
+            out.put("available", false);
+            out.put("reason", "no drill reports directory is configured. Set ACEMQ_STUDIO_DRILL_REPORTS,"
+                    + " or ACEMQ_STUDIO_DRILL_WORKSPACE to the AMQP libraries workspace (its reports/).");
+            return out;
+        }
+        Pattern name = Pattern.compile("evidence-" + Pattern.quote(kind) + "-\\d{8}-\\d{6}\\.json");
+        List<Path> found = List.of();
+        if (Files.isDirectory(reports)) {
+            try (Stream<Path> files = Files.list(reports)) {
+                found = files.filter(p -> name.matcher(p.getFileName().toString()).matches())
+                        .sorted(Comparator.comparing((Path p) -> p.getFileName().toString()).reversed())
+                        .toList();
+            } catch (IOException e) {
+                found = List.of();
+            }
+        }
+        // Newest first; one being written as this reads it is skipped for the one before.
+        for (Path file : found) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> doc = JSON.readValue(file.toFile(), Map.class);
+                out.put("available", true);
+                out.putAll(doc);
+                out.put("file", file.getFileName().toString());
+                return out;
+            } catch (IOException e) {
+                // Half written: the previous one.
+            }
+        }
+        out.put("available", false);
+        out.put("reason", "no " + kind + " result in " + reports + " yet. Run " + run
+                + ", or the chaos gate, which runs it as a scenario; it writes evidence-" + kind
+                + "-<stamp>.json there.");
         return out;
     }
 

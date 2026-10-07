@@ -144,6 +144,7 @@ public class StudioProperties {
 
     private String workloadsDir;
     private String drillWorkspace;
+    private String drillReports;
 
     /**
      * Where the console's load designer saves workload files, and where it keeps the evidence of
@@ -178,6 +179,27 @@ public class StudioProperties {
 
     public void setDrillWorkspace(String drillWorkspace) {
         this.drillWorkspace = drillWorkspace;
+    }
+
+    /**
+     * Where the chaos framework writes its process drills' results, {@code
+     * evidence-crash-drill-<stamp>.json} and {@code evidence-claim-lease-<stamp>.json}, which the
+     * Delivery evidence view shows. {@code chaos crash-drill}, {@code chaos claim-lease} and the
+     * gate write them to the workspace's reports directory.
+     *
+     * @return {@code ACEMQ_STUDIO_DRILL_REPORTS}, else the drill workspace's {@code reports/},
+     *     else null
+     */
+    public Path drillReports() {
+        if (drillReports != null && !drillReports.isBlank()) {
+            return Path.of(drillReports);
+        }
+        Path ws = drillWorkspace();
+        return ws == null ? null : ws.resolve("reports");
+    }
+
+    public void setDrillReports(String drillReports) {
+        this.drillReports = drillReports;
     }
 
     private static String generateToken() {

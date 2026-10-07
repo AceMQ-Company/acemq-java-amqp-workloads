@@ -385,6 +385,7 @@ async function pollSoak() {
 let evidence = [];
 const BADGE = {passed: ['ok', '✓'], warning: ['wn', '!'], failed: ['cr', '✕'], invalid: ['cr', '✕'], 'n/a': ['na', '–']};
 async function loadEvidence() {
+  loadDrills();
   try { evidence = await api('/api/console/evidence'); } catch (e) { evidence = []; }
   liveText.evidence = evidence.length ? evidence.length + ' run' + (evidence.length > 1 ? 's' : '') : 'no runs yet'; setLive();
   const sel = $('#evRun'), keep = sel.value;
@@ -411,6 +412,39 @@ function renderEvidence() {
     kv('end-to-end', L ? `p50 ${ms(L.p50Ms)} · p99 ${ms(L.p99Ms)} · max ${ms(L.maxMs)}` : 'not recorded');
 }
 $('#evRun').onchange = renderEvidence;
+
+/* The chaos framework's process drills: its newest crash-drill and claim-lease results, as it
+   wrote them. Shown whatever run is selected above: they are about the libraries, not a run. */
+const n0 = v => v === undefined || v === null ? '—' : fmt(v);
+const drillTag = d => `<span class="tag ${d.exit === 0 ? 'ok' : d.exit === 1 ? 'cr' : 'wn'}">${esc(d.verdict)}</span>`;
+const okTag = r => `<span class="tag ${r.ok ? 'ok' : 'cr'}">${esc(r.verdict)}</span>`;
+const when = d => { const t = new Date(d.ended || d.started); return isNaN(t) ? '' : t.toLocaleString('en-GB', {dateStyle: 'medium', timeStyle: 'short'}); };
+function drillPanel(d, cnt, body, head, row, what) {
+  if (!d || !d.available) {
+    $(cnt).textContent = what;
+    empty($(body), 'Not run yet', esc(d ? d.reason : 'the studio did not answer'));
+    return;
+  }
+  $(cnt).innerHTML = drillTag(d) + ' · ' + esc(when(d)) + ' · ' + esc(d.signal || '');
+  const skipped = d.skipped && d.skipped.length ? `<p class="note">Not drilled (not built): ${esc(d.skipped.join(' '))}</p>` : '';
+  const rows = (d.rows || []).map(row).join('') || `<tr><td colspan="${head.length}" class="wrap">${esc(d.reason || 'no client was drilled')}</td></tr>`;
+  $(body).innerHTML = `<div class="tw"><table><thead><tr>${head.map(h => `<th${h[1] ? ' class="num"' : ''}>${h[0]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`
+    + skipped + (d.exit !== 0 && d.reason ? `<p class="note">${esc(d.reason)}</p>` : '')
+    + `<p class="note">${esc(d.note || '')} <span class="mono">${esc(d.file || '')}</span></p>`;
+}
+async function loadDrills() {
+  let D = null;
+  try { D = await api('/api/console/drills'); } catch (e) { D = null; }
+  drillPanel(D && D.crash, '#crashCnt', '#crashBody',
+    [['Client'], ['Client confirmed', 1], ['Broker accepted · acked · left', 1], ['Unconfirmed', 1], ['Verdict']],
+    r => `<tr><td>${esc(r.client)}</td><td class="num">${n0(r.confirmed)}</td><td class="num">${r.broker_accepted === undefined ? '—' : `${fmt(r.broker_accepted)} · ${fmt(r.broker_acked)} · ${fmt(r.broker_left)}`}</td><td class="num">${n0(r.unconfirmed)}</td><td>${okTag(r)}${r.restarted === false ? ' <span class="tag wn">not restarted</span>' : ''}</td></tr>`,
+    'kill -9 mid-flight, then count');
+  drillPanel(D && D.claim, '#claimCnt', '#claimBody',
+    [['Client'], ['Inside the lease'], ['After it'], ['Verdict']],
+    r => `<tr><td>${esc(r.client)}</td><td>${esc(r.during || '—')}</td><td>${esc(r.after || '—')}</td><td>${okTag(r)}</td></tr>`,
+    'idempotency claim held by a dead process');
+  if (D && D.claim && D.claim.available && D.claim.lease_seconds) $('#claimCnt').innerHTML += ' · lease ' + esc(D.claim.lease_seconds) + ' s';
+}
 $('#stFile').oninput = () => { $('#stDir').textContent = $('#stFile').value; };
 $('#evExport').onclick = () => {
   const r = evidence.find(x => x.id === $('#evRun').value) || evidence[0]; if (!r) return;

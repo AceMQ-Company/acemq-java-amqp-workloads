@@ -12,6 +12,14 @@ the messaging library's release train.
 
 ### Added
 
+- **Delivery evidence shows the crash drill and the claim lease**, no longer
+  "coming": the chaos framework's newest `evidence-crash-drill-<stamp>.json` and
+  `evidence-claim-lease-<stamp>.json`, each a table per client, read through
+  `GET /api/console/drills` from `ACEMQ_STUDIO_DRILL_REPORTS` (default: the drill
+  workspace's `reports/`). Shown whatever run is selected, and when no run exists;
+  a file being written is skipped for the one before it. `scripts/e2e.sh` points
+  the studio at fixtures, and the browser test checks both tables at 375, 768,
+  1280 and 1920 px with no sideways scroll.
 - **`loads up|down|status`**: the standing loads a chaos drill watches, as a
   command. `up` starts each client exactly as `chaos-drill.sh workload up` did (same
   programs, `ACEMQ_EXAMPLE_SECONDS=0`, `.chaos/workload-<lang>.pid` and `.jsonl`),

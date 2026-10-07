@@ -108,6 +108,26 @@ class ConsoleApiTest {
                 """);
         // An older report, which must not be the one shown.
         Files.writeString(reports.resolve("soak-20261001-020910.md"), "# Soak\n\n**FAILED**\n");
+
+        // The chaos framework's process drills, as `chaos crash-drill` and `chaos claim-lease`
+        // write them: an older failing crash drill, the newest passing one, and a claim lease.
+        Files.writeString(reports.resolve("evidence-crash-drill-20261006-100000.json"),
+                "{\"kind\":\"crash-drill\",\"verdict\":\"failed\",\"exit\":1,\"rows\":[]}");
+        Files.writeString(reports.resolve("evidence-crash-drill-20261007-044049.json"), """
+                {"kind":"crash-drill","stamp":"20261007-044049","verdict":"passed","exit":0,
+                 "signal":"SIGKILL","rows":[{"client":"go","verdict":"accounted for","ok":true,
+                 "confirmed":6482,"broker_accepted":6681,"broker_acked":6680,"broker_left":1,
+                 "unconfirmed":1,"restarted":true}]}
+                """);
+        Files.writeString(reports.resolve("evidence-claim-lease-20261007-043254.json"), """
+                {"kind":"claim-lease","stamp":"20261007-043254","verdict":"failed","exit":1,
+                 "signal":"SIGKILL","lease_seconds":3,"skipped":["dotnet"],
+                 "rows":[{"client":"go","verdict":"ok","ok":true,"during":"REFUSED","after":"CLAIMED"},
+                  {"client":"ruby","verdict":"WRONG","ok":false,"during":"REFUSED","after":"REFUSED"}]}
+                """);
+        // A drill's own result beside it, which is not evidence and must not be read as such.
+        Files.writeString(reports.resolve("claim-lease-20261007-043300.json"),
+                "{\"drill\":\"a killed claim holder's claim expires\",\"outcome\":\"passed\"}");
     }
 
     @ParameterizedTest
@@ -233,6 +253,45 @@ class ConsoleApiTest {
         assertThat(soak.path("clients").get(0).path("threadsAfter").asText()).isEqualTo("16");
         assertThat(soak.path("series").path("go")).hasSize(3);
         assertThat(soak.path("source").asText()).isEqualTo("script");
+    }
+
+    @Test
+    @DisplayName("shows the chaos framework's newest crash-drill and claim-lease results, as written")
+    void readsTheProcessDrills() throws Exception {
+        JsonNode d = json.readTree(http.getForObject("/api/console/drills", String.class));
+
+        assertThat(d.path("dir").asText()).endsWith("workspace/reports");
+        JsonNode crash = d.path("crash");
+        assertThat(crash.path("available").asBoolean()).isTrue();
+        assertThat(crash.path("file").asText()).isEqualTo("evidence-crash-drill-20261007-044049.json");
+        assertThat(crash.path("verdict").asText()).isEqualTo("passed");
+        assertThat(crash.path("rows").get(0).path("broker_accepted").asLong()).isEqualTo(6681);
+        assertThat(crash.path("rows").get(0).path("restarted").asBoolean()).isTrue();
+
+        JsonNode claim = d.path("claim");
+        assertThat(claim.path("available").asBoolean()).isTrue();
+        assertThat(claim.path("exit").asInt()).isEqualTo(1);
+        assertThat(claim.path("lease_seconds").asInt()).isEqualTo(3);
+        assertThat(claim.path("skipped").get(0).asText()).isEqualTo("dotnet");
+        assertThat(claim.path("rows").get(1).path("after").asText()).isEqualTo("REFUSED");
+    }
+
+    @Test
+    @DisplayName("reads the process drills from a configured directory, and says why when there are none")
+    void processDrillsAreConfigurable() throws Exception {
+        Path dir = Files.createTempDirectory("acemq-drills");
+        assertThat(DrillFiles.latestDrill(dir, "claim-lease")).containsEntry("available", false)
+                .hasEntrySatisfying("reason", r -> assertThat((String) r).contains("chaos claim-lease",
+                        "evidence-claim-lease-<stamp>.json", dir.toString()));
+        assertThat(DrillFiles.latestDrill(null, "crash-drill")).containsEntry("available", false)
+                .hasEntrySatisfying("reason", r -> assertThat((String) r).contains("ACEMQ_STUDIO_DRILL_REPORTS"));
+
+        // The newest is being written: the one before it is shown rather than nothing.
+        Files.writeString(dir.resolve("evidence-claim-lease-20261007-090000.json"),
+                "{\"kind\":\"claim-lease\",\"verdict\":\"passed\",\"exit\":0,\"rows\":[]}");
+        Files.writeString(dir.resolve("evidence-claim-lease-20261007-100000.json"), "{\"kind\":\"cla");
+        assertThat(DrillFiles.latestDrill(dir, "claim-lease")).containsEntry("available", true)
+                .containsEntry("file", "evidence-claim-lease-20261007-090000.json");
     }
 
     @Test
