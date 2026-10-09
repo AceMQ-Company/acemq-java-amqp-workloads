@@ -113,6 +113,17 @@ jobs:
       # discovered by whoever trusted the release notes. Checked here, on the
       # machine whose architecture it is, which is the only place each half can
       # actually be run.
+      #
+      # Asked for the way a browser asks, and this is the part that matters. The
+      # check used to send `Authorization: Bearer` for every request, which no
+      # browser ever sends: the studio authenticates a person by `?token=` once
+      # and then by the cookie it sets in reply, and a check holding a bearer
+      # header exercises neither. An image whose cookie never got set therefore
+      # passed here and was published -- and what a person got was the HTML
+      # arriving, every script and stylesheet in it coming back 401, and a blank
+      # page with a healthy container behind it. So: the token goes in the query
+      # string, the reply's cookie goes in a jar, and the assets are fetched with
+      # nothing but that jar.
       - name: Check it starts and serves the interface
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
@@ -121,16 +132,33 @@ jobs:
             -e ACEMQ_STUDIO_TOKEN=preflight "$IMAGE@$DIGEST"
 
           for _ in $(seq 1 40); do
-            if curl -fsS -H 'Authorization: Bearer preflight' http://localhost:8480/ -o page.html; then
+            if curl -fsS -c jar.txt -o page.html \
+                 'http://localhost:8480/console?token=preflight'; then
               break
             fi
             sleep 2
           done
 
-          grep -q '<div id="root"' page.html
+          # The page the studio actually serves, named by something on it rather
+          # than by a marker from an older build of the interface. The previous
+          # one looked for `<div id="root"', which the console rewrite removed --
+          # so this step failed for v0.7.0, the join job never ran, and `latest'
+          # stayed on the release before it. A tag that silently does not move is
+          # how a month-old image goes on being the one people pull.
+          grep -q '/console/console.js' page.html
+
+          # The cookie, which is the whole subject of this check.
+          grep -q 'acemq-studio-token' jar.txt
+
+          # Each asset the page just asked for, with the cookie and nothing else.
+          # A 401 here is the blank page, caught before the tag is created.
+          for asset in /console/console.js /console/console.css; do
+            curl -fsS -b jar.txt -o /dev/null "http://localhost:8480$asset"
+          done
+
           # And the API answers, which means the context came up whole rather
           # than serving a static page in front of a broken application.
-          curl -fsS -H 'Authorization: Bearer preflight' http://localhost:8480/api/presets \
+          curl -fsS -b jar.txt http://localhost:8480/api/presets \
             | grep -q quorum-vs-classic
           docker rm -f studio
 
