@@ -10,6 +10,8 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-13
+
 ### Changed
 
 - **Built on acemq-java-amqp 0.7.15.** That release refuses a publish into a
@@ -22,7 +24,17 @@ the messaging library's release train.
   and does not set `blockedTimeout`. It shows what an application gets, and
   the other four libraries refuse the same way.
 
-## [0.8.0] - 2026-10-13
+### Fixed
+
+- **The image workflow's preflight asks for the studio the way a browser does**,
+  so the image can be published. The check looked for `<div id="root"` on the
+  root page, which the console rewrite removed, so the step failed for v0.7.0,
+  the join job never created the tags, and `latest` went on pointing at 0.6.1. It
+  also sent `Authorization: Bearer` on every request, which no browser sends: the
+  studio authenticates by `?token=` once and by the cookie it sets in reply, so an
+  image whose cookie never got set passed the check and then served a blank page.
+  The preflight now takes the token in the query string, keeps the cookie, and
+  fetches `console.js`, `console.css` and `/api/presets` with that cookie alone.
 
 ### Added
 
