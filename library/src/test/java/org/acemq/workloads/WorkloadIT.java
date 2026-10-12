@@ -284,10 +284,13 @@ class WorkloadIT {
         @Timeout(180)
         @DisplayName("confirms: false reaches the channel the broker sees")
         void confirmsReachTheChannel() {
+            // Not containsOnly(false): since acemq-java-amqp 0.7.13 a connection made without
+            // confirms also opens one channel in confirm mode for what the library publishes on
+            // the caller's behalf, and it sits idle here. The publishers' own channel is the one
+            // that must be out of confirm mode; with confirms: false dropped there is none.
             assertThat(channelConfirmFlagsDuringA(false))
-                    .describedAs("every publishing channel, with confirms switched off")
-                    .isNotEmpty()
-                    .containsOnly(false);
+                    .describedAs("the publishing channels, with confirms switched off")
+                    .contains(false);
         }
 
         @Test
@@ -309,8 +312,9 @@ class WorkloadIT {
          * believe, and the report is what was lying.
          *
          * @param confirms what the workload asks for
-         * @return the confirm flag of every channel with something unconfirmed or unacknowledged
-         *     on it, as the broker sees them
+         * @return as the broker sees them: with confirms on, the confirm flag of every channel
+         *     in confirm mode or with something unconfirmed on it; with confirms off, the confirm
+         *     flag of every channel
          */
         private List<Boolean> channelConfirmFlagsDuringA(boolean confirms) {
             String queue = "wl.confirms." + confirms;
@@ -327,21 +331,26 @@ class WorkloadIT {
             try (RabbitAdmin admin = RabbitAdmin.connect(managementUrl(), "guest", "guest")) {
                 List<Boolean> flags = List.of();
                 long deadline = System.currentTimeMillis() + 60_000;
-                while (flags.isEmpty() && System.currentTimeMillis() < deadline) {
+                while (System.currentTimeMillis() < deadline) {
                     sleep(500);
-                    flags = admin.channels().stream()
-                            // Consumers are switched off, so a channel doing anything at all is
-                            // one of the publishers'.
-                            .filter(c -> c.messagesUnconfirmed() > 0 || c.confirm())
-                            .map(ChannelInfo::confirm)
-                            .toList();
-                    // With confirms off there is nothing unconfirmed and nothing in confirm mode,
-                    // so the filter above finds nothing and the absence is the answer. Wait for
-                    // the run to have opened its channels, then read them all.
-                    if (flags.isEmpty() && !confirms) {
+                    if (confirms) {
+                        flags = admin.channels().stream()
+                                // Consumers are switched off, so a channel doing anything at all
+                                // is one of the publishers'.
+                                .filter(c -> c.messagesUnconfirmed() > 0 || c.confirm())
+                                .map(ChannelInfo::confirm)
+                                .toList();
+                    } else {
+                        // With confirms off the library's own channel is in confirm mode and
+                        // idle, and the publishers' is neither. Read them all, and wait for a
+                        // channel out of confirm mode: if confirms: false were dropped none
+                        // would appear, and the deadline returns what there is.
                         flags = admin.channels().stream()
                                 .map(ChannelInfo::confirm)
                                 .toList();
+                    }
+                    if (confirms ? !flags.isEmpty() : flags.contains(false)) {
+                        break;
                     }
                 }
                 return flags;
