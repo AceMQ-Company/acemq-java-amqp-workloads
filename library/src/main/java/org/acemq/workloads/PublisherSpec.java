@@ -49,6 +49,22 @@ public final class PublisherSpec {
     }
 
     /**
+     * The same publishers at another rate, for one step of a {@link Ramp}.
+     *
+     * @param rate the offered rate for the copy
+     * @return a copy; this spec is not changed
+     */
+    PublisherSpec atRate(long rate) {
+        PublisherSpec copy = new PublisherSpec();
+        copy.threads = threads;
+        copy.payload = payload;
+        copy.confirms = confirms;
+        copy.maxMessages = maxMessages;
+        copy.maxInFlight = maxInFlight;
+        return copy.rate(rate);
+    }
+
+    /**
      * @param threads how many threads share the offered rate. More threads help only when one
      *     cannot keep up with the schedule; the report says when that happened
      * @return this spec

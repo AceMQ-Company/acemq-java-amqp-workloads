@@ -1,0 +1,91 @@
+# How much can this broker take, honestly?
+#
+#   java -jar library/target/acemq-workload.jar -f examples/17-ramp.yaml \
+#     --report reports/ --format html,md,json
+#
+# 10-ceiling.yaml answers "how much" by publishing as fast as it can, and has to
+# throw its latencies away to do it. This file answers the question a customer
+# actually asks — "what rate does it sustain while meeting our objectives?" —
+# by stepping the offered rate up until something gives:
+#
+#   2,000/s, 2,500/s, 3,125/s, ... each step 25% above the last
+#
+# Every step is an ordinary open-loop run at a fixed rate: its own 5s warm-up,
+# then 20s measured, latency taken from when each message was *due*. So a step
+# where the broker stalls shows the stall as latency, instead of a generator
+# that slowed down with it and reported a flattering number.
+#
+# A step is bad when any of these happens, and the first bad step ends the climb:
+#
+#   - an objective under `expect:` is missed — here, p99 over 50ms;
+#   - a rule under `rules:` fires with severity failed or invalid — here, the
+#     queue ending more than 5,000 deep;
+#   - kept-pace, which every ramp step carries: the consumers delivered more
+#     than 5% (`tolerance`) less than was offered, so a queue was growing;
+#   - any publish failed (`maxErrorRate` raises that allowance);
+#   - a step was INVALID: the generator could not keep its schedule, or the
+#     broker raised an alarm. The ramp then says the ceiling it found is the
+#     generator's, not the broker's, and exits 2.
+#
+# `refine: 2` then bisects twice between the last good step and the first bad
+# one, so a 25% step does not leave the answer 25% vague.
+#
+# Read, in this order:
+#
+#   highest sustained rate   the answer: the last step where everything held
+#   stopped by               which rule ended it, and what it observed
+#   the p99 column           how latency bent on the way up. The rate at which
+#                            the system is still comfortable is usually well
+#                            below the one where it falls over
+#
+# `ceilingAtLeast` turns the question into a gate: exit 0 if the ceiling reached
+# it, exit 1 if a sound ramp did not. Delete it to just measure.
+#
+# ON A LAPTOP the broker shares a CPU with this generator, and the number you
+# get is the laptop's. Expect the climb to end on generator-kept-up or kept-pace
+# somewhere in the tens of thousands. Run the generator elsewhere before quoting
+# anything.
+name: ramp-to-ceiling
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+management: http://localhost:15672
+
+topology: { exchange: ex.ramp, queue: ex.ramp.q, routingKey: k.ramp }
+
+# No rate here: the ramp sets it on every step.
+publishers:
+  threads: 4
+  messageSize: 1024
+  confirms: true
+  maxInFlight: 2000
+
+consumers:
+  concurrency: 8
+  prefetch: 200
+
+expect:
+  p99Below: 50ms
+
+# Rules carried by the file, the same shape as the admin library's alerts: a
+# name, a metric, `above` or `below`, a severity and what crossing it means.
+rules:
+  - name: queue-ends-shallow
+    metric: queueDepthAtEnd
+    above: 5000
+    severity: failed
+    because: a queue that ends this deep was filling for the whole step, so the
+      rate offered is not one the consumers sustain
+  - name: tail-stays-reasonable
+    metric: endToEnd.p999
+    above: 250ms
+    severity: warning
+    because: one message in a thousand this slow is somebody waiting, even when
+      the p99 looks fine
+
+ramp:
+  start: 2000
+  step: 25%
+  stepFor: 20s
+  warmup: 5s
+  maxRate: 200000
+  refine: 2
+  ceilingAtLeast: 5000

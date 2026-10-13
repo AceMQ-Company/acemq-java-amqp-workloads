@@ -32,8 +32,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import org.acemq.workloads.Payload;
+import org.acemq.workloads.Ramp;
 import org.acemq.workloads.Workload;
 import org.acemq.workloads.rules.Objective;
+import org.acemq.workloads.rules.Rule;
+import org.acemq.workloads.rules.Severity;
+import org.acemq.workloads.rules.Threshold;
 import org.acemq.workloads.scenario.YamlComments;
 
 /**
@@ -91,10 +95,17 @@ public final class WorkloadFile {
 
     private final List<Workload> workloads;
     private final List<String> brokerUrls;
+    // One per workload, null where the workload is a single run rather than a ramp.
+    private final List<Ramp> ramps;
+    // The ramp blocks as written, so --ramp can be laid over them key by key.
+    private final List<JsonNode> rampNodes;
 
-    private WorkloadFile(List<Workload> workloads, List<String> brokerUrls) {
+    private WorkloadFile(List<Workload> workloads, List<String> brokerUrls, List<Ramp> ramps,
+            List<JsonNode> rampNodes) {
         this.workloads = workloads;
         this.brokerUrls = brokerUrls;
+        this.ramps = ramps;
+        this.rampNodes = rampNodes;
     }
 
     /**
@@ -148,6 +159,8 @@ public final class WorkloadFile {
 
         List<Workload> workloads = new ArrayList<>();
         List<String> brokers = new ArrayList<>();
+        List<Ramp> ramps = new ArrayList<>();
+        List<JsonNode> rampNodes = new ArrayList<>();
 
         if (root.has("workloads")) {
             JsonNode list = root.get("workloads");
@@ -158,14 +171,20 @@ public final class WorkloadFile {
             // configurations does not repeat the broker URL and invite them to drift apart.
             for (JsonNode entry : list) {
                 JsonNode merged = merge(root, entry);
-                workloads.add(toWorkload(merged));
+                Workload workload = toWorkload(merged);
+                workloads.add(workload);
                 brokers.add(optionalText(merged, "broker"));
+                ramps.add(merged.has("ramp") ? toRamp(workload, merged.get("ramp")) : null);
+                rampNodes.add(merged.get("ramp"));
             }
         } else {
-            workloads.add(toWorkload(root));
+            Workload workload = toWorkload(root);
+            workloads.add(workload);
             brokers.add(optionalText(root, "broker"));
+            ramps.add(root.has("ramp") ? toRamp(workload, root.get("ramp")) : null);
+            rampNodes.add(root.get("ramp"));
         }
-        return new WorkloadFile(workloads, brokers);
+        return new WorkloadFile(workloads, brokers, ramps, rampNodes);
     }
 
     /** Copies the top-level keys a suite entry does not override. */
@@ -186,7 +205,8 @@ public final class WorkloadFile {
 
     private static Workload toWorkload(JsonNode node) {
         reject(node, "", "name", "broker", "management", "managementUser", "managementPassword",
-                "topology", "publishers", "consumers", "warmup", "runFor", "expect");
+                "topology", "publishers", "consumers", "warmup", "runFor", "expect", "rules",
+                "ramp");
 
         Workload.Builder builder = Workload.named(requiredText(node, "name"));
 
@@ -341,7 +361,210 @@ public final class WorkloadFile {
                 builder.expect(Objective.noMessagesLost());
             }
         }
+
+        JsonNode rules = node.path("rules");
+        if (!rules.isMissingNode()) {
+            if (!rules.isArray()) {
+                throw new ConfigException("'rules' must be a list of rules, each with a name, a"
+                        + " metric and 'above' or 'below'");
+            }
+            for (int i = 0; i < rules.size(); i++) {
+                builder.rule(toRule(rules.get(i), "rules[" + i + "]"));
+            }
+        }
         return builder.build();
+    }
+
+    /**
+     * One rule from the file: a threshold on one metric, the shape of the admin library's alerts.
+     *
+     * <pre>{@code
+     * - name: backlog-stays-small
+     *   metric: queueDepthAtEnd
+     *   above: 1000
+     *   severity: failed
+     *   because: a queue that ends deep was filling
+     * }</pre>
+     */
+    static Rule toRule(JsonNode node, String where) {
+        if (!node.isObject()) {
+            throw new ConfigException("'" + where + "' must be a mapping with name, metric and"
+                    + " 'above' or 'below'");
+        }
+        reject(node, where + ".", "name", "metric", "above", "below", "severity", "because");
+        String name = optionalText(node, "name");
+        if (name == null) {
+            throw new ConfigException("'" + where + ".name' is required: it is what the report"
+                    + " calls the finding");
+        }
+        String metric = optionalText(node, "metric");
+        if (metric == null || !Threshold.metricNames().contains(metric)) {
+            throw new ConfigException("'" + where + ".metric' is "
+                    + (metric == null ? "missing" : "'" + metric + "', which is not a metric")
+                    + ". Known metrics: " + String.join(", ", Threshold.metricNames()));
+        }
+        boolean hasAbove = node.has("above");
+        if (hasAbove == node.has("below")) {
+            throw new ConfigException("'" + where + "' needs exactly one of 'above' or 'below'");
+        }
+        String limitField = hasAbove ? "above" : "below";
+        JsonNode limit = node.get(limitField);
+        Threshold threshold = Threshold.named(name).on(metric);
+        String field = where + "." + limitField;
+        if (Threshold.isLatency(metric)) {
+            Duration d = Durations.parse(limit.asText(), field);
+            threshold = hasAbove ? threshold.above(d) : threshold.below(d);
+        } else {
+            double value = "errorRate".equals(metric) ? fraction(limit, field) : number(limit, field);
+            threshold = hasAbove ? threshold.above(value) : threshold.below(value);
+        }
+        if (node.has("severity")) {
+            String severity = node.get("severity").asText().trim().toUpperCase(java.util.Locale.ROOT);
+            try {
+                threshold.severity(Severity.valueOf(severity));
+            } catch (IllegalArgumentException e) {
+                throw new ConfigException("'" + where + ".severity' is '"
+                        + node.get("severity").asText() + "'. Known: invalid, failed, warning,"
+                        + " info");
+            }
+        }
+        return threshold.because(optionalText(node, "because"));
+    }
+
+    /**
+     * A ramp from the file, over the workload it sits in.
+     *
+     * <pre>{@code
+     * ramp:
+     *   start: 1000
+     *   step: 1000        # or 25%
+     *   stepFor: 20s
+     *   warmup: 5s
+     *   maxRate: 100000
+     *   refine: 3
+     * }</pre>
+     */
+    static Ramp toRamp(Workload workload, JsonNode node) {
+        if (!node.isObject()) {
+            throw new ConfigException("'ramp' must be a mapping: start, step, stepFor, warmup,"
+                    + " maxRate, maxErrorRate, tolerance, refine, ceilingAtLeast");
+        }
+        reject(node, "ramp.", "start", "step", "stepFor", "warmup", "maxRate", "maxErrorRate",
+                "tolerance", "refine", "ceilingAtLeast");
+        try {
+            Ramp ramp = Ramp.of(workload);
+            if (node.has("start")) {
+                ramp.startAt(whole(node.get("start"), "ramp.start"));
+            }
+            if (!node.has("step")) {
+                throw new ConfigException("'ramp.step' is required: a rate such as 1000, or a"
+                        + " percentage such as 25%");
+            }
+            String step = node.get("step").asText().trim();
+            if (step.endsWith("%")) {
+                ramp.stepByPercent(number(new com.fasterxml.jackson.databind.node.TextNode(
+                        step.substring(0, step.length() - 1)), "ramp.step"));
+            } else {
+                ramp.stepBy(whole(node.get("step"), "ramp.step"));
+            }
+            if (node.has("stepFor")) {
+                ramp.stepFor(Durations.parse(node.get("stepFor").asText(), "ramp.stepFor"));
+            }
+            if (node.has("warmup")) {
+                ramp.warmupEachStep(Durations.parse(node.get("warmup").asText(), "ramp.warmup"));
+            }
+            if (node.has("maxRate")) {
+                ramp.maxRate(whole(node.get("maxRate"), "ramp.maxRate"));
+            }
+            if (node.has("maxErrorRate")) {
+                ramp.maxErrorRate(fraction(node.get("maxErrorRate"), "ramp.maxErrorRate"));
+            }
+            if (node.has("tolerance")) {
+                ramp.tolerance(fraction(node.get("tolerance"), "ramp.tolerance"));
+            }
+            if (node.has("refine")) {
+                ramp.refine((int) whole(node.get("refine"), "ramp.refine"));
+            }
+            if (node.has("ceilingAtLeast")) {
+                ramp.ceilingAtLeast(whole(node.get("ceilingAtLeast"), "ramp.ceilingAtLeast"));
+            }
+            return ramp.check();
+        } catch (IllegalArgumentException e) {
+            throw new ConfigException("ramp in '" + workload.name() + "': " + e.getMessage());
+        }
+    }
+
+    /**
+     * Makes every workload in the file a ramp, from {@code --ramp start=1000,step=10%,...}.
+     *
+     * <p>The flag is the {@code ramp:} block written on one line, and goes through the same parser,
+     * so the two cannot disagree about what a setting means. Where the file already has a ramp the
+     * flag's settings win, key by key.
+     *
+     * @param spec comma-separated {@code key=value} pairs, or null to change nothing
+     * @return the same file, with ramps
+     */
+    public WorkloadFile withRamp(String spec) {
+        if (spec == null) {
+            return this;
+        }
+        com.fasterxml.jackson.databind.node.ObjectNode flag = new ObjectMapper().createObjectNode();
+        for (String pair : spec.split(",")) {
+            if (pair.isBlank()) {
+                continue;
+            }
+            int eq = pair.indexOf('=');
+            if (eq <= 0) {
+                throw new ConfigException("--ramp takes key=value pairs separated by commas, such"
+                        + " as start=1000,step=10%,stepFor=20s; '" + pair + "' is not one");
+            }
+            flag.put(pair.substring(0, eq).trim(), pair.substring(eq + 1).trim());
+        }
+        List<Ramp> resolved = new ArrayList<>();
+        for (int i = 0; i < workloads.size(); i++) {
+            com.fasterxml.jackson.databind.node.ObjectNode merged = new ObjectMapper().createObjectNode();
+            if (rampNodes.get(i) != null && rampNodes.get(i).isObject()) {
+                merged.setAll((com.fasterxml.jackson.databind.node.ObjectNode) rampNodes.get(i));
+            }
+            merged.setAll(flag);
+            resolved.add(toRamp(workloads.get(i), merged));
+        }
+        return new WorkloadFile(workloads, brokerUrls, resolved, rampNodes);
+    }
+
+    private static double number(JsonNode value, String field) {
+        if (value.isNumber()) {
+            return value.asDouble();
+        }
+        try {
+            return Double.parseDouble(value.asText().trim());
+        } catch (NumberFormatException e) {
+            throw new ConfigException("'" + field + "' is '" + value.asText() + "', which is not"
+                    + " a number");
+        }
+    }
+
+    private static long whole(JsonNode value, String field) {
+        double number = number(value, field);
+        if (number != Math.rint(number) || number < 0) {
+            throw new ConfigException("'" + field + "' is '" + value.asText() + "'; it must be a"
+                    + " whole number, zero or more");
+        }
+        return (long) number;
+    }
+
+    /** A share written as {@code 5%} or as {@code 0.05}. */
+    private static double fraction(JsonNode value, String field) {
+        String text = value.asText().trim();
+        double share = text.endsWith("%")
+                ? number(new com.fasterxml.jackson.databind.node.TextNode(
+                        text.substring(0, text.length() - 1)), field) / 100
+                : number(value, field);
+        if (share < 0 || share >= 1) {
+            throw new ConfigException("'" + field + "' is '" + text + "'; write a share such as"
+                    + " 5% or 0.05, from 0 up to (not including) 100%");
+        }
+        return share;
     }
 
     /** Fails on a key this version does not know, rather than ignoring it. */
@@ -460,7 +683,7 @@ public final class WorkloadFile {
             }
             resolved.add(url);
         }
-        return new WorkloadFile(workloads, resolved);
+        return new WorkloadFile(workloads, resolved, ramps, rampNodes);
     }
 
     /**
@@ -475,6 +698,14 @@ public final class WorkloadFile {
                     + "' against: 'broker' is missing from the file and none was supplied.");
         }
         return url;
+    }
+
+    /**
+     * @param index which workload
+     * @return the ramp to run it as, or null when it is a single run
+     */
+    public Ramp ramp(int index) {
+        return ramps.get(index);
     }
 
     /** @return how many workloads this file holds */
@@ -502,6 +733,9 @@ public final class WorkloadFile {
                             : Durations.format(workload.duration()))
                     .append('\n');
             out.append("  rules       ").append(workload.rules().size()).append('\n');
+            if (ramps.get(i) != null) {
+                out.append("  ramp        ").append(ramps.get(i)).append('\n');
+            }
         }
         return out.toString();
     }

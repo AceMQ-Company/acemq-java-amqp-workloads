@@ -70,6 +70,7 @@ anything else on the broker.
 | 12 | [`12-ci-gate.yaml`](#a-gate) | the file a pipeline runs |
 | 13 | [`13-dead-letter.yaml`](#dead-letters) | a handler that fails, and where those messages go |
 | 14 | [`14-node-loss/`](#a-quorum-queue-losing-a-node) | three brokers, and one of them stops |
+| 17 | [`17-ramp.yaml`](#a-ramp) | the rate stepped up until a rule fires: the ceiling, honestly |
 
 Output shown on this page is marked **real output** where it came from an actual
 run and is reproduced with nothing but whitespace touched. Numbers from a laptop
@@ -1223,6 +1224,64 @@ experiment. Stopping the leader also costs an election, and the pause is longer.
 **Losing a second node.** Two of three gone is no majority, and the queue stops
 accepting writes until one comes back. That is not a slower queue, it is an
 unavailable one, and it is what the third replica is for.
+
+## A ramp
+
+`17-ramp.yaml`. [The ceiling](#the-ceiling) found a number by throwing the
+latencies away; this finds the highest rate at which the objectives still hold,
+which is the number somebody asking "can it do 300k?" actually wants.
+
+```yaml
+name: ramp-to-ceiling
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+management: http://localhost:15672
+topology: { exchange: ex.ramp, queue: ex.ramp.q, routingKey: k.ramp }
+publishers: { threads: 4, messageSize: 1024, confirms: true, maxInFlight: 2000 }
+consumers: { concurrency: 8, prefetch: 200 }
+
+expect:
+  p99Below: 50ms
+
+rules:
+  - name: queue-ends-shallow
+    metric: queueDepthAtEnd
+    above: 5000
+    severity: failed
+    because: a queue that ends this deep was filling for the whole step
+  - name: tail-stays-reasonable
+    metric: endToEnd.p999
+    above: 250ms
+    severity: warning
+
+ramp:
+  start: 2000
+  step: 25%
+  stepFor: 20s
+  warmup: 5s
+  maxRate: 200000
+  refine: 2
+  ceilingAtLeast: 5000
+```
+
+```bash
+java -jar library/target/acemq-workload.jar -f examples/17-ramp.yaml \
+  --report reports/ --format html,md,json
+```
+
+Each step is a full open-loop run at one rate: 2,000/s, 2,500/s, 3,125/s and
+on, 25% at a time. The first step where the p99 goes over 50ms, the queue ends
+more than 5,000 deep, the consumers fall more than 5% behind (`kept-pace`) or
+the generator cannot keep its own schedule ends the climb, and `refine: 2`
+bisects twice between that step and the last good one.
+
+Read `highest sustained rate` first, then `stopped by`. If what stopped it was
+`generator-kept-up`, the ramp says so and exits 2: the ceiling it found is this
+machine's, not the broker's — which on a laptop is the usual result. The p99
+column is the other answer: how latency bent on the way up, and the rate where
+the system was still comfortable.
+
+`ceilingAtLeast: 5000` makes the file a gate: exit 0 if the ceiling reached it,
+exit 1 if a sound ramp did not. The whole page on ramps is [here](ramp.md).
 
 ## Where to go next
 

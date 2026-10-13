@@ -98,6 +98,21 @@ One file, two runs, compared side by side. `${VAR}` comes from the environment,
 so a password never has to live in a file that gets committed, and `--dry-run`
 prints the resolved configuration with it redacted.
 
+### Finding the ceiling
+
+```yaml
+ramp: { start: 2000, step: 25%, stepFor: 20s, maxRate: 200000, refine: 2 }
+```
+
+A [ramp](docs/ramp.md) steps the offered rate up — each step an ordinary
+open-loop run — until an objective is missed, a rule fires, or the consumers
+stop keeping pace, then bisects between the last good step and the first bad
+one. It reports the highest rate where everything held, the latency curve on
+the way up, and which rule stopped it. If the generator gave out first, it says
+the ceiling is the generator's, not the broker's. `--ramp start=1000,step=10%`
+ramps any workload file without editing it, and `rules:` in the file adds
+[thresholds of your own](docs/rules.md#rules-in-the-file) without Java.
+
 ### Exit codes are the interface
 
 More important than the report format: a pipeline reads the exit code, a person
@@ -309,14 +324,14 @@ the pauses being measured. `HdrHistogram` solves both.
 
 ## Documentation
 
-Nine guide pages and five tutorials, published at
+Ten guide pages and five tutorials, published at
 **<https://acemq.org/acemq-java-amqp-workloads/>**. They read as markdown in
 [docs/](docs/) too, and render with `.github/scripts/build-docs-site.sh`.
 
 | | |
 |---|---|
 | **Start here** | [docs/index.md](docs/index.md) · [The studio](docs/studio.md) · [Getting started](docs/getting-started.md) |
-| **Reference** | [Command line](docs/cli.md) · [Endurance](docs/endurance.md) · [Workload file](docs/workload-file.md) · [Scenario file](docs/scenario-file.md) · [Rules](docs/rules.md) · [Reports](docs/reports.md) |
+| **Reference** | [Command line](docs/cli.md) · [Endurance](docs/endurance.md) · [Workload file](docs/workload-file.md) · [Scenario file](docs/scenario-file.md) · [Rules](docs/rules.md) · [Ramp](docs/ramp.md) · [Reports](docs/reports.md) |
 | **Why the numbers hold** | [Measurement](docs/measurement.md) — the schedule arithmetic and coordinated omission |
 | **Tutorials** | [Five, in order](docs/tutorials.md), each ending with something that runs |
 

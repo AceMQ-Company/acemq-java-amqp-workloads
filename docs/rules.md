@@ -131,6 +131,72 @@ shortfall of a handful beside an empty queue is delivery that finished late.
 Until the boundary is handled, it is an objective for runs where losing messages
 is the thing under test rather than one to put in an unattended gate.
 
+## Rules in the file
+
+A workload file can carry its own rules, in the shape of the admin library's
+alerts: a name, one metric, `above` or `below`, a severity, and what crossing it
+means. No Java needed.
+
+```yaml
+rules:
+  - name: queue-ends-shallow
+    metric: queueDepthAtEnd
+    above: 5000
+    severity: failed          # invalid, failed, warning or info. Default failed
+    because: a queue that ends this deep was filling for the whole run
+  - name: tail-stays-reasonable
+    metric: endToEnd.p999
+    above: 250ms
+    severity: warning
+  - name: almost-no-errors
+    metric: errorRate
+    above: 0.1%
+```
+
+They run beside the defaults and the `expect:` objectives, and their findings
+read like every other:
+
+```
+[FAILED] queue-ends-shallow
+    observed:  queueDepthAtEnd was 41,200, above 5,000
+    means:     a queue that ends this deep was filling for the whole run
+```
+
+| Metric | |
+|---|---|
+| `offeredRate` `publishRate` `consumeRate` | messages a second over the measured window |
+| `published` `confirmed` `consumed` `failed` | counts |
+| `errorRate` | failed publishes as a share of attempts: `0.1%` or `0.001` |
+| `backlog` | published minus consumed |
+| `queueDepthAtEnd` | the depth when the run finished, if it could be read |
+| `blockedSeconds` | time spent blocked by a resource alarm |
+| `endToEnd.`, `publish.`, `sendLag.` + `p50` `p90` `p99` `p999` `max` | latencies, compared as durations: `50ms`, never a bare number |
+
+A metric the run did not produce never fires — a latency with no consumers, a
+depth that could not be read. There is nothing to compare, and a rule that
+fired on a missing number would be reporting the configuration, not the run.
+
+**Validated on load.** A misspelled metric, a bare number for a latency, a
+share over 100%, a rule with both `above` and `below` or neither, an unknown
+key: each stops the file with exit 3 and names the rule by position —
+`'rules[2].metric' is 'p99', which is not a metric. Known metrics: ...`. A rule
+that silently never ran would be a gate that always passes.
+
+In a [suite](workload-file.md#a-suite), top-level `rules:` apply to every entry;
+an entry's own `rules:` replaces them. In a [ramp](ramp.md), a rule that fires
+with `failed` or `invalid` stops the climb.
+
+From Java, the same rule is a `Threshold`:
+
+```java
+Workload.named("x")
+        .rule(Threshold.named("queue-ends-shallow")
+                .on("queueDepthAtEnd").above(5_000)
+                .severity(Severity.FAILED)
+                .because("a queue that ends this deep was filling for the whole run"))
+        /* ... */;
+```
+
 ## Writing your own
 
 ```java

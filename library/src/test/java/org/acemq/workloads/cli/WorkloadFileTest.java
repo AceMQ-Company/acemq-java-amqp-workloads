@@ -439,4 +439,169 @@ class WorkloadFileTest {
             }
         }
     }
+
+    @Nested
+    @DisplayName("rules loaded from the file")
+    class LoadedRules {
+
+        private static final String WITH_RULES = """
+                name: ruled
+                broker: amqp://localhost:5672
+                publishers: { rate: 1000 }
+                rules:
+                  - name: backlog-stays-small
+                    metric: queueDepthAtEnd
+                    above: 1000
+                    severity: warning
+                    because: a queue that ends deep was filling
+                  - name: tail
+                    metric: endToEnd.p999
+                    above: 200ms
+                  - name: errors
+                    metric: errorRate
+                    above: 0.5%
+                """;
+
+        @Test
+        @DisplayName("each one becomes a rule beside the defaults")
+        void loads() {
+            Workload plain = parse("name: p\nbroker: amqp://x\npublishers: { rate: 1000 }\n")
+                    .workloads().get(0);
+            Workload ruled = parse(WITH_RULES).workloads().get(0);
+            assertThat(ruled.rules()).hasSize(plain.rules().size() + 3);
+        }
+
+        @Test
+        @DisplayName("a suite's top-level rules apply to every entry")
+        void suite() {
+            WorkloadFile file = parse(WITH_RULES.replace("name: ruled\n", "")
+                    + "workloads:\n  - name: a\n  - name: b\n");
+            assertThat(file.workloads()).allSatisfy(w ->
+                    assertThat(w.rules().size()).isGreaterThan(7));
+        }
+
+        private void refused(String rules, String message) {
+            assertThatThrownBy(() -> parse("name: r\nbroker: amqp://x\nrules:\n" + rules))
+                    .isInstanceOf(ConfigException.class)
+                    .hasMessageContaining(message);
+        }
+
+        @Test
+        @DisplayName("are validated on load, each with a reason")
+        void validated() {
+            refused("  - { metric: published, above: 1 }\n", "'rules[0].name' is required");
+            refused("  - { name: x, metric: p99, above: 1 }\n", "not a metric");
+            refused("  - { name: x, metric: published }\n", "exactly one of 'above' or 'below'");
+            refused("  - { name: x, metric: published, above: 1, below: 2 }\n", "exactly one");
+            refused("  - { name: x, metric: endToEnd.p99, above: 50 }\n", "is not a duration");
+            refused("  - { name: x, metric: published, above: lots }\n", "not a number");
+            refused("  - { name: x, metric: errorRate, above: 150% }\n", "write a share");
+            refused("  - { name: x, metric: published, above: 1, severity: dire }\n",
+                    "Known: invalid, failed, warning, info");
+            refused("  - { name: x, metric: published, above: 1, when: now }\n",
+                    "unknown setting 'rules[0].when'");
+            refused("  name: x\n", "must be a list");
+        }
+    }
+
+    @Nested
+    @DisplayName("a ramp")
+    class Ramps {
+
+        private static final String RAMPED = """
+                name: ceiling
+                broker: amqp://localhost:5672
+                publishers: { threads: 2, rate: 500 }
+                warmup: 2s
+                runFor: 10s
+                ramp:
+                  start: 1000
+                  step: 25%
+                  stepFor: 20s
+                  warmup: 5s
+                  maxRate: 100000
+                  maxErrorRate: 0.1%
+                  tolerance: 0.02
+                  refine: 3
+                  ceilingAtLeast: 50000
+                """;
+
+        @Test
+        @DisplayName("is read from the ramp block, and shown by --dry-run")
+        void reads() {
+            WorkloadFile file = parse(RAMPED);
+            assertThat(file.ramp(0)).isNotNull();
+            assertThat(file.ramp(0).start()).isEqualTo(1_000);
+            assertThat(file.ramp(0).ceilingAtLeast()).isEqualTo(50_000);
+            assertThat(file.ramp(0).toString())
+                    .isEqualTo("Ramp{ceiling from 1000/s by 25.0% to 100000/s, 20s a step, refined 3x}");
+            assertThat(file.describe()).contains("ramp        Ramp{ceiling");
+        }
+
+        @Test
+        @DisplayName("defaults to the workload's rate, warm-up and duration")
+        void defaults() {
+            WorkloadFile file = parse(RAMPED.replaceAll("(?s)ramp:.*", "ramp: { step: 100 }\n"));
+            assertThat(file.ramp(0).start()).isEqualTo(500);
+            assertThat(file.ramp(0).toString()).contains("10s a step");
+        }
+
+        @Test
+        @DisplayName("the example file is valid, as written")
+        void example() {
+            WorkloadFile file = WorkloadFile.read(java.nio.file.Path.of("../examples/17-ramp.yaml"),
+                    name -> null);
+            assertThat(file.ramp(0)).isNotNull();
+            assertThat(file.ramp(0).toString()).contains("from 2000/s by 25.0%");
+            assertThat(file.workloads().get(0).rules().size())
+                    .isGreaterThan(parse(MINIMAL).workloads().get(0).rules().size());
+        }
+
+        @Test
+        @DisplayName("a workload without one is a single run")
+        void absent() {
+            assertThat(parse(MINIMAL).ramp(0)).isNull();
+        }
+
+        @Test
+        @DisplayName("--ramp lays its settings over the file's, key by key")
+        void flag() {
+            WorkloadFile file = parse(RAMPED).withRamp("step=500,refine=0");
+            assertThat(file.ramp(0).toString()).isEqualTo(
+                    "Ramp{ceiling from 1000/s by 500/s to 100000/s, 20s a step}");
+
+            WorkloadFile fromNothing = parse(MINIMAL).withRamp("start=100,step=100,stepFor=5s");
+            assertThat(fromNothing.ramp(0).toString()).contains("from 100/s by 100/s");
+
+            assertThatThrownBy(() -> parse(MINIMAL).withRamp("start"))
+                    .hasMessageContaining("key=value");
+        }
+
+        private void refused(String ramp, String message) {
+            assertThatThrownBy(() -> parse("name: r\nbroker: amqp://x\nrunFor: 10s\n"
+                    + "publishers: { rate: 100 }\nramp: " + ramp + "\n"))
+                    .isInstanceOf(ConfigException.class)
+                    .hasMessageContaining(message);
+        }
+
+        @Test
+        @DisplayName("is validated on load, each with a reason")
+        void validated() {
+            refused("{ start: 100 }", "'ramp.step' is required");
+            refused("{ step: 0 }", "step must be positive");
+            refused("{ step: 10, stepFor: 2s }", "at least 5s");
+            refused("{ step: 10, stepFor: 20 }", "is not a duration");
+            refused("{ step: 10, start: 1.5 }", "whole number");
+            refused("{ step: 10, start: 500, maxRate: 100 }", "above its maxRate");
+            refused("{ step: 10, tolerance: 2 }", "write a share");
+            refused("{ step: 10, rate: 5 }", "unknown setting 'ramp.rate'");
+            refused("fast", "must be a mapping");
+            assertThatThrownBy(() -> parse("name: r\nbroker: amqp://x\n"
+                    + "publishers: { unthrottled: true }\nramp: { step: 10 }\n"))
+                    .hasMessageContaining("needs a starting rate");
+            assertThatThrownBy(() -> parse("name: r\nbroker: amqp://x\nrunFor: forever\n"
+                    + "publishers: { rate: 10 }\nramp: { step: 10 }\n"))
+                    .hasMessageContaining("until-stopped");
+        }
+    }
 }

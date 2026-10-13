@@ -180,6 +180,8 @@ for a core the way a busy one does.
 
 ## `expect`
 
+Objectives. For thresholds on anything else in the report, see [`rules`](#rules).
+
 | Setting | |
 |---|---|
 | `throughputAtLeast` | messages per second, measured **end to end** when there are consumers |
@@ -189,6 +191,37 @@ for a core the way a busy one does.
 `throughputAtLeast` counts what was *consumed*, not what was published. A publish
 rate the consumers never matched is a queue filling up rather than a system
 running.
+
+## `rules`
+
+Thresholds on any number in the report, carried by the file. See
+[rules in the file](rules.md#rules-in-the-file) for the metrics.
+
+```yaml
+rules:
+  - name: queue-ends-shallow
+    metric: queueDepthAtEnd
+    above: 5000
+    severity: failed
+    because: a queue that ends this deep was filling for the whole run
+```
+
+## `ramp`
+
+Turns the workload into a [ramp](ramp.md): the rate stepped up until a rule
+fires, to find the highest rate that meets every objective.
+
+| Setting | |
+|---|---|
+| `start` | the first step's rate. Default: `publishers.rate` |
+| `step` | **required.** An absolute rate, `1000`, or a share of the step before, `25%` |
+| `stepFor` | each step's measured window, at least 5s. Default: `runFor` |
+| `warmup` | before each step. Default: `warmup` |
+| `maxRate` | the highest rate offered |
+| `maxErrorRate` | failed publishes allowed per step: `0.1%`. Default 0 |
+| `tolerance` | how far the delivered rate may fall short of the offered one. Default `5%` |
+| `refine` | bisection steps between the last good and first bad rate. Default 0 |
+| `ceilingAtLeast` | the gate: exit 1 if the highest sustained rate is lower |
 
 ## Durations
 

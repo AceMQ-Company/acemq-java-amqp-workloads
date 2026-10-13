@@ -97,6 +97,7 @@ a wrong one worse than silence.
 - [Command line](cli.md) — every option, with examples
 - [Endurance](endurance.md) — the soak: forced recoveries, resources read from outside, the leak verdict
 - [Workload file](workload-file.md) — every setting
+- [The ramp](ramp.md) — step the rate up until a rule fires: the honest ceiling
 - [Scenario file](scenario-file.md) — a whole topology, and objectives per node
 - [API reference](apidocs/index.html) — the Java surface
 

@@ -135,6 +135,28 @@ well below the rate at which it falls over.
 The `runFor: 20s` here is short enough that `run-was-long-enough` warns on every
 row. For a number you are going to quote, use minutes.
 
+### Or let the ramp walk the ladder
+
+The ladder above, done by the tool: one workload, and the rate stepped until
+something gives.
+
+```yaml
+# ramp.yaml
+name: tut-ramp
+broker: amqp://guest:guest@localhost:5672
+topology: { queue: tut.ramp, routingKey: tut.ramp }
+publishers: { threads: 8, maxInFlight: 5000, messageSize: 1024 }
+consumers:  { concurrency: 8, prefetch: 200 }
+expect: { p99Below: 50ms }
+ramp: { start: 10000, step: 10000, stepFor: 20s, warmup: 3s, refine: 3 }
+```
+
+It stops at the first step where the p99 budget breaks, the consumers fall
+behind, or the generator cannot keep its schedule — and in that last case it
+says the ceiling is the generator's, which is Step 1's lesson applied
+automatically. `refine: 3` narrows the gap between the last good step and the
+first bad one. See [the ramp](ramp.md).
+
 ## Step 4 — The unthrottled shortcut, and its cost
 
 ```yaml

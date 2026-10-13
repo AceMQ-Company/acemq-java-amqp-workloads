@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
+import org.acemq.workloads.Ramp;
+import org.acemq.workloads.RampReport;
 import org.acemq.workloads.RunHandle;
 import org.acemq.workloads.RunListener;
 import org.acemq.workloads.Workload;
@@ -90,6 +92,11 @@ public final class Cli {
                                       accept a certificate the broker generated for itself
                   --report <dir>      write reports into this directory
                   --format <list>     html, md, json (comma separated; default html,json)
+                  --ramp <settings>   step the rate up until a rule fires, to find the
+                                      highest rate that meets every objective:
+                                      start=1000,step=10%,stepFor=20s,warmup=5s,
+                                      maxRate=100000,refine=3 (the file's ramp: block,
+                                      on one line; it wins over the file key by key)
                   --dry-run           resolve and print the configuration, run nothing
                   --quiet             only print the final verdict
                   --emit-samples      one line of JSON per reading, on stdout, as
@@ -131,6 +138,14 @@ public final class Cli {
               expect:
                 throughputAtLeast: 45000
                 p99Below: 50ms
+
+            a ramp, in a workload file:
+              ramp:
+                start: 1000
+                step: 1000          # or 25%
+                stepFor: 20s
+                maxRate: 100000
+                refine: 3           # bisect between the last good and first bad step
 
             ${VAR} is read from the environment, so a password never has to live in a file
             that gets committed.
@@ -198,6 +213,12 @@ public final class Cli {
         // somebody has to remember. A scenario names producers, queues and exchanges;
         // a workload names a topology with publishers and consumers.
         if (ScenarioReader.isScenario(options.file)) {
+            if (options.ramp != null) {
+                err.println("acemq-workload: --ramp applies to a workload file, and this is a"
+                        + " scenario. A scenario has many producers, and which of their rates a"
+                        + " ramp would raise is not something to guess.");
+                return BAD_CONFIG;
+            }
             return runScenario(options, out, err);
         }
 
@@ -206,7 +227,8 @@ public final class Cli {
             // The flag is applied here rather than inside the parser, because the parser cannot
             // see it: `broker' used to be required of the file, so a file that left the broker to
             // the command line was refused before the command line was consulted.
-            file = WorkloadFile.read(options.file).withBroker(options.broker);
+            file = WorkloadFile.read(options.file).withBroker(options.broker)
+                    .withRamp(options.ramp);
         } catch (ConfigException e) {
             err.println("acemq-workload: " + e.getMessage());
             return BAD_CONFIG;
@@ -226,15 +248,25 @@ public final class Cli {
         }
 
         List<WorkloadReport> reports = new ArrayList<>();
+        List<RampReport> ramps = new ArrayList<>();
         try {
             for (int i = 0; i < file.size(); i++) {
                 Workload workload = file.workloads().get(i);
+                Ramp ramp = file.ramp(i);
+                if (ramp != null) {
+                    RampReport result = runRamp(ramp, file.brokerUrl(i), security, options, out);
+                    ramps.add(result);
+                    if (!options.quiet) {
+                        out.println(result.format());
+                    }
+                    continue;
+                }
                 if (!options.quiet) {
                     out.println("running " + workload.name() + " against "
                             + WorkloadFile.redact(file.brokerUrl(i)) + " ...");
                 }
                 WorkloadReport report = runStoppably(workload, file.brokerUrl(i), security,
-                        options.emitSamples ? new SampleLines(out) : RunListener.NONE);
+                        options.emitSamples ? new SampleLines(out) : RunListener.NONE, () -> { });
                 reports.add(report);
                 if (!options.quiet) {
                     out.println(report.format());
@@ -246,15 +278,19 @@ public final class Cli {
 
         if (options.reportDir != null) {
             try {
-                writeReports(reports, options, out);
+                writeReports(reports, ramps, options, out);
             } catch (IOException e) {
                 err.println("acemq-workload: could not write the report: " + e.getMessage());
                 return BAD_CONFIG;
             }
         }
 
-        boolean anyInvalid = reports.stream().anyMatch(r -> !r.isValid());
-        boolean anyFailed = reports.stream().anyMatch(r -> !r.passed());
+        // A ramp that passed found its answer, whatever stopped it. One that did not is invalid when
+        // the generator or an alarm ended it, and failed when a sound step did.
+        boolean anyInvalid = reports.stream().anyMatch(r -> !r.isValid())
+                || ramps.stream().anyMatch(r -> !r.passed() && !r.isValid());
+        boolean anyFailed = reports.stream().anyMatch(r -> !r.passed())
+                || ramps.stream().anyMatch(r -> !r.passed());
 
         if (anyInvalid) {
             out.println("INVALID — at least one run did not measure what it was asked to");
@@ -264,7 +300,8 @@ public final class Cli {
             out.println("FAILED — every run was sound and at least one objective was not met");
             return OBJECTIVE_MISSED;
         }
-        out.println("PASSED — " + reports.size() + " workload" + (reports.size() == 1 ? "" : "s"));
+        int total = reports.size() + ramps.size();
+        out.println("PASSED — " + total + " workload" + (total == 1 ? "" : "s"));
         return OK;
     }
 
@@ -496,11 +533,12 @@ public final class Cli {
      * @return what it measured, whether it ran to completion or was stopped
      */
     private static WorkloadReport runStoppably(Workload workload, String brokerUrl,
-            Security security, RunListener listener) {
+            Security security, RunListener listener, Runnable onStop) {
         RunHandle handle = workload.start(brokerUrl, security, listener);
 
         Thread runner = Thread.currentThread();
         Thread hook = new Thread(() -> {
+            onStop.run();
             handle.stop();
             try {
                 runner.join(STOP_GRACE.toMillis());
@@ -539,8 +577,36 @@ public final class Cli {
         }
     }
 
-    private static void writeReports(List<WorkloadReport> reports, Options options, PrintStream out)
-            throws IOException {
+    /**
+     * Runs a ramp a step at a time, each step stoppable the way a single run is: a signal ends the
+     * step running, and the ramp stops there with everything measured so far.
+     */
+    private static RampReport runRamp(Ramp ramp, String brokerUrl, Security security,
+            Options options, PrintStream out) {
+        if (!options.quiet) {
+            out.println("ramping " + ramp.workload().name() + " against "
+                    + WorkloadFile.redact(brokerUrl) + " ...");
+            out.println("  " + ramp);
+        }
+        return ramp.run(step -> {
+            if (!options.quiet) {
+                out.printf("  step %,d/s ...%n", step.publishers().rate());
+            }
+            WorkloadReport report = runStoppably(step, brokerUrl, security,
+                    options.emitSamples ? new SampleLines(out) : RunListener.NONE, ramp::stop);
+            if (!options.quiet) {
+                out.printf("    %s: published %,.0f/s, consumed %,.0f/s%s%n",
+                        report.passed() ? "held" : report.isValid() ? "FAILED" : "INVALID",
+                        report.achievedPublishRate(), report.consumeRate(),
+                        report.problems().isEmpty() ? ""
+                                : " (" + report.problems().get(0).rule() + ")");
+            }
+            return report;
+        });
+    }
+
+    private static void writeReports(List<WorkloadReport> reports, List<RampReport> ramps,
+            Options options, PrintStream out) throws IOException {
         Files.createDirectories(options.reportDir);
         String stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
 
@@ -549,15 +615,15 @@ public final class Cli {
             String extension;
             switch (format) {
                 case "html" -> {
-                    body = Reports.toHtml(reports);
+                    body = Reports.toHtml(reports, ramps);
                     extension = "html";
                 }
                 case "md", "markdown" -> {
-                    body = Reports.toMarkdown(reports);
+                    body = Reports.toMarkdown(reports, ramps);
                     extension = "md";
                 }
                 case "json" -> {
-                    body = Reports.toJson(reports);
+                    body = Reports.toJson(reports, ramps);
                     extension = "json";
                 }
                 default -> throw new ConfigException("unknown --format '" + format
@@ -584,6 +650,7 @@ public final class Cli {
         Path file;
         Path reportDir;
         String broker;
+        String ramp;
         // TLS on the command line, because a URL cannot carry which certificates to believe
         // and a scenario file that is run against both staging and production should not have
         // to be edited to change that.
@@ -618,6 +685,7 @@ public final class Cli {
                     // way this gets used, and editing the file in between is how the two
                     // stop being the same test.
                     case "--broker" -> options.broker = value(args, ++i, arg);
+                    case "--ramp" -> options.ramp = value(args, ++i, arg);
                     case "--tls" -> options.tlsMode = value(args, ++i, arg);
                     case "--truststore" -> options.truststore = value(args, ++i, arg);
                     case "--truststore-password" ->

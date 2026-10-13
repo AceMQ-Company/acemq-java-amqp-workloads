@@ -143,6 +143,7 @@ NAV='<nav class="top">
   <a href="workload-file.html">Workload file</a>
   <a href="measurement.html">Measurement</a>
   <a href="rules.html">Rules</a>
+  <a href="ramp.html">Ramp</a>
   <a href="reports.html">Reports</a>'"$EXAMPLES"'
   <a class="tutorials" href="tutorials.html">Tutorials</a>
   <a class="api" href="apidocs/index.html">API reference</a>

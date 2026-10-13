@@ -106,6 +106,29 @@ public final class Workload {
         this.managementPassword = builder.managementPassword;
     }
 
+    private Workload(Workload base, long rate, Duration warmup, Duration duration, Rule extra) {
+        this.name = base.name + "@" + rate;
+        this.topology = base.topology;
+        this.publishers = base.publishers.atRate(rate);
+        this.consumers = base.consumers;
+        this.warmup = warmup;
+        this.duration = duration;
+        List<Rule> all = new ArrayList<>(base.rules);
+        all.add(extra);
+        this.rules = List.copyOf(all);
+        this.managementUrl = base.managementUrl;
+        this.managementUser = base.managementUser;
+        this.managementPassword = base.managementPassword;
+    }
+
+    /**
+     * This workload as one step of a {@link Ramp}: the same topology, publishers and consumers,
+     * offered at {@code rate}, with one more rule.
+     */
+    Workload step(long rate, Duration warmup, Duration duration, Rule extra) {
+        return new Workload(this, rate, warmup, duration, extra);
+    }
+
     /**
      * @param name what to call this workload, in the report
      * @return a builder
@@ -407,7 +430,11 @@ public final class Workload {
                 // Not refused: an unthrottled run is a legitimate way to find the ceiling. But
                 // the latency it produces is subject to coordinated omission, and the report
                 // needs to be read with that in mind.
-                rules.add(report -> java.util.Optional.of(
+                // Judged on the run's own spec, so a ramp step over this workload, which offers a
+                // rate, is not told it was unthrottled.
+                rules.add(report -> !report.spec().publishers().isUnthrottled()
+                        ? java.util.Optional.empty()
+                        : java.util.Optional.of(
                         org.acemq.workloads.rules.Finding.of("unthrottled-latency",
                                 org.acemq.workloads.rules.Severity.WARNING,
                                 "this run was unthrottled, so there was no schedule to be late against",

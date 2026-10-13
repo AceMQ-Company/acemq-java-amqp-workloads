@@ -18,6 +18,7 @@ package org.acemq.workloads.report;
 import java.time.Duration;
 import java.util.List;
 
+import org.acemq.workloads.RampReport;
 import org.acemq.workloads.WorkloadReport;
 import org.acemq.workloads.metrics.LatencySummary;
 import org.acemq.workloads.rules.Finding;
@@ -46,6 +47,13 @@ public final class Reports {
     /** @param reports finished runs
      *  @return a machine-readable record of them */
     public static String toJson(List<WorkloadReport> reports) {
+        return toJson(reports, List.of());
+    }
+
+    /** @param reports finished runs
+     *  @param ramps finished ramps
+     *  @return a machine-readable record of them; {@code ramps} appears only when there are some */
+    public static String toJson(List<WorkloadReport> reports, List<RampReport> ramps) {
         StringBuilder out = new StringBuilder("{\n  \"workloads\": [\n");
         for (int i = 0; i < reports.size(); i++) {
             WorkloadReport report = reports.get(i);
@@ -85,14 +93,79 @@ public final class Reports {
             out.append("      ]\n");
             out.append(i < reports.size() - 1 ? "    },\n" : "    }\n");
         }
-        out.append("  ]\n}\n");
+        out.append("  ]");
+        if (!ramps.isEmpty()) {
+            out.append(",\n  \"ramps\": [\n");
+            for (int i = 0; i < ramps.size(); i++) {
+                rampJson(out, ramps.get(i));
+                out.append(i < ramps.size() - 1 ? ",\n" : "\n");
+            }
+            out.append("  ]");
+        }
+        out.append("\n}\n");
         return out.toString();
+    }
+
+    private static void rampJson(StringBuilder out, RampReport ramp) {
+        out.append("    {\n");
+        field(out, "name", ramp.name(), true);
+        // What it ran with, so a ramp started with --ramp is reproducible from its report.
+        field(out, "settings", ramp.ramp().toString(), true);
+        field(out, "valid", ramp.isValid());
+        field(out, "passed", ramp.passed());
+        field(out, "verdict", ramp.verdict(), true);
+        field(out, "highestSustainedRatePerSecond", ramp.highestSustainedRate());
+        if (ramp.ramp().ceilingAtLeast() > 0) {
+            field(out, "ceilingAtLeast", ramp.ramp().ceilingAtLeast());
+        }
+        field(out, "stoppedBy", String.valueOf(ramp.stoppedBy()), true);
+        field(out, "stopReason", ramp.stopReason(), true);
+        out.append("      \"steps\": [\n");
+        List<RampReport.Step> steps = ramp.steps();
+        for (int s = 0; s < steps.size(); s++) {
+            RampReport.Step step = steps.get(s);
+            WorkloadReport r = step.report();
+            out.append("        {\"offeredRatePerSecond\": ").append(step.rate())
+                    .append(", \"refinement\": ").append(step.refinement())
+                    .append(", \"sustained\": ").append(step.sustained())
+                    .append(", \"valid\": ").append(r.isValid());
+            if (!step.sustained()) {
+                out.append(", \"stoppedBy\": \"").append(escape(step.stoppedBy())).append('"');
+            }
+            out.append(", \"publishRatePerSecond\": ").append(round(r.achievedPublishRate()))
+                    .append(", \"consumeRatePerSecond\": ").append(round(r.consumeRate()))
+                    .append(", \"failedTotal\": ").append(r.failed());
+            LatencySummary e2e = r.endToEnd();
+            if (!e2e.isEmpty()) {
+                out.append(", \"endToEnd\": {\"p50Micros\": ").append(e2e.p50().toNanos() / 1000)
+                        .append(", \"p90Micros\": ").append(e2e.p90().toNanos() / 1000)
+                        .append(", \"p99Micros\": ").append(e2e.p99().toNanos() / 1000)
+                        .append(", \"p999Micros\": ").append(e2e.p999().toNanos() / 1000)
+                        .append(", \"maxMicros\": ").append(e2e.max().toNanos() / 1000)
+                        .append('}');
+            }
+            out.append('}').append(s < steps.size() - 1 ? ",\n" : "\n");
+        }
+        out.append("      ]\n    }");
     }
 
     /** @param reports finished runs
      *  @return the same, as Markdown */
     public static String toMarkdown(List<WorkloadReport> reports) {
+        return toMarkdown(reports, List.of());
+    }
+
+    /** @param reports finished runs
+     *  @param ramps finished ramps
+     *  @return the same, as Markdown */
+    public static String toMarkdown(List<WorkloadReport> reports, List<RampReport> ramps) {
         StringBuilder out = new StringBuilder("# Workload report\n\n");
+        for (RampReport ramp : ramps) {
+            rampMarkdown(out, ramp);
+        }
+        if (reports.isEmpty()) {
+            return out.toString();
+        }
 
         out.append("| workload | result | offered | published | consumed | p50 | p99 | p99.9 |\n");
         out.append("|---|---|---|---|---|---|---|---|\n");
@@ -117,15 +190,89 @@ public final class Reports {
         return out.toString();
     }
 
+    private static void rampMarkdown(StringBuilder out, RampReport ramp) {
+        out.append("## Ramp: ").append(ramp.name()).append("\n\n");
+        out.append("`").append(ramp.ramp()).append("`\n\n");
+        out.append("**").append(ramp.verdict()).append("** — highest sustained rate: **")
+                .append(ramp.highestSustainedRate() == 0 ? "none"
+                        : String.format("%,d/s", ramp.highestSustainedRate()))
+                .append("**. Stopped by ").append(ramp.stopReason()).append(".\n\n");
+        if (!ramp.isValid()) {
+            out.append("> The step that stopped it was INVALID: this is the generator's or an"
+                    + " alarm's limit, not the broker's ceiling.\n\n");
+        }
+        out.append("| offered | result | published | consumed | p50 | p90 | p99 | p99.9 | stopped by |\n");
+        out.append("|---|---|---|---|---|---|---|---|---|\n");
+        for (RampReport.Step step : ramp.steps()) {
+            WorkloadReport r = step.report();
+            out.append("| ").append(String.format("%,d/s", step.rate()))
+                    .append(step.refinement() ? " (refine)" : "")
+                    .append(" | ").append(stepResult(step))
+                    .append(" | ").append(String.format("%,.0f/s", r.achievedPublishRate()))
+                    .append(" | ").append(r.consumersEnabled()
+                            ? String.format("%,.0f/s", r.consumeRate()) : "—")
+                    .append(" | ").append(cell(r.endToEnd(), LatencySummary::p50))
+                    .append(" | ").append(cell(r.endToEnd(), LatencySummary::p90))
+                    .append(" | ").append(cell(r.endToEnd(), LatencySummary::p99))
+                    .append(" | ").append(cell(r.endToEnd(), LatencySummary::p999))
+                    .append(" | ").append(step.sustained() ? "" : step.stoppedBy())
+                    .append(" |\n");
+        }
+        // The curve, in text: p99 against offered rate, one bar per step in rate order.
+        List<RampReport.Step> byRate = byRate(ramp);
+        long worst = byRate.stream().filter(s -> !s.report().endToEnd().isEmpty())
+                .mapToLong(s -> s.report().endToEnd().p99().toNanos()).max().orElse(0);
+        if (worst > 0) {
+            out.append("\np99 against offered rate:\n\n```\n");
+            for (RampReport.Step step : byRate) {
+                LatencySummary e2e = step.report().endToEnd();
+                long p99 = e2e.isEmpty() ? 0 : e2e.p99().toNanos();
+                int width = (int) Math.round(40.0 * p99 / worst);
+                out.append(String.format("%12s %s %s%s%n", String.format("%,d/s", step.rate()),
+                        "#".repeat(Math.max(width, p99 > 0 ? 1 : 0)) + " ".repeat(40 - width),
+                        e2e.isEmpty() ? "-" : plain(e2e.p99()),
+                        step.sustained() ? "" : "  <- " + step.stoppedBy()));
+            }
+            out.append("```\n");
+        }
+        out.append('\n');
+    }
+
+    private static List<RampReport.Step> byRate(RampReport ramp) {
+        return ramp.steps().stream()
+                .sorted(java.util.Comparator.comparingLong(RampReport.Step::rate)).toList();
+    }
+
+    private static String stepResult(RampReport.Step step) {
+        return step.sustained() ? "ok" : step.report().isValid() ? "FAILED" : "INVALID";
+    }
+
+    private static String plain(Duration d) {
+        long nanos = d.toNanos();
+        return nanos < 1_000_000 ? (nanos / 1_000) + "us"
+                : String.format("%.1fms", nanos / 1_000_000.0);
+    }
+
     /** @param reports finished runs
      *  @return a self-contained HTML page */
     public static String toHtml(List<WorkloadReport> reports) {
+        return toHtml(reports, List.of());
+    }
+
+    /** @param reports finished runs
+     *  @param ramps finished ramps
+     *  @return a self-contained HTML page */
+    public static String toHtml(List<WorkloadReport> reports, List<RampReport> ramps) {
         StringBuilder out = new StringBuilder();
         out.append("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
         out.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
         out.append("<title>Workload report</title>\n<style>\n").append(CSS).append("</style>\n");
         out.append("</head>\n<body>\n<main>\n<h1>Workload report</h1>\n");
+        for (RampReport ramp : ramps) {
+            rampHtml(out, ramp);
+        }
 
+        if (!reports.isEmpty()) {
         out.append("<table>\n<thead><tr><th>workload</th><th>result</th><th>offered</th>")
                 .append("<th>published</th><th>consumed</th><th>p50</th><th>p99</th><th>p99.9</th>")
                 .append("</tr></thead>\n<tbody>\n");
@@ -144,6 +291,7 @@ public final class Reports {
                     .append("</tr>\n");
         }
         out.append("</tbody>\n</table>\n");
+        }
 
         for (WorkloadReport report : reports) {
             out.append("<h2>").append(escapeHtml(report.name())).append("</h2>\n");
@@ -170,9 +318,119 @@ public final class Reports {
         // The machine-readable form travels with the page, so a report mailed to somebody is
         // still re-analysable rather than being a picture of numbers.
         out.append("<h2>Data</h2>\n<details><summary>JSON</summary><pre>")
-                .append(escapeHtml(toJson(reports))).append("</pre></details>\n");
+                .append(escapeHtml(toJson(reports, ramps))).append("</pre></details>\n");
         out.append("</main>\n</body>\n</html>\n");
         return out.toString();
+    }
+
+    private static void rampHtml(StringBuilder out, RampReport ramp) {
+        out.append("<h2>Ramp: ").append(escapeHtml(ramp.name())).append("</h2>\n");
+        out.append("<p class=\"summary\"><span class=\"").append(ramp.verdict().toLowerCase(
+                java.util.Locale.ROOT)).append("\">").append(ramp.verdict()).append("</span> ")
+                .append("highest sustained rate <strong>")
+                .append(ramp.highestSustainedRate() == 0 ? "none"
+                        : String.format("%,d/s", ramp.highestSustainedRate()))
+                .append("</strong>. Stopped by ").append(escapeHtml(ramp.stopReason()))
+                .append(".</p>\n");
+        if (!ramp.isValid()) {
+            out.append("<p class=\"banner invalid\">The step that stopped this ramp was invalid:"
+                    + " the generator fell behind or the broker raised an alarm. The ceiling below"
+                    + " is that limit, not the broker's.</p>\n");
+        }
+        List<RampReport.Step> byRate = byRate(ramp);
+        out.append("<div class=\"charts\">\n");
+        out.append(chart("delivered against offered (msg/s)", byRate,
+                s -> s.report().consumersEnabled() ? s.report().consumeRate()
+                        : s.report().achievedPublishRate(), true, v -> String.format("%,.0f", v)));
+        out.append(chart("end-to-end p99 against offered", byRate,
+                s -> s.report().endToEnd().isEmpty() ? Double.NaN
+                        : s.report().endToEnd().p99().toNanos() / 1_000_000.0,
+                false, v -> String.format("%.1fms", v)));
+        out.append("</div>\n");
+
+        out.append("<table>\n<thead><tr><th>offered</th><th>result</th><th>published</th>")
+                .append("<th>consumed</th><th>p50</th><th>p90</th><th>p99</th><th>p99.9</th>")
+                .append("<th>stopped by</th></tr></thead>\n<tbody>\n");
+        for (RampReport.Step step : ramp.steps()) {
+            WorkloadReport r = step.report();
+            String css = step.sustained() ? "passed" : r.isValid() ? "failed" : "invalid";
+            out.append("<tr><td>").append(String.format("%,d/s", step.rate()))
+                    .append(step.refinement() ? " <small>refine</small>" : "").append("</td>")
+                    .append("<td class=\"").append(css).append("\">").append(stepResult(step))
+                    .append("</td><td>").append(String.format("%,.0f/s", r.achievedPublishRate()))
+                    .append("</td><td>").append(r.consumersEnabled()
+                            ? String.format("%,.0f/s", r.consumeRate()) : "&mdash;")
+                    .append("</td><td>").append(cell(r.endToEnd(), LatencySummary::p50))
+                    .append("</td><td>").append(cell(r.endToEnd(), LatencySummary::p90))
+                    .append("</td><td>").append(cell(r.endToEnd(), LatencySummary::p99))
+                    .append("</td><td>").append(cell(r.endToEnd(), LatencySummary::p999))
+                    .append("</td><td>").append(step.sustained() ? "" : escapeHtml(step.stoppedBy()))
+                    .append("</td></tr>\n");
+        }
+        out.append("</tbody>\n</table>\n");
+        ramp.stoppingFinding().ifPresent(finding -> out.append("<div class=\"finding ")
+                .append(finding.severity().name().toLowerCase(java.util.Locale.ROOT))
+                .append("\">\n<strong>").append(finding.severity()).append("</strong> ")
+                .append(escapeHtml(finding.rule())).append("\n<dl><dt>observed</dt><dd>")
+                .append(escapeHtml(finding.observation())).append("</dd><dt>means</dt><dd>")
+                .append(escapeHtml(finding.implication())).append("</dd></dl>\n</div>\n"));
+        out.append("<pre>").append(escapeHtml(ramp.format())).append("</pre>\n");
+    }
+
+    /**
+     * A line chart as inline SVG: offered rate across, one value up. No script and no library, so
+     * the page stays one file that prints. Failed steps are drawn hollow.
+     */
+    private static String chart(String title, List<RampReport.Step> steps,
+            java.util.function.ToDoubleFunction<RampReport.Step> value, boolean diagonal,
+            java.util.function.DoubleFunction<String> label) {
+        double w = 480, h = 220, left = 56, right = 12, top = 24, bottom = 32;
+        double maxX = steps.stream().mapToLong(RampReport.Step::rate).max().orElse(1);
+        double maxY = steps.stream().mapToDouble(value).filter(v -> !Double.isNaN(v)).max().orElse(0);
+        if (diagonal) {
+            maxY = Math.max(maxY, maxX);
+        }
+        if (maxY <= 0) {
+            maxY = 1;
+        }
+        double fx = (w - left - right) / maxX;
+        double fy = (h - top - bottom) / maxY;
+        StringBuilder svg = new StringBuilder();
+        svg.append("<figure><svg viewBox=\"0 0 ").append((int) w).append(' ').append((int) h)
+                .append("\" role=\"img\" aria-label=\"").append(escapeHtml(title)).append("\">");
+        svg.append(String.format("<text x=\"%.0f\" y=\"14\" class=\"t\">%s</text>", left,
+                escapeHtml(title)));
+        svg.append(String.format("<line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" class=\"axis\"/>",
+                left, h - bottom, w - right, h - bottom));
+        svg.append(String.format("<line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" class=\"axis\"/>",
+                left, top, left, h - bottom));
+        svg.append(String.format("<text x=\"%.0f\" y=\"%.0f\" class=\"l\" text-anchor=\"end\">%s</text>",
+                left - 4, top + 4, escapeHtml(label.apply(maxY))));
+        svg.append(String.format("<text x=\"%.0f\" y=\"%.0f\" class=\"l\" text-anchor=\"end\">0</text>",
+                left - 4, h - bottom));
+        svg.append(String.format("<text x=\"%.0f\" y=\"%.0f\" class=\"l\" text-anchor=\"end\">%,.0f/s</text>",
+                w - right, h - 8, maxX));
+        if (diagonal) {
+            svg.append(String.format("<line x1=\"%.1f\" y1=\"%.1f\" x2=\"%.1f\" y2=\"%.1f\" class=\"ref\"/>",
+                    left, h - bottom, left + maxX * fx, h - bottom - maxX * fy));
+        }
+        StringBuilder line = new StringBuilder();
+        StringBuilder dots = new StringBuilder();
+        for (RampReport.Step step : steps) {
+            double v = value.applyAsDouble(step);
+            if (Double.isNaN(v)) {
+                continue;
+            }
+            double x = left + step.rate() * fx;
+            double y = h - bottom - v * fy;
+            line.append(String.format("%.1f,%.1f ", x, y));
+            dots.append(String.format("<circle cx=\"%.1f\" cy=\"%.1f\" r=\"4\" class=\"%s\">"
+                    + "<title>%,d/s: %s</title></circle>", x, y,
+                    step.sustained() ? "ok" : "bad", step.rate(), escapeHtml(label.apply(v))));
+        }
+        svg.append("<polyline points=\"").append(line).append("\" class=\"line\"/>").append(dots);
+        svg.append("</svg></figure>\n");
+        return svg.toString();
     }
 
     private static String verdict(WorkloadReport report) {
@@ -324,6 +582,19 @@ public final class Reports {
               letter-spacing:.04em; margin-top:.4rem; }
             dd { margin:0 0 .2rem; }
             details summary { cursor:pointer; color:var(--muted); }
+            .summary .passed { color:var(--ok); font-weight:700; }
+            .summary .failed, .summary .invalid { color:var(--bad); font-weight:700; }
+            .charts { display:grid; grid-template-columns:repeat(auto-fit, minmax(18rem, 1fr));
+              gap:1rem; margin:1rem 0; }
+            figure { margin:0; }
+            svg { width:100%; height:auto; }
+            svg .axis { stroke:var(--line); }
+            svg .ref { stroke:var(--muted); stroke-dasharray:4 4; }
+            svg .line { fill:none; stroke:var(--fg); stroke-width:1.5; }
+            svg circle.ok { fill:var(--ok); }
+            svg circle.bad { fill:var(--bg); stroke:var(--bad); stroke-width:2; }
+            svg text { fill:var(--muted); font-size:11px; }
+            svg text.t { fill:var(--fg); font-size:12px; font-weight:600; }
             /* Printing this is how a PDF gets made, so it is worth making the printed page
                readable rather than shipping a layout engine to produce a worse one. */
             @media print {

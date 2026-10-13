@@ -215,6 +215,19 @@ variable with no default is an error rather than an empty password.
 The step fails on exit 1 or 2. Uploading the report on `always()` matters: the
 run you most want to look at is the one that failed.
 
+## `--ramp`
+
+```bash
+java -jar acemq-workload.jar -f workload.yaml \
+  --ramp start=1000,step=10%,stepFor=20s,maxRate=50000,refine=3
+```
+
+The file's [`ramp:` block](ramp.md) on one line: step the rate up until a rule
+fires. It goes through the file's own parser and wins over a `ramp:` already in
+the file key by key. Each step prints as it finishes, and the reports carry the
+ramp's settings, so the run is reproducible from the report even though part of
+it came from a flag. A scenario file is refused with exit 3.
+
 ## Why there is no `--rate` or `--duration` flag
 
 Everything about the workload lives in the file, deliberately.
@@ -225,7 +238,8 @@ it carries a comment explaining why the rate is what it is, and a run is
 reproducible from it a year later.
 
 Vary a setting by making a [suite](workload-file.md#a-suite) rather than by
-editing a flag between runs.
+editing a flag between runs. `--ramp` is the one exception, because what it
+varies is the rate a ramp is *searching*, and the reports record what it was.
 
 ## Why there is no PDF
 

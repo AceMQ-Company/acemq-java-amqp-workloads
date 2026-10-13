@@ -10,6 +10,45 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-13
+
+### Added
+
+- **The ramp: the rate stepped up until a rule fires.** `ramp:` in a workload
+  file, `--ramp start=1000,step=10%,...` on the command line, or
+  `Ramp.of(workload)` from Java. Each step is an ordinary open-loop run at one
+  fixed rate, with its own warm-up and measured window, judged by the same rules
+  as any run. The first step that misses an objective, trips a rule at
+  `failed` or `invalid`, fails a publish beyond `maxErrorRate`, or falls more than
+  `tolerance` (5%) behind the offered rate ends the climb; `maxRate` ends it with
+  "at least". `refine: N` bisects between the last good and first bad step. The
+  report gives the highest sustained rate, every step's rates and p50/p90/p99/p99.9,
+  and which rule stopped it — and when an invalid step stopped it, says the
+  ceiling is the generator's or an alarm's rather than the broker's (exit 2).
+  `ceilingAtLeast` turns a ramp into a gate (exit 1 when missed). Steps are at
+  least 5 seconds.
+- **`kept-pace`**, the rule every ramp step carries: the delivered rate,
+  averaged over the one-second samples taken while measuring, against the
+  offered one. Read from samples because a run's totals include the drain, and
+  five seconds of drain let a slow consumer look as if it kept up.
+- **Ramp reports.** The HTML report draws the curve as inline SVG (delivered
+  against offered with the ideal diagonal, and p99 against offered; failed steps
+  hollow); Markdown has the step table and the p99 curve as a text bar chart;
+  JSON has a `ramps` array beside `workloads`, with the settings the ramp ran
+  with. `ramps` is absent when nothing ramped.
+- **Rules loadable from the workload file.** `rules:` takes thresholds in the
+  shape of the admin library's alerts — `name`, `metric`, `above` or `below`,
+  `severity`, `because` — on any number in the report: rates, counts,
+  `errorRate`, `backlog`, `queueDepthAtEnd`, `blockedSeconds`, and p50 to max of
+  end-to-end, publish and send-lag latency. Validated on load, each problem named
+  by position (`rules[2].metric`), exit 3. `Threshold` is the same rule from Java.
+- `examples/17-ramp.yaml` and `docs/ramp.md`.
+
+### Changed
+
+- The `unthrottled-latency` warning is judged on the run's own publishers, so a
+  ramp step over a workload with no rate is not told it was unthrottled.
+
 ## [0.7.0] - 2026-10-07
 
 ### Added

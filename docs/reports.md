@@ -115,6 +115,12 @@ The key is absent, not empty, when a run was shorter than one interval.
 `"samples": []` reads as a run that was idle, which is a different statement from
 having nothing to report.
 
+### `ramps` — a ramp's steps
+
+A [ramp](ramp.md) adds a `ramps` array beside `workloads`: the settings, the
+highest sustained rate, what stopped it, and every step with its rates and
+percentiles. Absent when nothing ramped.
+
 ## HTML
 
 Self-contained: no external stylesheet, no CDN, no fonts to fetch. Openable from
