@@ -53,6 +53,13 @@ A memory or disk alarm blocks publishing connections. The broker keeps running,
 the consumers keep working, the publishers stop — so the run measures how long
 the alarm lasted rather than how fast the broker is.
 
+The messaging library refuses a publish into a blocked broker at once, without
+writing it (acemq-java-amqp 0.7.15 and later; before that it waited up to 30
+seconds). The load counts each one as `refused` in its readings, not as
+`failed`: nothing was sent, so nothing was lost. The message that was already
+written when the alarm started is different. It fails within the confirm
+timeout as possibly published, and that one is counted as `failed`.
+
 ### `publishes-succeeded` — FAILED
 
 Fires when any publish was refused or errored. Different from being slow: a

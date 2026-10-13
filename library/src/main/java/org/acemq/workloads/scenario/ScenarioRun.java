@@ -35,6 +35,7 @@ import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerGroup;
 import org.acemq.amqp.core.DefaultPublisher;
 import org.acemq.amqp.security.Security;
+import org.acemq.amqp.transport.ConnectionBlockedException;
 import org.acemq.amqp.transport.ConnectionConfig;
 import org.acemq.workloads.Payload;
 import org.acemq.workloads.Sample;
@@ -117,8 +118,8 @@ final class ScenarioRun {
         final AtomicLong failed = new AtomicLong();
 
         /**
-         * Sends this library declined because publishing was paused, kept apart from
-         * {@link #failed}.
+         * Sends this library declined because publishing was paused or the broker was
+         * already known to be blocked, kept apart from {@link #failed}.
          *
          * <p>Back pressure is not a failure, and counting it as one makes a library that
          * reports it promptly look worse than one that hides it by blocking the caller
@@ -547,13 +548,23 @@ final class ScenarioRun {
                 if (record) {
                     counters.published.incrementAndGet();
                 }
-            } catch (PublishingPausedException e) {
+            } catch (PublishingPausedException | ConnectionBlockedException e) {
                 // Declined rather than lost: this library stopped publishing because the
                 // broker said it had stopped reading. Counted apart from `failed` for the
                 // reason ProducerCounters.refused gives.
+                //
+                // Since acemq-java-amqp 0.7.15 a publish into a blocked broker is refused at
+                // once (blockedTimeout defaults to zero) instead of holding this thread for up
+                // to 30 seconds, so the refusal now arrives here on every attempt for the length
+                // of the alarm. Left at the default on purpose: the standing load is the witness
+                // of what an application gets, and the other four libraries refuse the same way.
+                // Only a block found after the write may have lost the message, and that one
+                // is a failure.
                 window.release();
                 if (record) {
-                    counters.refused.incrementAndGet();
+                    boolean unsent = !(e instanceof ConnectionBlockedException blocked)
+                            || !blocked.mayHaveBeenPublished();
+                    (unsent ? counters.refused : counters.failed).incrementAndGet();
                 }
                 backOff();
             } catch (RuntimeException e) {

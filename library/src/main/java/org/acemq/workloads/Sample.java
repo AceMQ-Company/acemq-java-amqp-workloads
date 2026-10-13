@@ -38,7 +38,8 @@ import org.acemq.workloads.metrics.LatencySummary;
  * @param published messages published so far in this phase
  * @param confirmed messages the broker has confirmed
  * @param failed publishes that errored, for a reason other than back pressure
- * @param refused publishes this library declined because publishing was paused — back
+ * @param refused publishes this library declined unsent because publishing was paused or the
+ *     broker was already blocked by a resource alarm — back
  *     pressure reported promptly, which is not a failure. Kept apart from {@code failed}
  *     because counting the two together made this load report 92,673 failures under a
  *     fault where Go, .NET, Python and Ruby reported about twenty, and a counter that

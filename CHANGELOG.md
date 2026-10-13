@@ -10,6 +10,18 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+### Changed
+
+- **Built on acemq-java-amqp 0.7.15.** That release refuses a publish into a
+  blocked broker at once instead of waiting up to 30 seconds. The load now
+  counts each of those refusals as `refused`, as it already did for a paused
+  publisher, not as `failed`. Without this change, a memory or disk alarm
+  would show as thousands of failed publishes, because the producers retry
+  every 10 ms. Only a message written before the alarm, which may have been
+  published, still counts as `failed`. The load keeps the library's default
+  and does not set `blockedTimeout`. It shows what an application gets, and
+  the other four libraries refuse the same way.
+
 ## [0.8.0] - 2026-10-13
 
 ### Added

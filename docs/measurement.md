@@ -62,6 +62,10 @@ Send lag is also honest back-pressure. When the broker stops confirming, the
 in-flight window fills, the next publish waits, and that wait lands here rather
 than disappearing.
 
+A resource alarm is not this kind of wait. The library refuses a publish into a
+blocked broker at once, so the alarm shows as `refused` sends and a stalled
+`published` count, not as send lag.
+
 ## Why a synchronous publish cannot generate load
 
 A publish that waits for its own confirm costs one network round trip. A thread
