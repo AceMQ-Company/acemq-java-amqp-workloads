@@ -10,7 +10,7 @@ the messaging library's release train.
 
 ## [Unreleased]
 
-## [0.8.1] - 2026-10-20
+## [0.8.2] - 2026-10-20
 
 ### Added
 
@@ -62,6 +62,13 @@ the messaging library's release train.
   delivery by design. Without this, a message written during the warm-up could
   arrive inside the window and make consumed run ahead of confirmed. Runs
   without either pattern count exactly as before.
+
+## [0.8.1] - 2026-10-20
+
+Tagged, never published to the Maven feed: the release's studio check stopped the
+publish job before anything was deployed (`curl | grep -q` under pipefail, fixed in
+the release workflow). Its studio image `0.8.1` was published and is the same code
+as 0.8.2. Use 0.8.2.
 
 ## [0.8.0] - 2026-10-13
 
