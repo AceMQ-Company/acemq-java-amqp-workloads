@@ -72,6 +72,12 @@ public final class Reports {
             field(out, "consumeRatePerSecond", round(report.consumeRate()));
             report.queueDepthAtEnd().ifPresent(depth -> field(out, "queueDepthAtEnd", depth));
             field(out, "blockedSeconds", round(report.blockedNanos() / 1_000_000_000.0));
+            if (!report.patterns().isEmpty()) {
+                StringBuilder counts = new StringBuilder("{");
+                report.patterns().forEach((key, count) -> counts.append(counts.length() > 1 ? ", " : "")
+                        .append('"').append(escape(key)).append("\": ").append(count));
+                field(out, "patterns", (Object) counts.append('}').toString());
+            }
 
             latency(out, "endToEnd", report.endToEnd());
             latency(out, "publish", report.publishLatency());

@@ -121,6 +121,7 @@ final class WorkloadRun {
                     .prefetch(consumers.prefetch())
                     .handlerTime(consumers.handlerTime())
                     .failureRate(consumers.failureRate())
+                    .retry(consumers.retry())
                     .enabled(consumers.isEnabled()));
         });
 
@@ -130,7 +131,9 @@ final class WorkloadRun {
                     .confirms(publishers.confirms())
                     .maxInFlight(publishers.maxInFlight())
                     .maxMessages(publishers.maxMessages())
-                    .payload(publishers.payload());
+                    .payload(publishers.payload())
+                    .claimCheck(publishers.claimCheckThreshold(), publishers.claimCheckDirectory())
+                    .outbox(publishers.outboxBatchSize(), publishers.outboxPollInterval());
             if (publishers.isUnthrottled()) {
                 producer.unthrottled();
             } else {
@@ -161,7 +164,7 @@ final class WorkloadRun {
                 producer == null ? LatencySummary.empty("send lag") : producer.sendLag(),
                 depthAtEnd(queue),
                 report.blockedFor().toNanos(), report.blockedReason(),
-                samples);
+                samples, report.patterns());
     }
 
     /**

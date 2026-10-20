@@ -426,6 +426,10 @@ public final class Workload {
 
         /** @return the workload */
         public Workload build() {
+            String outbox = outboxProblem(publishers);
+            if (outbox != null) {
+                throw new IllegalArgumentException(outbox);
+            }
             if (publishers.isUnthrottled() && consumers.isEnabled()) {
                 // Not refused: an unthrottled run is a legitimate way to find the ceiling. But
                 // the latency it produces is subject to coordinated omission, and the report
@@ -445,6 +449,30 @@ public final class Workload {
                                         + " then measure latency with rate() set below it")));
             }
             return new Workload(this);
+        }
+
+        /**
+         * @return why these publishers cannot use an outbox, or null when they can or do not
+         */
+        private static String outboxProblem(PublisherSpec publishers) {
+            if (publishers.outboxBatchSize() == 0) {
+                return null;
+            }
+            if (publishers.claimCheckThreshold() >= 0) {
+                return "an outbox and a claim check cannot be combined: the relay publishes the"
+                        + " record's text as it is, so there is no codec for the claim check to"
+                        + " sit in. Load one pattern at a time";
+            }
+            if (publishers.isUnthrottled()) {
+                return "an outbox needs a rate: an unthrottled writer fills an in-memory outbox"
+                        + " as fast as memory allows and measures nothing about the relay";
+            }
+            if (!publishers.confirms()) {
+                return "an outbox always publishes with confirms, because the relay marks a"
+                        + " record sent only on the broker's answer; confirms: false would"
+                        + " describe a run that did not happen";
+            }
+            return null;
         }
 
         /**

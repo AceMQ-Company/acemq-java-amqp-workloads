@@ -30,10 +30,20 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 
+import org.acemq.amqp.api.ClaimCheckStore;
+import org.acemq.amqp.api.Envelope;
+import org.acemq.amqp.api.OutboxRecord;
 import org.acemq.amqp.api.PublishingPausedException;
+import org.acemq.amqp.api.RetryPolicy;
 import org.acemq.amqp.core.AceMq;
+import org.acemq.amqp.core.BytesCodec;
 import org.acemq.amqp.core.ConsumerGroup;
+import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.DefaultPublisher;
+import org.acemq.amqp.patterns.ClaimCheckCodec;
+import org.acemq.amqp.patterns.FilesystemClaimCheckStore;
+import org.acemq.amqp.patterns.InMemoryClaimCheckStore;
+import org.acemq.amqp.patterns.OutboxRelay;
 import org.acemq.amqp.security.Security;
 import org.acemq.amqp.transport.ConnectionBlockedException;
 import org.acemq.amqp.transport.ConnectionConfig;
@@ -83,6 +93,14 @@ final class ScenarioRun {
     // does. They differ for the length of the drain, and everything delivered in that gap was
     // published inside the window -- which is the only reason the counts can be made to balance.
     private final AtomicBoolean accounting = new AtomicBoolean(false);
+    // When the measured window opened. A retry or an outbox delays delivery by design -- a rung's
+    // wait, the relay's poll -- so a message written in the warm-up can arrive well inside the
+    // window, and counting it there would make consumed outrun confirmed. Those runs count a
+    // delivery by when the message was due instead, which the body carries.
+    private volatile long windowStartNanos;
+    // Whether this run counts by due time; see windowStartNanos. Publishers latch the same test,
+    // so the two ends agree about which messages belong to the window.
+    private boolean byDueTime;
     // Queue depths, read by a thread of their own.
     //
     // The sampler used to read them inline, and a management call is the one thing in that loop
@@ -101,6 +119,22 @@ final class ScenarioRun {
     private final AtomicReference<String> blockedReason = new AtomicReference<>();
     private final AtomicReference<Sample.Phase> phase =
             new AtomicReference<>(Sample.Phase.STARTING);
+
+    // The patterns under load. Each key is present only when its pattern is on, so a report
+    // never shows "retried 0" for a run that had no retries to make.
+    private final Map<String, AtomicLong> patterns = new LinkedHashMap<>();
+    private ClaimCheckStore claimStore;
+    private ClaimCheckCodec claimCodec;
+    private final Map<String, MemoryOutbox> outboxes = new LinkedHashMap<>();
+    private final List<OutboxRelay> relays = new ArrayList<>();
+
+    /**
+     * Records an outbox can hold before a write is refused.
+     *
+     * <p>ponytail: fixed. At a kilobyte a record, that is about a gigabyte of heap, and a relay that
+     * far behind has answered the question already. Make it a setting if a run needs a deeper one.
+     */
+    static final int OUTBOX_CAPACITY = 1_000_000;
 
     ScenarioRun(Scenario scenario, String brokerUrl, Security security,
             ScenarioListener listener, AtomicBoolean stopRequested) {
@@ -176,6 +210,7 @@ final class ScenarioRun {
         for (QueueNode queue : scenario.activeQueues()) {
             queueCounters.put(queue.name(), new QueueCounters(queue.name()));
         }
+        preparePatterns();
 
         try (AceMq broker = connect()) {
             declare(broker);
@@ -187,6 +222,7 @@ final class ScenarioRun {
             Thread depthReader = startDepthReader(broker, stop);
 
             try {
+                startOutboxes(broker);
                 List<Thread> publishers = startProducers(broker, stop);
 
                 enter(Sample.Phase.WARMUP);
@@ -195,6 +231,8 @@ final class ScenarioRun {
                 for (ProducerCounters counters : producerCounters.values()) {
                     counters.reset();
                 }
+                patterns.values().forEach(count -> count.set(0));
+                outboxes.values().forEach(MemoryOutbox::resetPeak);
                 for (Map.Entry<String, QueueCounters> entry : queueCounters.entrySet()) {
                     entry.getValue().reset();
                     // Read before measuring so the report can say whether a queue grew, which is
@@ -205,6 +243,7 @@ final class ScenarioRun {
 
                 Instant startedAt = Instant.now();
                 long startNanos = System.nanoTime();
+                windowStartNanos = startNanos;
                 measuring.set(true);
                 accounting.set(true);
                 enter(Sample.Phase.MEASURING);
@@ -216,6 +255,11 @@ final class ScenarioRun {
                 enter(Sample.Phase.DRAINING);
                 stop.set(true);
                 join(publishers);
+                flushOutboxes();
+                // A retry still waiting -- held by a consumer or sitting in a rung -- was published
+                // inside the window and has not been settled. Draining stops the consumers, so the
+                // ladder gets the longest a message can spend on it first.
+                awaitOrStop(longestRetry());
 
                 // Keep counting what arrives while the queue drains. A publisher latches
                 // `measuring` at the moment it publishes and its confirm callback honours that
@@ -237,10 +281,19 @@ final class ScenarioRun {
                     group.drain(Duration.ofSeconds(5));
                 }
                 accounting.set(false);
+                if (!outboxes.isEmpty()) {
+                    patterns.get("outboxPeak").set(
+                            outboxes.values().stream().mapToLong(MemoryOutbox::peak).sum());
+                    patterns.get("outboxLeft").set(
+                            outboxes.values().stream().mapToLong(MemoryOutbox::pendingCount).sum());
+                }
 
                 return report(broker, startedAt, measured);
             } finally {
                 stop.set(true);
+                for (OutboxRelay relay : relays) {
+                    relay.close();
+                }
                 blockWatcher.interrupt();
                 sampler.interrupt();
                 depthReader.interrupt();
@@ -316,8 +369,10 @@ final class ScenarioRun {
                     queue.expectations()));
         }
 
+        Map<String, Long> patternCounts = new LinkedHashMap<>();
+        patterns.forEach((key, count) -> patternCounts.put(key, count.get()));
         return new ScenarioReport(scenario, startedAt, measured, producerResults, queueResults,
-                blockedNanos.get(), blockedReason.get(), stopRequested.get());
+                blockedNanos.get(), blockedReason.get(), stopRequested.get(), patternCounts);
     }
 
     private void declare(AceMq broker) {
@@ -417,10 +472,61 @@ final class ScenarioRun {
             QueueCounters counters = queueCounters.get(queue.name());
             long handlerNanos = spec.handlerTime().toNanos();
             double failureRate = spec.failureRate();
+            RetryPolicy retry = spec.retry();
+            int maxAttempts = retry == null ? 1 : retry.maxAttempts();
+
+            // The prefetch goes in the options, and the options go in last: ConsumerGroupBuilder's
+            // prefetch(int) rebuilds the options from the prefetch alone and drops the retry policy.
+            ConsumerOptions options = ConsumerOptions.prefetch(spec.prefetch());
+            if (retry != null) {
+                options = options.withRetry(retry);
+            }
+            if (!outboxes.isEmpty()) {
+                // The relay labels what it publishes application/json, which is the outbox's
+                // convention, and a consumer asking for byte[] would be handed to the JSON codec
+                // and refused. These bytes are read as they are.
+                options = options.as(new BytesCodec());
+            }
 
             groups.add(brokerFor(queue, broker).consumeGroup(queue.name(), byte[].class, message -> {
                 byte[] body = message.payload();
-                if (accounting.get() && Payload.isWorkloadMessage(body)) {
+                boolean fail = failureRate > 0 && ThreadLocalRandom.current().nextDouble() < failureRate;
+                boolean retrying = fail && message.attempt() < maxAttempts;
+                String key = claimCodec == null ? null : ClaimCheckCodec.keyOf(body);
+                if (claimCodec != null) {
+                    try {
+                        // Fetched inside the handler and before the clock is read, so the
+                        // store's read is part of the end-to-end latency, as it is for an
+                        // application.
+                        body = claimCodec.decode(body, byte[].class);
+                    } catch (RuntimeException missing) {
+                        if (accounting.get()) {
+                            patterns.get("claimMissing").incrementAndGet();
+                        }
+                        throw missing;
+                    }
+                }
+                boolean counts = accounting.get() && Payload.isWorkloadMessage(body)
+                        && (!byDueTime || Payload.intendedSendNanos(body) - windowStartNanos >= 0);
+                if (retry != null) {
+                    if (counts) {
+                        // Counted once per message, when it settles: a success, or the last
+                        // failure, which the library dead-letters. A failure that will be retried
+                        // is not consumed yet, or confirmed and consumed could never balance.
+                        if (!fail) {
+                            counters.endToEnd.record(System.nanoTime() - Payload.intendedSendNanos(body));
+                            counters.consumed.incrementAndGet();
+                            if (message.attempt() > 1) {
+                                patterns.get("recovered").incrementAndGet();
+                            }
+                        } else if (retrying) {
+                            patterns.get("retried").incrementAndGet();
+                        } else {
+                            counters.consumed.incrementAndGet();
+                            patterns.get("deadLettered").incrementAndGet();
+                        }
+                    }
+                } else if (counts) {
                     // Latency from when the message was due, not from when it was sent. The
                     // difference is the whole argument of this library.
                     //
@@ -432,13 +538,21 @@ final class ScenarioRun {
                     counters.endToEnd.record(System.nanoTime() - Payload.intendedSendNanos(body));
                     counters.consumed.incrementAndGet();
                 }
+                if (key != null && !retrying) {
+                    // A real consumer deletes the payload once the message is settled; without it
+                    // a store in memory holds every large body of the run.
+                    claimStore.delete(key);
+                    if (accounting.get()) {
+                        patterns.get("claimChecked").incrementAndGet();
+                    }
+                }
                 if (handlerNanos > 0) {
                     LockSupport.parkNanos(handlerNanos);
                 }
-                if (failureRate > 0 && ThreadLocalRandom.current().nextDouble() < failureRate) {
+                if (fail) {
                     throw new IllegalStateException("simulated handler failure");
                 }
-            }).concurrency(spec.concurrency()).prefetch(spec.prefetch()).start());
+            }).concurrency(spec.concurrency()).options(options).start());
         }
         return groups;
     }
@@ -461,11 +575,16 @@ final class ScenarioRun {
                 int index = i;
                 Thread thread = new Thread(() -> {
                     // A publisher per key, built once. Building one per message would put channel
-                    // setup inside the measurement.
+                    // setup inside the measurement. None for an outbox: its relay publishes.
                     Map<String, DefaultPublisher<byte[]>> publishers = new LinkedHashMap<>();
-                    for (String key : producer.routingKeys()) {
-                        publishers.put(key, broker
-                                .publisher(producer.exchange(), key, byte[].class).asBytes());
+                    for (String key : producer.usesOutbox() ? List.<String>of() : producer.routingKeys()) {
+                        DefaultPublisher<byte[]> publisher = broker
+                                .publisher(producer.exchange(), key, byte[].class).asBytes();
+                        if (producer.claimChecks()) {
+                            publisher = publisher.as(ClaimCheckCodec.wrapping(new BytesCodec(),
+                                    claimStore, producer.claimCheckThreshold()));
+                        }
+                        publishers.put(key, publisher);
                     }
                     ready.countDown();
                     publishLoop(producer, counters, List.copyOf(publishers.values()),
@@ -521,9 +640,31 @@ final class ScenarioRun {
             }
 
             long actualSend = System.nanoTime();
-            boolean record = measuring.get();
+            boolean record = measuring.get()
+                    && (!byDueTime || intended - windowStartNanos >= 0);
             if (record && intervalNanos > 0) {
                 counters.sendLag.record(actualSend - intended);
+            }
+
+            MemoryOutbox outbox = outboxes.get(producer.name());
+            if (outbox != null) {
+                // The application's half of the outbox: a write, committed with the work, and
+                // nothing else. Confirmed is counted when the relay's publish is.
+                window.release();
+                List<String> keys = producer.routingKeys();
+                OutboxRecord written = OutboxRecord.of(producer.exchange(),
+                        keys.get((int) (sequence % keys.size())), Envelope.of("workload").build(),
+                        payload.buildText(intended, sequence));
+                if (outbox.offer(written, record, actualSend)) {
+                    if (record) {
+                        counters.published.incrementAndGet();
+                    }
+                } else if (record) {
+                    counters.failed.incrementAndGet();
+                    patterns.get("outboxFull").incrementAndGet();
+                }
+                sequence++;
+                continue;
             }
 
             // Keys are used in turn, so a producer on a topic exchange exercises every binding
@@ -588,6 +729,101 @@ final class ScenarioRun {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * Sets up whatever the patterns in this scenario need before anything connects.
+     *
+     * <p>The relays start with the producers, in {@link #startOutboxes(AceMq)}; the stores and
+     * counters exist first so the consumers, which start before the producers, can see them.
+     */
+    private void preparePatterns() {
+        if (scenario.activeQueues().stream().anyMatch(q -> q.consumersNode().retry() != null)) {
+            for (String key : List.of("retried", "recovered", "deadLettered")) {
+                patterns.put(key, new AtomicLong());
+            }
+        }
+        for (ProducerNode producer : scenario.activeProducers()) {
+            if (producer.claimChecks() && claimStore == null) {
+                claimStore = producer.claimCheckDirectory() == null
+                        ? new InMemoryClaimCheckStore()
+                        : new FilesystemClaimCheckStore(producer.claimCheckDirectory());
+                // The consumer's copy only decodes, and decoding ignores the threshold.
+                claimCodec = ClaimCheckCodec.wrapping(new BytesCodec(), claimStore);
+                patterns.put("claimChecked", new AtomicLong());
+                patterns.put("claimMissing", new AtomicLong());
+            }
+            if (producer.usesOutbox()) {
+                ProducerCounters counters = producerCounters.get(producer.name());
+                outboxes.put(producer.name(), new MemoryOutbox(OUTBOX_CAPACITY,
+                        new MemoryOutbox.Listener() {
+                            @Override
+                            public void published(MemoryOutbox.Entry entry) {
+                                if (entry.measured) {
+                                    counters.publishLatency.record(System.nanoTime() - entry.writtenNanos);
+                                    counters.confirmed.incrementAndGet();
+                                }
+                            }
+
+                            @Override
+                            public void abandoned(MemoryOutbox.Entry entry) {
+                                if (entry.measured) {
+                                    counters.failed.incrementAndGet();
+                                    patterns.get("relayGaveUp").incrementAndGet();
+                                }
+                            }
+                        }));
+            }
+        }
+        byDueTime = patterns.containsKey("retried") || !outboxes.isEmpty();
+        if (!outboxes.isEmpty()) {
+            for (String key : List.of("outboxPeak", "outboxLeft", "outboxFull", "relayGaveUp")) {
+                patterns.put(key, new AtomicLong());
+            }
+        }
+    }
+
+    /** Starts one relay per outbox, publishing through the run's connection. */
+    private void startOutboxes(AceMq broker) {
+        for (ProducerNode producer : scenario.activeProducers()) {
+            MemoryOutbox outbox = outboxes.get(producer.name());
+            if (outbox != null) {
+                OutboxRelay relay = new OutboxRelay(broker, outbox, producer.outboxBatchSize(),
+                        producer.outboxPollInterval(), Duration.ofMinutes(1));
+                relays.add(relay);
+                relay.start();
+            }
+        }
+    }
+
+    /**
+     * Lets the relays publish what the window wrote, for up to thirty seconds.
+     *
+     * <p>Whatever is still waiting after that is reported as {@code outboxLeft}: published and
+     * not confirmed, which is what a relay that cannot keep up looks like.
+     */
+    private void flushOutboxes() {
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        while (System.nanoTime() < deadline && !stopRequested.get()
+                && outboxes.values().stream().anyMatch(o -> o.pendingCount() > 0)) {
+            LockSupport.parkNanos(Duration.ofMillis(50).toNanos());
+        }
+    }
+
+    /**
+     * @return the longest any message can spend on a retry ladder in this scenario: the sum of
+     *     its waits, with room for the jitter, or zero when nothing retries
+     */
+    private Duration longestRetry() {
+        long longest = 0;
+        for (QueueNode queue : scenario.activeQueues()) {
+            RetryPolicy retry = queue.consumersNode().retry();
+            if (retry != null && queue.consumersNode().isEnabled()) {
+                long sum = retry.schedule().stream().mapToLong(Duration::toMillis).sum();
+                longest = Math.max(longest, (long) (sum * (1 + retry.jitterFactor())));
+            }
+        }
+        return Duration.ofMillis(longest);
     }
 
     /**

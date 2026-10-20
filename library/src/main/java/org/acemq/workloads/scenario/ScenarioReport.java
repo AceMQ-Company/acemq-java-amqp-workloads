@@ -42,11 +42,21 @@ public final class ScenarioReport {
     private final long blockedNanos;
     private final String blockedReason;
     private final boolean stoppedEarly;
+    private final java.util.Map<String, Long> patterns;
     private final List<Finding> findings;
 
     ScenarioReport(Scenario scenario, Instant startedAt, Duration duration,
             List<ProducerResult> producers, List<QueueResult> queues,
             long blockedNanos, String blockedReason, boolean stoppedEarly) {
+        this(scenario, startedAt, duration, producers, queues, blockedNanos, blockedReason,
+                stoppedEarly, java.util.Map.of());
+    }
+
+    ScenarioReport(Scenario scenario, Instant startedAt, Duration duration,
+            List<ProducerResult> producers, List<QueueResult> queues,
+            long blockedNanos, String blockedReason, boolean stoppedEarly,
+            java.util.Map<String, Long> patterns) {
+        this.patterns = java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(patterns));
         this.scenario = scenario;
         this.startedAt = startedAt;
         this.duration = duration;
@@ -172,6 +182,18 @@ public final class ScenarioReport {
 
     public Duration blockedFor() {
         return Duration.ofNanos(blockedNanos);
+    }
+
+    /**
+     * What the patterns in the run counted: {@code retried}, {@code recovered} and
+     * {@code deadLettered} for a retry ladder; {@code claimChecked} and {@code claimMissing} for a
+     * claim check; {@code outboxPeak}, {@code outboxLeft}, {@code outboxFull} and
+     * {@code relayGaveUp} for an outbox. Only the keys of patterns the run used.
+     *
+     * @return the counts, in a stable order
+     */
+    public java.util.Map<String, Long> patterns() {
+        return patterns;
     }
 
     public String blockedReason() {

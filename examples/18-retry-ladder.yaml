@@ -1,0 +1,58 @@
+# What does a retry ladder cost when three deliveries in ten fail?
+#
+#   java -jar library/target/acemq-workload.jar -f examples/18-retry-ladder.yaml \
+#     --report reports/ --format html,md,json
+#
+# Each delivery fails with probability failureRate. A failure goes round again
+# on the library's own ladder (ConsumerOptions.withRetry): 500ms later, through
+# the ex.retry.q.retry.500ms rung queue, because 500ms is at or above brokerFrom.
+# The third failure goes to ex.retry.q.dlq. With 0.3 per delivery that is 2.7% of
+# messages.
+#
+# Read, in this order:
+#
+#   retried / recovered / deadLettered   what the ladder did
+#   end-to-end p99                       at least 500ms: three in ten messages
+#                                        waited a rung, and the latency is
+#                                        measured to the delivery that worked
+#   noMessagesLost                       every message settles once, delivered
+#                                        or dead-lettered, so a retry that went
+#                                        missing in a rung fails the run
+#
+# brokerFrom defaults to 30s in the library. It is lowered here so a run of a
+# minute exercises the rungs, which is the half of the ladder that costs the
+# broker something. Delete it to measure waits held in the consumer instead.
+name: retry-ladder
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+management: http://localhost:15672
+
+topology: { exchange: ex.retry, queue: ex.retry.q, routingKey: k.retry }
+
+publishers:
+  threads: 2
+  rate: 1000
+  messageSize: 1024
+
+consumers:
+  concurrency: 8
+  prefetch: 100
+  handlerTime: 1ms
+  failureRate: 0.3
+  retry:
+    attempts: 3
+    delay: 500ms
+    brokerFrom: 250ms
+
+warmup: 5s
+runFor: 30s
+
+expect:
+  noMessagesLost: true
+
+rules:
+  - name: ladder-recovers
+    metric: deadLettered
+    above: 1500
+    severity: failed
+    because: far more messages ran out of attempts than 2.7% of the load, so
+      retries are failing for a reason other than the simulated one

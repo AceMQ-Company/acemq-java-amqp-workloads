@@ -71,6 +71,9 @@ anything else on the broker.
 | 13 | [`13-dead-letter.yaml`](#dead-letters) | a handler that fails, and where those messages go |
 | 14 | [`14-node-loss/`](#a-quorum-queue-losing-a-node) | three brokers, and one of them stops |
 | 17 | [`17-ramp.yaml`](#a-ramp) | the rate stepped up until a rule fires: the ceiling, honestly |
+| 18 | [`18-retry-ladder.yaml`](patterns.md#a-retry-ladder) | three deliveries in ten fail, and the library's ladder retries them |
+| 19 | [`19-outbox.yaml`](patterns.md#an-outbox) | writes to an outbox, and how far behind its relay falls |
+| 20 | [`20-claim-check.yaml`](patterns.md#a-claim-check) | half-megabyte messages inline against claim-checked, side by side |
 
 Output shown on this page is marked **real output** where it came from an actual
 run and is reproduced with nothing but whitespace touched. Numbers from a laptop

@@ -1,0 +1,51 @@
+# What does a claim check cost, and what does it save the broker?
+#
+#   java -jar library/target/acemq-workload.jar -f examples/20-claim-check.yaml \
+#     --report reports/ --format html,md,json
+#
+# Two workloads, the same 512 KB messages at the same rate. The first puts them on
+# the queue. The second publishes through the library's ClaimCheckCodec: the body
+# goes to a FilesystemClaimCheckStore and the message carries the key; the
+# consumer reads the body back and deletes it. The broker then moves a few dozen
+# bytes a message, and every message costs a file write, read and delete instead.
+#
+# Read the two end-to-end rows side by side. The difference is what the store
+# adds; the queue depth and the broker's memory are what it saves. claimChecked
+# should equal consumed. claimMissing above zero means a body was gone before
+# its message was read.
+#
+# Leave out `directory` to keep the payloads in memory, which takes the store's
+# cost out and leaves only the framing.
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+management: http://localhost:15672
+
+publishers:
+  threads: 2
+  rate: 200
+  messageSize: 524288
+  maxInFlight: 200
+
+consumers:
+  concurrency: 4
+  prefetch: 20
+
+warmup: 5s
+runFor: 30s
+
+expect:
+  noMessagesLost: true
+
+workloads:
+  - name: inline
+    topology: { queue: ex.claim.inline, routingKey: ex.claim.inline }
+
+  - name: claim-checked
+    topology: { queue: ex.claim.checked, routingKey: ex.claim.checked }
+    publishers:
+      threads: 2
+      rate: 200
+      messageSize: 524288
+      maxInFlight: 200
+      claimCheck:
+        threshold: 65536
+        directory: ${TMPDIR:-/tmp}/acemq-claims

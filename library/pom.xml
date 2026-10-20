@@ -79,6 +79,13 @@
       <artifactId>acemq-amqp-core</artifactId>
       <version>${acemq.version}</version>
     </dependency>
+    <!-- The patterns under load: the claim check codec and the outbox relay are the library's
+         own, so a load measures what an application using them gets, not a copy of them. -->
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-patterns</artifactId>
+      <version>${acemq.version}</version>
+    </dependency>
     <dependency>
       <groupId>org.acemq</groupId>
       <artifactId>acemq-transport-rabbitmq</artifactId>

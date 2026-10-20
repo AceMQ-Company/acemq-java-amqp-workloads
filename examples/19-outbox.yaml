@@ -1,0 +1,54 @@
+# How far behind does an outbox relay fall?
+#
+#   java -jar library/target/acemq-workload.jar -f examples/19-outbox.yaml \
+#     --report reports/ --format html,md,json
+#
+# The schedule offers writes to an outbox, not publishes. The library's
+# OutboxRelay claims them a batch at a time and publishes each with a confirm,
+# which is the pattern's guarantee and its ceiling: about one broker round trip
+# per message, on one thread. The outbox is in memory, so this measures the relay
+# and the broker, not a database.
+#
+#   published          writes to the outbox: what the application did
+#   confirmed          what the relay got confirmed
+#   publish latency    write to the relay's confirm
+#   end-to-end         due to delivered, including the wait for the next poll
+#   outboxPeak         the most records waiting at once
+#   outboxLeft         still waiting after a 30s flush at the end
+#
+# A relay that keeps up has a small peak and nothing left. One that does not has
+# a peak that grows for the whole run, and confirmed below published. To find the
+# rate where that starts, add a ramp:
+#
+#   java -jar library/target/acemq-workload.jar -f examples/19-outbox.yaml \
+#     --ramp start=500,step=25%,stepFor=15s
+name: outbox-relay
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+management: http://localhost:15672
+
+topology: { exchange: ex.outbox, exchangeType: direct, queue: ex.outbox.q, routingKey: k.outbox }
+
+publishers:
+  threads: 2
+  rate: 1000
+  messageSize: 512
+  outbox:
+    batchSize: 100
+    pollInterval: 50ms
+
+consumers:
+  concurrency: 4
+  prefetch: 200
+
+warmup: 5s
+runFor: 30s
+
+expect:
+  noMessagesLost: true
+
+rules:
+  - name: relay-keeps-up
+    metric: outboxLeft
+    above: 0
+    severity: failed
+    because: the relay was still behind 30 seconds after the writes stopped

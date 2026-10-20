@@ -44,6 +44,10 @@ public final class PublisherSpec {
     private boolean confirms = true;
     private long maxMessages = Long.MAX_VALUE;
     private int maxInFlight = 1_000;
+    private int claimCheckThreshold = -1;
+    private java.nio.file.Path claimCheckDirectory;
+    private int outboxBatchSize = 0;
+    private java.time.Duration outboxPollInterval = java.time.Duration.ofMillis(100);
 
     PublisherSpec() {
     }
@@ -61,6 +65,10 @@ public final class PublisherSpec {
         copy.confirms = confirms;
         copy.maxMessages = maxMessages;
         copy.maxInFlight = maxInFlight;
+        copy.claimCheckThreshold = claimCheckThreshold;
+        copy.claimCheckDirectory = claimCheckDirectory;
+        copy.outboxBatchSize = outboxBatchSize;
+        copy.outboxPollInterval = outboxPollInterval;
         return copy.rate(rate);
     }
 
@@ -213,10 +221,81 @@ public final class PublisherSpec {
         return maxMessages;
     }
 
+    /**
+     * Publishes through the library's claim check: a body at or above {@code threshold} bytes goes
+     * to a store and the message carries its key; the consumers fetch it back and delete it.
+     *
+     * <p>What this loads is the store as much as the broker: every large message is a write, a
+     * read and a delete beside the publish, and the end-to-end latency includes all three.
+     *
+     * @param threshold bytes at which a body is offloaded; zero offloads every message
+     * @param directory where the store keeps payloads, one file each, or null to keep them in
+     *     memory
+     * @return this spec
+     */
+    public PublisherSpec claimCheck(int threshold, java.nio.file.Path directory) {
+        if (threshold < 0) {
+            throw new IllegalArgumentException("a claim check threshold cannot be negative");
+        }
+        this.claimCheckThreshold = threshold;
+        this.claimCheckDirectory = directory;
+        return this;
+    }
+
+    /**
+     * Writes each message to an outbox instead of publishing it, and lets the library's relay
+     * publish it.
+     *
+     * <p>The open-loop schedule now offers writes to the outbox. Published counts writes,
+     * confirmed counts what the relay got confirmed, publish latency is write to confirm, and the
+     * end-to-end latency includes the time a record waited for the relay. The store is in memory,
+     * so this loads the relay and the broker rather than a database.
+     *
+     * @param batchSize how many records the relay claims at once
+     * @param pollInterval how long the relay waits when it found nothing to do
+     * @return this spec
+     */
+    public PublisherSpec outbox(int batchSize, java.time.Duration pollInterval) {
+        if (batchSize < 1) {
+            throw new IllegalArgumentException("an outbox relay claims at least one record at a time");
+        }
+        if (pollInterval == null || pollInterval.isNegative() || pollInterval.isZero()) {
+            throw new IllegalArgumentException("an outbox relay needs a positive poll interval");
+        }
+        this.outboxBatchSize = batchSize;
+        this.outboxPollInterval = pollInterval;
+        return this;
+    }
+
+    /** @return the claim check threshold in bytes, or -1 when there is no claim check */
+    public int claimCheckThreshold() {
+        return claimCheckThreshold;
+    }
+
+    /** @return where the claim check store keeps payloads, or null for memory */
+    public java.nio.file.Path claimCheckDirectory() {
+        return claimCheckDirectory;
+    }
+
+    /** @return the relay's batch size, or 0 when there is no outbox */
+    public int outboxBatchSize() {
+        return outboxBatchSize;
+    }
+
+    /** @return the relay's poll interval */
+    public java.time.Duration outboxPollInterval() {
+        return outboxPollInterval;
+    }
+
     @Override
     public String toString() {
         return "PublisherSpec{threads=" + threads
                 + ", rate=" + (isUnthrottled() ? "unthrottled" : rate + "/s")
-                + ", " + payload + ", confirms=" + confirms + "}";
+                + ", " + payload + ", confirms=" + confirms
+                + (claimCheckThreshold >= 0 ? ", claim check at " + claimCheckThreshold + " bytes in "
+                        + (claimCheckDirectory == null ? "memory" : claimCheckDirectory) : "")
+                + (outboxBatchSize > 0 ? ", outbox batch " + outboxBatchSize + " polled every "
+                        + outboxPollInterval.toMillis() + "ms" : "")
+                + "}";
     }
 }

@@ -105,19 +105,66 @@ public final class Payload {
     }
 
     /**
-     * @param body a message built by {@link #build(long, long)}
+     * Builds one message body as text, for a path that carries text only.
+     *
+     * <p>The outbox is one: a record's payload is a string, serialised inside the caller's
+     * transaction, and the relay writes it out as UTF-8. The binary header does not survive that,
+     * so the same two numbers travel as {@code w<intended>:<sequence>:} and the rest is padding
+     * to the message size. ASCII throughout, so the bytes on the wire are the size asked for
+     * unless the header alone is longer.
+     *
+     * <p>A reader tells the two forms apart by the first byte. A binary body starts with the top
+     * byte of a {@link System#nanoTime()} reading, which is {@code 'w'} (0x77) only for a clock
+     * about 270 years past its origin, so {@link #intendedSendNanos(byte[])} reads either.
+     *
+     * @param intendedSendNanos when this message was due, from {@link System#nanoTime()}
+     * @param sequence the message's sequence number within its publisher
+     * @return the body, as text
+     */
+    public String buildText(long intendedSendNanos, long sequence) {
+        StringBuilder text = new StringBuilder(size).append(TEXT)
+                .append(intendedSendNanos).append(':').append(sequence).append(':');
+        ThreadLocalRandom rnd = ThreadLocalRandom.current();
+        while (text.length() < size) {
+            text.append(random ? (char) ('a' + rnd.nextInt(26)) : '.');
+        }
+        return text.toString();
+    }
+
+    /** First byte of a body built by {@link #buildText(long, long)}. */
+    private static final char TEXT = 'w';
+
+    /**
+     * @param body a message built by {@link #build(long, long)} or {@link #buildText(long, long)}
      * @return the time the message was due, in {@link System#nanoTime()} terms
      */
     public static long intendedSendNanos(byte[] body) {
-        return ByteBuffer.wrap(body).getLong(0);
+        return body[0] == TEXT ? textField(body, 0) : ByteBuffer.wrap(body).getLong(0);
     }
 
     /**
-     * @param body a message built by {@link #build(long, long)}
+     * @param body a message built by {@link #build(long, long)} or {@link #buildText(long, long)}
      * @return its sequence number
      */
     public static long sequence(byte[] body) {
-        return ByteBuffer.wrap(body).getLong(8);
+        return body[0] == TEXT ? textField(body, 1) : ByteBuffer.wrap(body).getLong(8);
+    }
+
+    /** The {@code n}th colon-terminated number after the leading {@code w}. */
+    private static long textField(byte[] body, int n) {
+        int start = 1;
+        for (int i = 0; i < n; i++) {
+            while (body[start] != ':') {
+                start++;
+            }
+            start++;
+        }
+        int end = start;
+        while (body[end] != ':') {
+            end++;
+        }
+        return Long.parseLong(new String(body, start, end - start,
+                java.nio.charset.StandardCharsets.US_ASCII));
     }
 
     /**

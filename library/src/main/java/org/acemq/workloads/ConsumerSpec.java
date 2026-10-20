@@ -40,6 +40,7 @@ public final class ConsumerSpec {
     private Duration handlerTime = Duration.ZERO;
     private double failureRate = 0.0;
     private boolean enabled = true;
+    private org.acemq.amqp.api.RetryPolicy retry;
 
     ConsumerSpec() {
     }
@@ -143,11 +144,38 @@ public final class ConsumerSpec {
         return enabled;
     }
 
+    /**
+     * Retries a failed handler on the library's ladder instead of dead-lettering it at once.
+     *
+     * <p>With {@link #failureRate(double)} this is the retry ladder under load: each delivery
+     * fails with that probability, a failure goes round again after the policy's wait (in the
+     * consumer below its broker threshold, in a {@code {queue}.retry.{delay}} rung at or above
+     * it), and the last attempt's failure goes to {@code {queue}.dlq}. End-to-end latency is
+     * measured to the delivery that succeeded, so it includes every wait. A message counts as
+     * consumed once, when it succeeds or is dead-lettered.
+     *
+     * @param policy the schedule, for example {@code RetryPolicy.fixed(3, Duration.ofMillis(200))}
+     * @return this spec
+     */
+    public ConsumerSpec retry(org.acemq.amqp.api.RetryPolicy policy) {
+        this.retry = Objects.requireNonNull(policy, "policy");
+        return this;
+    }
+
+    /** @return the retry policy, or null when a failure is dead-lettered on its first attempt */
+    public org.acemq.amqp.api.RetryPolicy retry() {
+        return retry;
+    }
+
     @Override
     public String toString() {
         return enabled
                 ? "ConsumerSpec{concurrency=" + concurrency + ", prefetch=" + prefetch
-                        + ", handlerTime=" + handlerTime + "}"
+                        + ", handlerTime=" + handlerTime
+                        + (failureRate > 0 ? ", failureRate=" + failureRate : "")
+                        + (retry != null ? ", retry " + retry.maxAttempts() + " attempts after "
+                                + retry.schedule() + ", broker from " + retry.brokerWaitThreshold() : "")
+                        + "}"
                 : "ConsumerSpec{none}";
     }
 }

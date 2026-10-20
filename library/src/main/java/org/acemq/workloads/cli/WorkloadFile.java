@@ -204,6 +204,16 @@ public final class WorkloadFile {
     }
 
     private static Workload toWorkload(JsonNode node) {
+        // A value the builders refuse -- zero threads, an outbox with no rate -- is a bad file,
+        // exit 3, and not a stack trace.
+        try {
+            return buildWorkload(node);
+        } catch (IllegalArgumentException e) {
+            throw new ConfigException("'" + requiredText(node, "name") + "': " + e.getMessage());
+        }
+    }
+
+    private static Workload buildWorkload(JsonNode node) {
         reject(node, "", "name", "broker", "management", "managementUser", "managementPassword",
                 "topology", "publishers", "consumers", "warmup", "runFor", "expect", "rules",
                 "ramp");
@@ -266,7 +276,24 @@ public final class WorkloadFile {
         JsonNode publishers = node.path("publishers");
         if (!publishers.isMissingNode()) {
             reject(publishers, "publishers.", "threads", "rate", "unthrottled", "messageSize",
-                    "randomPayload", "confirms", "maxInFlight", "maxMessages");
+                    "randomPayload", "confirms", "maxInFlight", "maxMessages", "claimCheck",
+                    "outbox");
+            JsonNode claimCheck = publishers.path("claimCheck");
+            if (!claimCheck.isMissingNode()) {
+                if (!claimCheck.isObject()) {
+                    throw new ConfigException("'publishers.claimCheck' must be a mapping:"
+                            + " threshold (bytes), directory (or memory when absent)");
+                }
+                reject(claimCheck, "publishers.claimCheck.", "threshold", "directory");
+            }
+            JsonNode outbox = publishers.path("outbox");
+            if (!outbox.isMissingNode()) {
+                if (!outbox.isObject()) {
+                    throw new ConfigException("'publishers.outbox' must be a mapping:"
+                            + " batchSize, pollInterval");
+                }
+                reject(outbox, "publishers.outbox.", "batchSize", "pollInterval");
+            }
             builder.publishers(p -> {
                 if (publishers.has("threads")) {
                     p.threads(publishers.get("threads").asInt());
@@ -295,12 +322,32 @@ public final class WorkloadFile {
                 if (publishers.has("maxMessages")) {
                     p.maxMessages(publishers.get("maxMessages").asLong());
                 }
+                if (!claimCheck.isMissingNode()) {
+                    String directory = optionalText(claimCheck, "directory");
+                    p.claimCheck(claimCheck.has("threshold")
+                                    ? (int) whole(claimCheck.get("threshold"), "publishers.claimCheck.threshold")
+                                    : org.acemq.amqp.patterns.ClaimCheckCodec.DEFAULT_THRESHOLD,
+                            directory == null ? null : Path.of(directory));
+                }
+                if (!outbox.isMissingNode()) {
+                    int batchSize = outbox.has("batchSize")
+                            ? (int) whole(outbox.get("batchSize"), "publishers.outbox.batchSize") : 100;
+                    if (batchSize < 1) {
+                        throw new ConfigException("'publishers.outbox.batchSize' must be at least 1");
+                    }
+                    p.outbox(batchSize, outbox.has("pollInterval")
+                            ? Durations.parse(outbox.get("pollInterval").asText(), "publishers.outbox.pollInterval")
+                            : Duration.ofMillis(100));
+                }
             });
         }
 
         JsonNode consumers = node.path("consumers");
         if (!consumers.isMissingNode()) {
-            reject(consumers, "consumers.", "concurrency", "prefetch", "handlerTime", "failureRate");
+            reject(consumers, "consumers.", "concurrency", "prefetch", "handlerTime", "failureRate",
+                    "retry");
+            JsonNode retry = consumers.path("retry");
+            org.acemq.amqp.api.RetryPolicy policy = retry.isMissingNode() ? null : toRetry(retry);
             builder.consumers(c -> {
                 if (consumers.has("concurrency")) {
                     c.concurrency(consumers.get("concurrency").asInt());
@@ -314,6 +361,9 @@ public final class WorkloadFile {
                 }
                 if (consumers.has("failureRate")) {
                     c.failureRate(consumers.get("failureRate").asDouble());
+                }
+                if (policy != null) {
+                    c.retry(policy);
                 }
             });
         }
@@ -373,6 +423,66 @@ public final class WorkloadFile {
             }
         }
         return builder.build();
+    }
+
+    /**
+     * A retry ladder from the file: the library's {@code RetryPolicy}, fixed or exponential.
+     *
+     * <pre>{@code
+     * retry:
+     *   attempts: 4          # deliveries in total, the first included
+     *   delay: 200ms         # fixed; or initialDelay + maxDelay (+ multiplier) for exponential
+     *   brokerFrom: 1s       # waits this long or longer are spent in a rung queue (default 30s)
+     *   jitter: 0.2          # share of a consumer-held wait to spread by
+     * }</pre>
+     */
+    static org.acemq.amqp.api.RetryPolicy toRetry(JsonNode node) {
+        if (!node.isObject()) {
+            throw new ConfigException("'consumers.retry' must be a mapping: attempts, and delay or"
+                    + " initialDelay with maxDelay");
+        }
+        reject(node, "consumers.retry.", "attempts", "delay", "initialDelay", "maxDelay",
+                "multiplier", "brokerFrom", "jitter");
+        if (!node.has("attempts")) {
+            throw new ConfigException("'consumers.retry.attempts' is required: how many deliveries"
+                    + " a message gets in total, the first included");
+        }
+        int attempts = (int) whole(node.get("attempts"), "consumers.retry.attempts");
+        if (attempts < 2) {
+            throw new ConfigException("'consumers.retry.attempts' is " + attempts + "; a ladder"
+                    + " needs at least 2, and a failure with no retry is what no 'retry' block does");
+        }
+        boolean fixed = node.has("delay");
+        if (fixed == (node.has("initialDelay") || node.has("maxDelay"))) {
+            throw new ConfigException("'consumers.retry' needs either 'delay' (the same wait each"
+                    + " time) or 'initialDelay' and 'maxDelay' (doubling), not both and not neither");
+        }
+        try {
+            org.acemq.amqp.api.RetryPolicy policy;
+            if (fixed) {
+                policy = org.acemq.amqp.api.RetryPolicy.fixed(attempts,
+                        Durations.parse(node.get("delay").asText(), "consumers.retry.delay"));
+            } else {
+                if (!node.has("initialDelay") || !node.has("maxDelay")) {
+                    throw new ConfigException("'consumers.retry' needs both 'initialDelay' and"
+                            + " 'maxDelay' for a doubling schedule");
+                }
+                policy = org.acemq.amqp.api.RetryPolicy.exponential(attempts,
+                        Durations.parse(node.get("initialDelay").asText(), "consumers.retry.initialDelay"),
+                        node.has("multiplier") ? number(node.get("multiplier"), "consumers.retry.multiplier") : 2.0,
+                        Durations.parse(node.get("maxDelay").asText(), "consumers.retry.maxDelay"));
+            }
+            if (node.has("brokerFrom")) {
+                policy = policy.waitInBrokerFrom(
+                        Durations.parse(node.get("brokerFrom").asText(), "consumers.retry.brokerFrom"));
+            }
+            if (node.has("jitter")) {
+                policy = policy.withJitter(number(node.get("jitter"), "consumers.retry.jitter"));
+            }
+            return policy;
+        } catch (IllegalArgumentException e) {
+            throw new ConfigException("'consumers.retry': " + e.getMessage());
+        }
     }
 
     /**

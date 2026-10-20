@@ -177,6 +177,9 @@ read like every other:
 | `backlog` | published minus consumed |
 | `queueDepthAtEnd` | the depth when the run finished, if it could be read |
 | `blockedSeconds` | time spent blocked by a resource alarm |
+| `retried` `recovered` `deadLettered` | a [retry ladder](patterns.md#a-retry-ladder)'s counts |
+| `outboxPeak` `outboxLeft` `outboxFull` `relayGaveUp` | an [outbox](patterns.md#an-outbox)'s counts |
+| `claimChecked` `claimMissing` | a [claim check](patterns.md#a-claim-check)'s counts |
 | `endToEnd.`, `publish.`, `sendLag.` + `p50` `p90` `p99` `p999` `max` | latencies, compared as durations: `50ms`, never a bare number |
 
 A metric the run did not produce never fires — a latency with no consumers, a

@@ -113,6 +113,20 @@ the ceiling is the generator's, not the broker's. `--ramp start=1000,step=10%`
 ramps any workload file without editing it, and `rules:` in the file adds
 [thresholds of your own](docs/rules.md#rules-in-the-file) without Java.
 
+### AceMQ patterns under load
+
+```yaml
+consumers: { failureRate: 0.3, retry: { attempts: 3, delay: 500ms, brokerFrom: 250ms } }
+publishers: { rate: 1000, outbox: { batchSize: 100, pollInterval: 50ms } }
+publishers: { rate: 200, messageSize: 524288, claimCheck: { threshold: 65536 } }
+```
+
+The library's own retry ladder, outbox relay and claim check, under the same
+open-loop schedule and rules as any other run. The report counts what each did
+(retried, recovered and dead-lettered; the relay's backlog; bodies offloaded),
+the latency includes the wait each one adds, and every count is a metric a rule
+can be put on. See [patterns under load](docs/patterns.md).
+
 ### Exit codes are the interface
 
 More important than the report format: a pipeline reads the exit code, a person
@@ -318,7 +332,9 @@ the pauses being measured. `HdrHistogram` solves both.
   version control and runs in CI, topology discovery through the management API,
   and — the real reason it exists — the ability to put **AceMQ's own patterns**
   under load. Retry ladders, outboxes, sagas, claim checks and pipelines are
-  things perftest cannot exercise, because it does not know they exist.
+  things perftest cannot exercise, because it does not know they exist. The
+  retry ladder, the outbox and the claim check are
+  [here](docs/patterns.md); sagas and pipelines are next.
 - **Not a capacity number for your production broker.** A container on a laptop
   sharing a CPU with the generator measures the laptop.
 
@@ -331,7 +347,7 @@ Ten guide pages and five tutorials, published at
 | | |
 |---|---|
 | **Start here** | [docs/index.md](docs/index.md) · [The studio](docs/studio.md) · [Getting started](docs/getting-started.md) |
-| **Reference** | [Command line](docs/cli.md) · [Endurance](docs/endurance.md) · [Workload file](docs/workload-file.md) · [Scenario file](docs/scenario-file.md) · [Rules](docs/rules.md) · [Ramp](docs/ramp.md) · [Reports](docs/reports.md) |
+| **Reference** | [Command line](docs/cli.md) · [Endurance](docs/endurance.md) · [Workload file](docs/workload-file.md) · [Scenario file](docs/scenario-file.md) · [Rules](docs/rules.md) · [Ramp](docs/ramp.md) · [Patterns](docs/patterns.md) · [Reports](docs/reports.md) |
 | **Why the numbers hold** | [Measurement](docs/measurement.md) — the schedule arithmetic and coordinated omission |
 | **Tutorials** | [Five, in order](docs/tutorials.md), each ending with something that runs |
 

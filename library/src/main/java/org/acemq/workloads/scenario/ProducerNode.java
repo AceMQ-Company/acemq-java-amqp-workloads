@@ -15,6 +15,7 @@
  */
 package org.acemq.workloads.scenario;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -46,6 +47,10 @@ public final class ProducerNode implements Node {
     private int maxInFlight = 1_000;
     private Payload payload;
     private final Expect expect = new Expect();
+    private int claimCheckThreshold = -1;
+    private java.nio.file.Path claimCheckDirectory;
+    private int outboxBatchSize = 0;
+    private Duration outboxPollInterval = Duration.ofMillis(100);
 
     ProducerNode(String name) {
         this.name = Objects.requireNonNull(name, "name");
@@ -268,6 +273,59 @@ public final class ProducerNode implements Node {
 
     public int maxInFlight() {
         return maxInFlight;
+    }
+
+    /**
+     * Publishes through the library's claim check; see
+     * {@link org.acemq.workloads.PublisherSpec#claimCheck}. Every claim-checking producer in a
+     * run shares the first one's store, because a consumer cannot tell whose key it was handed.
+     *
+     * @param threshold bytes at which a body is offloaded, or -1 for no claim check
+     * @param directory where payloads are kept, or null for memory
+     * @return this node
+     */
+    public ProducerNode claimCheck(int threshold, java.nio.file.Path directory) {
+        this.claimCheckThreshold = threshold;
+        this.claimCheckDirectory = directory;
+        return this;
+    }
+
+    /**
+     * Writes to an outbox that the library's relay publishes from; see
+     * {@link org.acemq.workloads.PublisherSpec#outbox}.
+     *
+     * @param batchSize records the relay claims at once, or 0 for no outbox
+     * @param pollInterval how long the relay waits when there was nothing to do
+     * @return this node
+     */
+    public ProducerNode outbox(int batchSize, Duration pollInterval) {
+        this.outboxBatchSize = batchSize;
+        this.outboxPollInterval = pollInterval;
+        return this;
+    }
+
+    public boolean claimChecks() {
+        return claimCheckThreshold >= 0;
+    }
+
+    public int claimCheckThreshold() {
+        return claimCheckThreshold;
+    }
+
+    public java.nio.file.Path claimCheckDirectory() {
+        return claimCheckDirectory;
+    }
+
+    public boolean usesOutbox() {
+        return outboxBatchSize > 0;
+    }
+
+    public int outboxBatchSize() {
+        return outboxBatchSize;
+    }
+
+    public Duration outboxPollInterval() {
+        return outboxPollInterval;
     }
 
     @Override

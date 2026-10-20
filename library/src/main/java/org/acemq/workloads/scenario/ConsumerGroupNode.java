@@ -31,6 +31,7 @@ public final class ConsumerGroupNode implements Node {
     private Duration handlerTime = Duration.ZERO;
     private double failureRate = 0.0;
     private boolean enabled = true;
+    private org.acemq.amqp.api.RetryPolicy retry;
 
     ConsumerGroupNode(QueueNode queue) {
         this.queue = queue;
@@ -96,6 +97,23 @@ public final class ConsumerGroupNode implements Node {
     /** @return this group, switched off, so the queue grows */
     public ConsumerGroupNode none() {
         return enabled(false);
+    }
+
+    /**
+     * Retries failures on the library's ladder; see
+     * {@link org.acemq.workloads.ConsumerSpec#retry}.
+     *
+     * @param policy the schedule, or null to dead-letter a failure on its first attempt
+     * @return this node
+     */
+    public ConsumerGroupNode retry(org.acemq.amqp.api.RetryPolicy policy) {
+        this.retry = policy;
+        return this;
+    }
+
+    /** @return the retry policy, or null */
+    public org.acemq.amqp.api.RetryPolicy retry() {
+        return retry;
     }
 
     @Override

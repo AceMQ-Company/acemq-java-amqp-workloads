@@ -10,6 +10,52 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+### Added
+
+- **AceMQ patterns under load: a retry ladder, an outbox and a claim check.**
+  Each one uses the library's own code, under the same open-loop schedule,
+  rules, ramps and suites as any other run.
+  [docs/patterns.md](docs/patterns.md).
+  - **Retry ladder.** Set `consumers.retry` in the file (`attempts`, then `delay`
+    or `initialDelay` + `maxDelay`, plus `brokerFrom` and `jitter`), or call
+    `ConsumerSpec.retry(RetryPolicy)` from Java. With `failureRate`, each
+    delivery fails with that probability and goes round again through
+    `ConsumerOptions.withRetry`. A wait at or above `brokerFrom` goes through a
+    `{queue}.retry.{delay}` rung, and the last failure goes to `{queue}.dlq`.
+    Each message counts as consumed once, delivered or dead-lettered, so
+    `noMessagesLost` still balances. End-to-end latency is measured to the
+    delivery that succeeded, so it includes every wait. The drain first waits
+    out the longest the ladder can take. Counts: `retried`, `recovered`,
+    `deadLettered`.
+  - **Outbox.** Set `publishers.outbox` (`batchSize`, `pollInterval`) or call
+    `PublisherSpec.outbox(int, Duration)`. The schedule offers writes to an
+    in-memory outbox, and `OutboxRelay` publishes from it. Published counts
+    writes. Confirmed counts the relay's confirms. Publish latency runs from
+    the write to the confirm. End-to-end latency includes the wait for the next
+    poll. The run gives the relay 30 seconds to flush at the end. Counts:
+    `outboxPeak`, `outboxLeft`, `outboxFull`, `relayGaveUp`. A file is refused
+    (exit 3) if it combines an outbox with `unthrottled`, with
+    `confirms: false` or with `claimCheck`.
+  - **Claim check.** Set `publishers.claimCheck` (`threshold`, `directory`) or
+    call `PublisherSpec.claimCheck(int, Path)`. Publishes go through
+    `ClaimCheckCodec`, into a `FilesystemClaimCheckStore` or one in memory.
+    Consumers read each body back before the clock is read, and delete it once
+    the message settles. Counts: `claimChecked`, `claimMissing`.
+  - Each count is printed under the totals and written to the JSON as
+    `patterns`. Each is also a metric for `rules:`. A run that did not use a
+    pattern has none of its counts, and a rule on one never fires.
+  - `examples/18-retry-ladder.yaml`, `19-outbox.yaml` and `20-claim-check.yaml`
+    (the last is a suite: inline against claim-checked).
+- Depends on `acemq-amqp-patterns`, at the same version as `acemq-amqp-core`.
+
+### Changed
+
+- A run with a retry ladder or an outbox decides whether a message belongs to
+  the measured window by when it was due, at both ends. Those patterns delay
+  delivery by design. Without this, a message written during the warm-up could
+  arrive inside the window and make consumed run ahead of confirmed. Runs
+  without either pattern count exactly as before.
+
 ## [0.8.0] - 2026-10-13
 
 ### Changed

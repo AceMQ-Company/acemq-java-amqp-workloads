@@ -203,6 +203,13 @@ public final class Threshold {
         m.put("backlog", r -> r.consumersEnabled() ? r.published() - r.consumed() : Double.NaN);
         m.put("queueDepthAtEnd", r -> r.queueDepthAtEnd().map(Long::doubleValue).orElse(Double.NaN));
         m.put("blockedSeconds", r -> r.blockedNanos() / 1_000_000_000.0);
+        // The patterns' counts. A run that did not use the pattern has no such count, and a rule
+        // on it never fires, the same as a latency from a run with no consumers.
+        for (String key : java.util.List.of("retried", "recovered", "deadLettered",
+                "claimChecked", "claimMissing", "outboxPeak", "outboxLeft", "outboxFull",
+                "relayGaveUp")) {
+            m.put(key, r -> r.patterns().containsKey(key) ? r.patterns().get(key) : Double.NaN);
+        }
         latencies(m, "endToEnd", WorkloadReport::endToEnd);
         latencies(m, "publish", WorkloadReport::publishLatency);
         latencies(m, "sendLag", WorkloadReport::sendLag);

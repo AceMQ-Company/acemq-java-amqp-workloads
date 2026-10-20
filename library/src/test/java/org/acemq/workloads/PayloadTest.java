@@ -73,4 +73,17 @@ class PayloadTest {
         assertThat(Payload.isWorkloadMessage(null)).isFalse();
         assertThat(Payload.isWorkloadMessage(new byte[16])).isTrue();
     }
+
+    @Test
+    @DisplayName("the text form carries the same two numbers, at the size asked for")
+    void textForm() {
+        String text = Payload.ofBytes(64).buildText(-9_000_000_000L, 7);
+        byte[] body = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThat(body).hasSize(64);
+        assertThat(text).startsWith("w-9000000000:7:").matches("[\\x20-\\x7e]+");
+        assertThat(Payload.intendedSendNanos(body)).isEqualTo(-9_000_000_000L);
+        assertThat(Payload.sequence(body)).isEqualTo(7);
+        assertThat(Payload.ofRandomBytes(32).buildText(5, 1)).matches("w5:1:[a-z]+");
+    }
 }

@@ -52,6 +52,7 @@ public final class WorkloadReport {
     private final String blockedReason;
     private final List<Finding> findings;
     private final List<Sample> samples;
+    private final java.util.Map<String, Long> patterns;
 
     WorkloadReport(Workload spec, Instant startedAt, Duration duration,
             long published, long confirmed, long failed, long consumed,
@@ -67,6 +68,17 @@ public final class WorkloadReport {
             LatencySummary endToEnd, LatencySummary publishLatency, LatencySummary sendLag,
             Long queueDepthAtEnd, long blockedNanos, String blockedReason,
             List<Sample> samples) {
+        this(spec, startedAt, duration, published, confirmed, failed, consumed, endToEnd,
+                publishLatency, sendLag, queueDepthAtEnd, blockedNanos, blockedReason, samples,
+                java.util.Map.of());
+    }
+
+    WorkloadReport(Workload spec, Instant startedAt, Duration duration,
+            long published, long confirmed, long failed, long consumed,
+            LatencySummary endToEnd, LatencySummary publishLatency, LatencySummary sendLag,
+            Long queueDepthAtEnd, long blockedNanos, String blockedReason,
+            List<Sample> samples, java.util.Map<String, Long> patterns) {
+        this.patterns = java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(patterns));
         this.samples = List.copyOf(samples);
         this.spec = spec;
         this.startedAt = startedAt;
@@ -121,6 +133,21 @@ public final class WorkloadReport {
 
     public String name() {
         return spec.name();
+    }
+
+    /**
+     * What the AceMQ patterns in the run counted, keyed by metric name: {@code retried},
+     * {@code recovered} and {@code deadLettered} for a retry ladder; {@code claimChecked} and
+     * {@code claimMissing} for a claim check; {@code outboxPeak}, {@code outboxLeft},
+     * {@code outboxFull} and {@code relayGaveUp} for an outbox.
+     *
+     * <p>Only the patterns the run used have keys, so an empty map is a plain run. Each key is
+     * also a metric a rule can be put on.
+     *
+     * @return the counts, in a stable order, never null
+     */
+    public java.util.Map<String, Long> patterns() {
+        return patterns;
     }
 
     public Instant startedAt() {
@@ -271,6 +298,8 @@ public final class WorkloadReport {
         }
         queueDepthAtEnd().ifPresent(depth ->
                 out.append(String.format("  queue at end  %,d%n", depth)));
+        patterns.forEach((key, count) ->
+                out.append(String.format("  %-13s %,d%n", key, count)));
         out.append('\n');
 
         out.append("  ").append(endToEnd.format()).append('\n');

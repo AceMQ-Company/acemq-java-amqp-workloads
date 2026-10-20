@@ -119,6 +119,8 @@ something subtly different from what production runs and measure *that*.
 | `confirms` | `true` | wait for the broker to confirm |
 | `maxInFlight` | `1000` | unconfirmed publishes a thread may hold |
 | `maxMessages` | | stop after this many |
+| `claimCheck` | | `threshold` (bytes, default `65536`) and `directory` (memory when absent): publish through the library's claim check. See [patterns](patterns.md#a-claim-check) |
+| `outbox` | | `batchSize` (default `100`) and `pollInterval` (default `100ms`): write to an outbox the library's relay publishes from. See [patterns](patterns.md#an-outbox) |
 
 **`threads` and `rate` are separate on purpose.** "Ten producers" is not a load.
 The rate is the property of the experiment; the threads are how much parallelism
@@ -167,7 +169,8 @@ that compresses will report a throughput no real payload reproduces.
 | `concurrency` | `1` | how many consumers. `0` for a publish-only run |
 | `prefetch` | `100` | unacknowledged messages a consumer holds. `0` is unlimited |
 | `handlerTime` | `0s` | simulated work per message |
-| `failureRate` | `0` | fraction of messages the handler rejects |
+| `failureRate` | `0` | fraction of messages the handler rejects; with `retry`, of deliveries |
+| `retry` | | `attempts`, then `delay` or `initialDelay` + `maxDelay` (+ `multiplier`), `brokerFrom`, `jitter`: retry failures on the library's ladder. See [patterns](patterns.md#a-retry-ladder) |
 
 **`handlerTime` is the setting people leave out and then wonder why the results
 do not resemble production.** A consumer that does nothing measures the broker; a
