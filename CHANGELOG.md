@@ -10,6 +10,15 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-10-20
+
+- **Built on acemq-java-amqp 0.7.17.** That release adds
+  `PublishFailedException.isUnroutable()`, removes `x-acemq-error` on a default
+  replay, writes `acemq-replayed-at` to the millisecond, and keeps unknown
+  `x-acemq-` headers on a retry hop or dead letter. Workloads tells outcomes
+  apart by the broker's answer, not by the exception, and does not replay, so no
+  run counts differently.
+
 ## [0.8.2] - 2026-10-20
 
 ### Added
