@@ -127,6 +127,10 @@ final class ScenarioRun {
     private ClaimCheckCodec claimCodec;
     private final Map<String, MemoryOutbox> outboxes = new LinkedHashMap<>();
     private final List<OutboxRelay> relays = new ArrayList<>();
+    // Messages somewhere on a retry ladder right now: a failure that will be retried adds one, a
+    // delivery of a retried message takes one away. Counted for the whole run, not the window,
+    // because it answers "is anything still coming back", which the drain has to know.
+    private final AtomicLong onLadder = new AtomicLong();
 
     /**
      * Records an outbox can hold before a write is refused.
@@ -256,10 +260,7 @@ final class ScenarioRun {
                 stop.set(true);
                 join(publishers);
                 flushOutboxes();
-                // A retry still waiting -- held by a consumer or sitting in a rung -- was published
-                // inside the window and has not been settled. Draining stops the consumers, so the
-                // ladder gets the longest a message can spend on it first.
-                awaitOrStop(longestRetry());
+                awaitLadder();
 
                 // Keep counting what arrives while the queue drains. A publisher latches
                 // `measuring` at the moment it publishes and its confirm callback honours that
@@ -492,6 +493,12 @@ final class ScenarioRun {
                 byte[] body = message.payload();
                 boolean fail = failureRate > 0 && ThreadLocalRandom.current().nextDouble() < failureRate;
                 boolean retrying = fail && message.attempt() < maxAttempts;
+                if (message.attempt() > 1) {
+                    onLadder.decrementAndGet();
+                }
+                if (retrying) {
+                    onLadder.incrementAndGet();
+                }
                 String key = claimCodec == null ? null : ClaimCheckCodec.keyOf(body);
                 if (claimCodec != null) {
                     try {
@@ -502,6 +509,9 @@ final class ScenarioRun {
                     } catch (RuntimeException missing) {
                         if (accounting.get()) {
                             patterns.get("claimMissing").incrementAndGet();
+                        }
+                        if (!retrying && message.attempt() < maxAttempts) {
+                            onLadder.incrementAndGet();
                         }
                         throw missing;
                     }
@@ -806,6 +816,22 @@ final class ScenarioRun {
         long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
         while (System.nanoTime() < deadline && !stopRequested.get()
                 && outboxes.values().stream().anyMatch(o -> o.pendingCount() > 0)) {
+            LockSupport.parkNanos(Duration.ofMillis(50).toNanos());
+        }
+    }
+
+    /**
+     * Waits until nothing is left on a retry ladder.
+     *
+     * <p>A retry still waiting, held by a consumer or sitting in a rung, was published inside the
+     * window and has not settled. Draining stops the consumers, so it has to come back first. The
+     * wait is bounded by the longest a message can spend on the ladder, plus ten seconds for a
+     * busy broker: a message that has not come back by then is reported as unaccounted for, which
+     * is what it is.
+     */
+    private void awaitLadder() {
+        long deadline = System.nanoTime() + longestRetry().plusSeconds(10).toNanos();
+        while (onLadder.get() > 0 && System.nanoTime() - deadline < 0 && !stopRequested.get()) {
             LockSupport.parkNanos(Duration.ofMillis(50).toNanos());
         }
     }

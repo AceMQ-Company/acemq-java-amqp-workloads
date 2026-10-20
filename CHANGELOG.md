@@ -24,8 +24,9 @@ the messaging library's release train.
     `{queue}.retry.{delay}` rung, and the last failure goes to `{queue}.dlq`.
     Each message counts as consumed once, delivered or dead-lettered, so
     `noMessagesLost` still balances. End-to-end latency is measured to the
-    delivery that succeeded, so it includes every wait. The drain first waits
-    out the longest the ladder can take. Counts: `retried`, `recovered`,
+    delivery that succeeded, so it includes every wait. Before the drain, the
+    run waits until no message is left on the ladder. The cap is the longest
+    the ladder can take, plus 10 seconds. Counts: `retried`, `recovered`,
     `deadLettered`.
   - **Outbox.** Set `publishers.outbox` (`batchSize`, `pollInterval`) or call
     `PublisherSpec.outbox(int, Duration)`. The schedule offers writes to an

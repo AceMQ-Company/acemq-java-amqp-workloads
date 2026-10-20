@@ -65,9 +65,11 @@ was due to the delivery that succeeded. A run where three in ten messages wait
 500ms has a p99 of at least 500ms. That is the honest number, and the reason to
 run this.
 
-When publishing stops, the run waits for the longest a message can spend on the
-ladder (the sum of the waits, plus the jitter) before it drains the consumers. A
-ladder with 2 minutes of waits drains for 2 minutes.
+When publishing stops, the run waits until no message is left on the ladder
+before it drains the consumers. A message is on the ladder when it is held by
+a consumer, in a rung, or back in the queue. The wait is capped at the longest
+a message can spend on the ladder (the sum of the waits, plus the jitter) plus
+10 seconds. A message still out after that is reported as unaccounted for.
 
 From Java:
 
