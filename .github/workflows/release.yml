@@ -246,10 +246,16 @@ jobs:
             curl -fs http://localhost:8480/actuator/health > /dev/null && break
             sleep 2
           done
-          curl -fs http://localhost:8480/ | grep -q "AceMQ Workloads Studio"
+          # Each reply goes to a file before grep reads it: `curl | grep -q` under
+          # pipefail fails with curl's exit 23 whenever grep matches and closes
+          # the pipe before curl has written the whole body, which is what
+          # stopped v0.8.1 here the first time.
+          curl -fs -o "$RUNNER_TEMP/page.html" http://localhost:8480/
+          grep -q "AceMQ Workloads Studio" "$RUNNER_TEMP/page.html"
           # And the API answers, which means the context came up whole rather
           # than serving a static page in front of a broken application.
-          curl -fs http://localhost:8480/api/presets | grep -q quorum-vs-classic
+          curl -fs -o "$RUNNER_TEMP/presets.json" http://localhost:8480/api/presets
+          grep -q quorum-vs-classic "$RUNNER_TEMP/presets.json"
           kill $studio
 
       - name: Run the end-to-end tests against the jar being released
