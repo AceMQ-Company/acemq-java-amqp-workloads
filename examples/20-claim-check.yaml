@@ -41,8 +41,10 @@ workloads:
 
   - name: claim-checked
     topology: { queue: ex.claim.checked, routingKey: ex.claim.checked }
+    # More threads than the inline run: the store's write happens on the
+    # publishing thread, so a thread is busy for the length of a file write.
     publishers:
-      threads: 2
+      threads: 8
       rate: 200
       messageSize: 524288
       maxInFlight: 200

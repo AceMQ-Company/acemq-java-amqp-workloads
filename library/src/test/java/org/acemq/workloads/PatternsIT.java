@@ -115,7 +115,9 @@ class PatternsIT {
     void claimCheck(@TempDir Path store) throws IOException {
         WorkloadReport report = Workload.named("it-claim")
                 .topology(t -> t.queue("pat.claim").routingKey("pat.claim"))
-                .publishers(p -> p.rate(50).messageSize(128 * 1024).claimCheck(64 * 1024, store))
+                // A low rate on two threads: the store's write happens on the publishing thread,
+                // and on a busy CI runner a file write can take a tenth of a second.
+                .publishers(p -> p.threads(2).rate(5).messageSize(128 * 1024).claimCheck(64 * 1024, store))
                 .consumers(c -> c.concurrency(2).prefetch(20))
                 .warmup(Duration.ofSeconds(2))
                 .runFor(Duration.ofSeconds(6))

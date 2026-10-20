@@ -152,6 +152,14 @@ difference between the two is the cost of the store.
 | claim-checked | `claimChecked` | messages delivered by key and cleared from the store |
 | missing | `claimMissing` | deliveries whose key was not in the store |
 
+**The store's write happens on the publishing thread**, inside the publish,
+as it does in an application. A slow store shows up as send lag first. If it
+gets bad enough, `generator-kept-up` marks the run invalid. That does not mean
+the broker failed: the publishing side cannot write that many payloads a
+second. Add `threads` until the send lag is gone, and the rate you reach is
+what the store sustains. On a busy laptop a 128 KB file write measured 100 to
+160 ms, so one thread managed 6 to 9 messages a second.
+
 End-to-end latency includes the store's read. Compare it with a run of the same
 file without `claimCheck`, in a [suite](workload-file.md#a-suite), to see what the
 pattern costs and what it saves the broker.
