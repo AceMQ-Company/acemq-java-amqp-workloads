@@ -10,6 +10,8 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-20
+
 ### Added
 
 - **AceMQ patterns under load: a retry ladder, an outbox and a claim check.**
@@ -51,6 +53,10 @@ the messaging library's release train.
 
 ### Changed
 
+- **Built on acemq-java-amqp 0.7.16.** A filtered replay in that release skips
+  a rejected message and keeps going, and returns only once the passed-over
+  messages are back on the queue; it brings OpenTelemetry 1.67.0. Workloads
+  does not replay, so no run counts differently.
 - A run with a retry ladder or an outbox decides whether a message belongs to
   the measured window by when it was due, at both ends. Those patterns delay
   delivery by design. Without this, a message written during the warm-up could
