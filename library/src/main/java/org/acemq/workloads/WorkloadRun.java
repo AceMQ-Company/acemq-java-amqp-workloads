@@ -98,6 +98,10 @@ final class WorkloadRun {
             scenario.useExisting();
         }
 
+        if (!consumers.pipeline().isEmpty()) {
+            return pipelineScenario(scenario, topology, publishers, consumers);
+        }
+
         // The default exchange is not declared and not bound to: publishing to it with the queue's
         // name as the key is how a queue is addressed directly, and declaring an exchange called
         // "" is refused by every broker.
@@ -122,11 +126,44 @@ final class WorkloadRun {
                     .handlerTime(consumers.handlerTime())
                     .failureRate(consumers.failureRate())
                     .retry(consumers.retry())
+                    .saga(consumers.saga())
                     .enabled(consumers.isEnabled()));
         });
 
+        producer(scenario, publishers, topology.exchange(), topology.routingKey());
+        return scenario;
+    }
+
+    /**
+     * The workload as a pipeline: the publishers send to its first step, and the library's
+     * {@code Pipeline} declares the rest and consumes it.
+     *
+     * <p>The pipeline is named after the topology's queue. Its exchange is that name, and the
+     * first step's queue is {@code {name}.{step}}, which is the queue node: the engine counts and
+     * reads the depth of the run's way in, and the pipeline declares it, quorum where the broker
+     * can, as an application's would be.
+     */
+    private Scenario pipelineScenario(Scenario scenario, TopologySpec topology,
+            PublisherSpec publishers, ConsumerSpec consumers) {
+        String name = topology.queue();
+        String first = consumers.pipeline().get(0).name();
+        scenario.exchange(name, "direct");
+        scenario.queue(name + "." + first, queue -> {
+            queue.type(QueueType.QUORUM);
+            queue.boundTo(name, first);
+            queue.consumers(group -> group
+                    .concurrency(consumers.concurrency())
+                    .prefetch(consumers.prefetch())
+                    .pipeline(name, consumers.pipeline())
+                    .enabled(consumers.isEnabled()));
+        });
+        producer(scenario, publishers, name, first);
+        return scenario;
+    }
+
+    private void producer(Scenario scenario, PublisherSpec publishers, String exchange, String routingKey) {
         scenario.producer(workload.name(), producer -> {
-            producer.to(topology.exchange(), topology.routingKey())
+            producer.to(exchange, routingKey)
                     .threads(publishers.threadCount())
                     .confirms(publishers.confirms())
                     .maxInFlight(publishers.maxInFlight())
@@ -140,8 +177,6 @@ final class WorkloadRun {
                 producer.rate(publishers.rate());
             }
         });
-
-        return scenario;
     }
 
     /**

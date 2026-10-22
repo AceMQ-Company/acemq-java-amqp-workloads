@@ -1,0 +1,53 @@
+# What does a saga cost when one step in twenty fails and has to be undone?
+#
+#   java -jar library/target/acemq-workload.jar -f examples/21-saga.yaml \
+#     --report reports/ --format html,md,json
+#
+# Every consumed message runs the library's own Saga: three steps of 2ms each.
+# Each step fails with probability 0.05, and a failure runs the compensations of
+# the steps already done, newest first, 2ms each. A compensation fails with
+# probability 0.01, and the library reports it as unresolved: a fact a person has
+# to reconcile by hand.
+#
+# Read, in this order:
+#
+#   sagaCompleted / sagaCompensated   about 86% complete (0.95 cubed); the rest
+#                                     were undone
+#   sagaUnresolved                    the number to alert on
+#   end-to-end p99                    measured once the saga is over, so a
+#                                     compensated message carries its undo
+#   noMessagesLost                    a saga reports its failure instead of
+#                                     throwing, so every message is consumed once
+name: saga
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+management: http://localhost:15672
+
+topology: { exchange: ex.saga, queue: ex.saga.q, routingKey: k.saga }
+
+publishers:
+  threads: 2
+  rate: 500
+  messageSize: 1024
+
+consumers:
+  concurrency: 8
+  prefetch: 50
+  saga:
+    steps: 3
+    stepTime: 2ms
+    failureRate: 0.05
+    compensationFailureRate: 0.01
+
+warmup: 5s
+runFor: 30s
+
+expect:
+  noMessagesLost: true
+
+rules:
+  - name: undo-holds
+    metric: sagaUnresolved
+    above: 50
+    severity: failed
+    because: compensations failed far more often than the simulated one in a
+      hundred, so something other than the load is undoing them badly

@@ -74,6 +74,8 @@ anything else on the broker.
 | 18 | [`18-retry-ladder.yaml`](patterns.md#a-retry-ladder) | three deliveries in ten fail, and the library's ladder retries them |
 | 19 | [`19-outbox.yaml`](patterns.md#an-outbox) | writes to an outbox, and how far behind its relay falls |
 | 20 | [`20-claim-check.yaml`](patterns.md#a-claim-check) | half-megabyte messages inline against claim-checked, side by side |
+| 21 | [`21-saga.yaml`](patterns.md#a-saga) | a three-step saga per message, one step in twenty failing and undone |
+| 22 | [`22-pipeline.yaml`](patterns.md#a-pipeline) | a three-step pipeline: a filter, a slow step that retries, the end |
 
 Output shown on this page is marked **real output** where it came from an actual
 run and is reproduced with nothing but whitespace touched. Numbers from a laptop

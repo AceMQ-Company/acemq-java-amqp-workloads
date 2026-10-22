@@ -139,7 +139,9 @@ public final class WorkloadReport {
      * What the AceMQ patterns in the run counted, keyed by metric name: {@code retried},
      * {@code recovered} and {@code deadLettered} for a retry ladder; {@code claimChecked} and
      * {@code claimMissing} for a claim check; {@code outboxPeak}, {@code outboxLeft},
-     * {@code outboxFull} and {@code relayGaveUp} for an outbox.
+     * {@code outboxFull} and {@code relayGaveUp} for an outbox; {@code sagaCompleted},
+     * {@code sagaCompensated} and {@code sagaUnresolved} for a saga; {@code pipelineCompleted},
+     * {@code endedEarly} and {@code deadLettered} for a pipeline.
      *
      * <p>Only the patterns the run used have keys, so an empty map is a plain run. Each key is
      * also a metric a rule can be put on.

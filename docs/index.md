@@ -98,7 +98,7 @@ a wrong one worse than silence.
 - [Endurance](endurance.md) — the soak: forced recoveries, resources read from outside, the leak verdict
 - [Workload file](workload-file.md) — every setting
 - [The ramp](ramp.md) — step the rate up until a rule fires: the honest ceiling
-- [Patterns under load](patterns.md) — a retry ladder, an outbox relay, a claim check
+- [Patterns under load](patterns.md) — a retry ladder, an outbox relay, a claim check, a saga, a pipeline
 - [Scenario file](scenario-file.md) — a whole topology, and objectives per node
 - [API reference](apidocs/index.html) — the Java surface
 
@@ -110,7 +110,7 @@ a wrong one worse than silence.
   control and runs in CI, topology discovery through the management API, and —
   the real reason it exists — the ability to put **AceMQ's own patterns** under
   load. Retry ladders, outboxes, sagas and pipelines are things perftest cannot
-  exercise, because it does not know they exist. The first three are
+  exercise, because it does not know they exist. All of them are
   [here](patterns.md).
 - **Not a capacity number for your production broker.** A container on a laptop
   sharing a CPU with the generator measures the laptop.

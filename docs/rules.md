@@ -180,6 +180,8 @@ read like every other:
 | `retried` `recovered` `deadLettered` | a [retry ladder](patterns.md#a-retry-ladder)'s counts |
 | `outboxPeak` `outboxLeft` `outboxFull` `relayGaveUp` | an [outbox](patterns.md#an-outbox)'s counts |
 | `claimChecked` `claimMissing` | a [claim check](patterns.md#a-claim-check)'s counts |
+| `sagaCompleted` `sagaCompensated` `sagaUnresolved` | a [saga](patterns.md#a-saga)'s counts |
+| `pipelineCompleted` `endedEarly` `deadLettered` | a [pipeline](patterns.md#a-pipeline)'s counts |
 | `endToEnd.`, `publish.`, `sendLag.` + `p50` `p90` `p99` `p999` `max` | latencies, compared as durations: `50ms`, never a bare number |
 
 A metric the run did not produce never fires — a latency with no consumers, a

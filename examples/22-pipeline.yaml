@@ -1,0 +1,62 @@
+# What does a three-step pipeline cost, hop by hop?
+#
+#   java -jar library/target/acemq-workload.jar -f examples/22-pipeline.yaml \
+#     --report reports/ --format html,md,json
+#
+# The consumers are the library's own Pipeline, named ex.pipeline: an exchange
+# of that name and a quorum queue per step (ex.pipeline.validate, .enrich,
+# .dispatch). The publishers send to the first step; each step does its work,
+# publishes to the next with a confirm, then acknowledges. Every hop is a
+# publish, a confirm and a delivery.
+#
+#   validate   1ms, and drops one message in ten (endRate): the run ends there
+#   enrich     5ms on eight consumers, the slow step, failing 2% of deliveries;
+#              a failure goes round once more after 200ms, through a rung
+#   dispatch   1ms, the end of every run that gets that far
+#
+# Read, in this order:
+#
+#   pipelineCompleted / endedEarly / deadLettered   where runs ended
+#   end-to-end p99      from when a message was due to the end of the step
+#                       that ended its run: every hop and every step's work
+#   noMessagesLost      every run ends once, so a message lost between two
+#                       steps fails the run
+#
+# A step with no retry follows the library's rule: one attempt, then
+# {pipeline}.{step}.dlq. Delete enrich's retry to see it.
+name: pipeline
+broker: amqp://guest:${BROKER_PASSWORD:-guest}@localhost:5672
+management: http://localhost:15672
+
+topology: { queue: ex.pipeline }
+
+publishers:
+  threads: 2
+  rate: 500
+  messageSize: 1024
+
+consumers:
+  concurrency: 2
+  prefetch: 50
+  pipeline:
+    - { name: validate, handlerTime: 1ms, endRate: 0.1 }
+    - name: enrich
+      handlerTime: 5ms
+      concurrency: 8
+      failureRate: 0.02
+      retry: { attempts: 2, delay: 200ms, brokerFrom: 100ms }
+    - { name: dispatch, handlerTime: 1ms }
+
+warmup: 5s
+runFor: 30s
+
+expect:
+  noMessagesLost: true
+
+rules:
+  - name: few-dead-letters
+    metric: deadLettered
+    above: 50
+    severity: failed
+    because: far more runs were dead-lettered than 0.04% of the load, so steps
+      are failing for a reason other than the simulated one

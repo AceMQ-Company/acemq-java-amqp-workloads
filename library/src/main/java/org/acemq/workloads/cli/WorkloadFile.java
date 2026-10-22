@@ -345,9 +345,14 @@ public final class WorkloadFile {
         JsonNode consumers = node.path("consumers");
         if (!consumers.isMissingNode()) {
             reject(consumers, "consumers.", "concurrency", "prefetch", "handlerTime", "failureRate",
-                    "retry");
+                    "retry", "saga", "pipeline");
             JsonNode retry = consumers.path("retry");
             org.acemq.amqp.api.RetryPolicy policy = retry.isMissingNode() ? null : toRetry(retry);
+            JsonNode sagaNode = consumers.path("saga");
+            org.acemq.workloads.SagaLoad saga = sagaNode.isMissingNode() ? null : toSaga(sagaNode);
+            JsonNode pipelineNode = consumers.path("pipeline");
+            List<org.acemq.workloads.PipelineStage> pipeline =
+                    pipelineNode.isMissingNode() ? List.of() : toPipeline(pipelineNode);
             builder.consumers(c -> {
                 if (consumers.has("concurrency")) {
                     c.concurrency(consumers.get("concurrency").asInt());
@@ -365,6 +370,10 @@ public final class WorkloadFile {
                 if (policy != null) {
                     c.retry(policy);
                 }
+                if (saga != null) {
+                    c.saga(saga);
+                }
+                c.pipeline(pipeline);
             });
         }
 
@@ -437,52 +446,139 @@ public final class WorkloadFile {
      * }</pre>
      */
     static org.acemq.amqp.api.RetryPolicy toRetry(JsonNode node) {
+        return toRetry(node, "consumers.retry");
+    }
+
+    /** @param where the setting's path, for the messages */
+    static org.acemq.amqp.api.RetryPolicy toRetry(JsonNode node, String where) {
         if (!node.isObject()) {
-            throw new ConfigException("'consumers.retry' must be a mapping: attempts, and delay or"
+            throw new ConfigException("'" + where + "' must be a mapping: attempts, and delay or"
                     + " initialDelay with maxDelay");
         }
-        reject(node, "consumers.retry.", "attempts", "delay", "initialDelay", "maxDelay",
+        reject(node, where + ".", "attempts", "delay", "initialDelay", "maxDelay",
                 "multiplier", "brokerFrom", "jitter");
         if (!node.has("attempts")) {
-            throw new ConfigException("'consumers.retry.attempts' is required: how many deliveries"
+            throw new ConfigException("'" + where + ".attempts' is required: how many deliveries"
                     + " a message gets in total, the first included");
         }
-        int attempts = (int) whole(node.get("attempts"), "consumers.retry.attempts");
+        int attempts = (int) whole(node.get("attempts"), where + ".attempts");
         if (attempts < 2) {
-            throw new ConfigException("'consumers.retry.attempts' is " + attempts + "; a ladder"
+            throw new ConfigException("'" + where + ".attempts' is " + attempts + "; a ladder"
                     + " needs at least 2, and a failure with no retry is what no 'retry' block does");
         }
         boolean fixed = node.has("delay");
         if (fixed == (node.has("initialDelay") || node.has("maxDelay"))) {
-            throw new ConfigException("'consumers.retry' needs either 'delay' (the same wait each"
+            throw new ConfigException("'" + where + "' needs either 'delay' (the same wait each"
                     + " time) or 'initialDelay' and 'maxDelay' (doubling), not both and not neither");
         }
         try {
             org.acemq.amqp.api.RetryPolicy policy;
             if (fixed) {
                 policy = org.acemq.amqp.api.RetryPolicy.fixed(attempts,
-                        Durations.parse(node.get("delay").asText(), "consumers.retry.delay"));
+                        Durations.parse(node.get("delay").asText(), where + ".delay"));
             } else {
                 if (!node.has("initialDelay") || !node.has("maxDelay")) {
-                    throw new ConfigException("'consumers.retry' needs both 'initialDelay' and"
+                    throw new ConfigException("'" + where + "' needs both 'initialDelay' and"
                             + " 'maxDelay' for a doubling schedule");
                 }
                 policy = org.acemq.amqp.api.RetryPolicy.exponential(attempts,
-                        Durations.parse(node.get("initialDelay").asText(), "consumers.retry.initialDelay"),
-                        node.has("multiplier") ? number(node.get("multiplier"), "consumers.retry.multiplier") : 2.0,
-                        Durations.parse(node.get("maxDelay").asText(), "consumers.retry.maxDelay"));
+                        Durations.parse(node.get("initialDelay").asText(), where + ".initialDelay"),
+                        node.has("multiplier") ? number(node.get("multiplier"), where + ".multiplier") : 2.0,
+                        Durations.parse(node.get("maxDelay").asText(), where + ".maxDelay"));
             }
             if (node.has("brokerFrom")) {
                 policy = policy.waitInBrokerFrom(
-                        Durations.parse(node.get("brokerFrom").asText(), "consumers.retry.brokerFrom"));
+                        Durations.parse(node.get("brokerFrom").asText(), where + ".brokerFrom"));
             }
             if (node.has("jitter")) {
-                policy = policy.withJitter(number(node.get("jitter"), "consumers.retry.jitter"));
+                policy = policy.withJitter(number(node.get("jitter"), where + ".jitter"));
             }
             return policy;
         } catch (IllegalArgumentException e) {
-            throw new ConfigException("'consumers.retry': " + e.getMessage());
+            throw new ConfigException("'" + where + "': " + e.getMessage());
         }
+    }
+
+    /**
+     * A saga each consumed message runs.
+     *
+     * <pre>{@code
+     * saga:
+     *   steps: 3                      # default 3
+     *   stepTime: 2ms                 # each step and each compensation
+     *   failureRate: 0.05             # per step
+     *   compensationFailureRate: 0.01 # per compensation
+     * }</pre>
+     */
+    static org.acemq.workloads.SagaLoad toSaga(JsonNode node) {
+        if (!node.isObject()) {
+            throw new ConfigException("'consumers.saga' must be a mapping: steps, stepTime,"
+                    + " failureRate, compensationFailureRate");
+        }
+        reject(node, "consumers.saga.", "steps", "stepTime", "failureRate", "compensationFailureRate");
+        try {
+            return new org.acemq.workloads.SagaLoad(
+                    node.has("steps") ? (int) whole(node.get("steps"), "consumers.saga.steps") : 3,
+                    node.has("stepTime")
+                            ? Durations.parse(node.get("stepTime").asText(), "consumers.saga.stepTime")
+                            : Duration.ZERO,
+                    node.has("failureRate") ? number(node.get("failureRate"), "consumers.saga.failureRate") : 0,
+                    node.has("compensationFailureRate")
+                            ? number(node.get("compensationFailureRate"), "consumers.saga.compensationFailureRate")
+                            : 0);
+        } catch (IllegalArgumentException e) {
+            throw new ConfigException("'consumers.saga': " + e.getMessage());
+        }
+    }
+
+    /**
+     * A pipeline's steps, in order.
+     *
+     * <pre>{@code
+     * pipeline:
+     *   - { name: validate, handlerTime: 1ms }
+     *   - { name: enrich, handlerTime: 5ms, concurrency: 8, failureRate: 0.02,
+     *       retry: { attempts: 3, delay: 200ms } }
+     *   - { name: dispatch, endRate: 0 }
+     * }</pre>
+     */
+    static List<org.acemq.workloads.PipelineStage> toPipeline(JsonNode node) {
+        if (!node.isArray() || node.isEmpty()) {
+            throw new ConfigException("'consumers.pipeline' must be a list of steps, each with a name");
+        }
+        List<org.acemq.workloads.PipelineStage> steps = new ArrayList<>();
+        for (int i = 0; i < node.size(); i++) {
+            JsonNode step = node.get(i);
+            String where = "consumers.pipeline[" + i + "]";
+            if (!step.isObject() || !step.hasNonNull("name")) {
+                throw new ConfigException("'" + where + "' must be a mapping with a name");
+            }
+            reject(step, where + ".", "name", "handlerTime", "failureRate", "endRate", "concurrency", "retry");
+            try {
+                org.acemq.workloads.PipelineStage stage =
+                        org.acemq.workloads.PipelineStage.named(step.get("name").asText());
+                if (step.has("handlerTime")) {
+                    stage = stage.handlerTime(Durations.parse(step.get("handlerTime").asText(),
+                            where + ".handlerTime"));
+                }
+                if (step.has("failureRate")) {
+                    stage = stage.failureRate(number(step.get("failureRate"), where + ".failureRate"));
+                }
+                if (step.has("endRate")) {
+                    stage = stage.endRate(number(step.get("endRate"), where + ".endRate"));
+                }
+                if (step.has("concurrency")) {
+                    stage = stage.concurrency((int) whole(step.get("concurrency"), where + ".concurrency"));
+                }
+                if (step.has("retry")) {
+                    stage = stage.retry(toRetry(step.get("retry"), where + ".retry"));
+                }
+                steps.add(stage);
+            } catch (IllegalArgumentException e) {
+                throw new ConfigException("'" + where + "': " + e.getMessage());
+            }
+        }
+        return steps;
     }
 
     /**

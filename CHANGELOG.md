@@ -10,6 +10,35 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+### Added
+
+- **Sagas and pipelines under load**, with the library's own `Saga` and
+  `Pipeline`, under the same open-loop schedule, rules, ramps and suites as the
+  other patterns. [docs/patterns.md](docs/patterns.md).
+  - **Saga.** Set `consumers.saga` (`steps`, `stepTime`, `failureRate`,
+    `compensationFailureRate`) or call `ConsumerSpec.saga(SagaLoad)`. Every
+    consumed message runs a saga of simulated steps; a failed step runs the
+    compensations of the steps before it, newest first. End-to-end latency is
+    read after the saga, so it includes the undo. Each message counts as
+    consumed once. Counts: `sagaCompleted`, `sagaCompensated`,
+    `sagaUnresolved` (a compensation failed).
+  - **Pipeline.** Set `consumers.pipeline`, a list of steps (`name`,
+    `handlerTime`, `failureRate`, `endRate`, `concurrency`, `retry`), or call
+    `ConsumerSpec.pipeline(PipelineStage...)`. The pipeline is named after the
+    topology's queue, declares a queue per step, and the publishers send to
+    the first step. A step with no `retry` gets one attempt, then its `.dlq`.
+    Each run counts as consumed once, where it ends; end-to-end latency runs
+    to the end of that step. The drain waits until every run confirmed into
+    the pipeline has ended (30 seconds plus the steps' longest retry). Counts:
+    `pipelineCompleted`, `endedEarly`, `deadLettered`, and `retried` and
+    `recovered` when a step retries. A file is refused (exit 3) if it puts
+    `failureRate`, `handlerTime`, `retry` or `saga` on `consumers` beside a
+    pipeline, sets a topology `exchange`, combines it with an outbox or claim
+    check, repeats a step name, or puts `endRate` on the last step.
+  - Each count is printed, written to the JSON under `patterns`, and is a
+    metric for `rules:`.
+  - `examples/21-saga.yaml` and `examples/22-pipeline.yaml`.
+
 ## [0.8.4] - 2026-10-21
 
 - **Built on acemq-java-amqp 0.7.18.** That release changes nothing an

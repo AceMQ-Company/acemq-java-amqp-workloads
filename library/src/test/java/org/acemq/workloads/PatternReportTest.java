@@ -104,4 +104,39 @@ class PatternReportTest {
                 .publishers(p -> p.rate(10).outbox(10, Duration.ofMillis(10)).claimCheck(0, null)).build())
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cannot be combined");
     }
+
+    @Test
+    @DisplayName("a saga's and a pipeline's counts are metrics a rule can be put on")
+    void sagaAndPipelineMetrics() {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        counts.put("sagaCompleted", 90L);
+        counts.put("sagaCompensated", 10L);
+        counts.put("sagaUnresolved", 2L);
+        counts.put("pipelineCompleted", 80L);
+        counts.put("endedEarly", 15L);
+        WorkloadReport report = report(retrying(), counts);
+
+        for (String metric : counts.keySet()) {
+            assertThat(Threshold.named(metric).on(metric).above(1).because("x").check(report))
+                    .as(metric).isPresent();
+        }
+    }
+
+    @Test
+    @DisplayName("the builder refuses a pipeline it cannot run")
+    void pipelineRefusals() {
+        assertThatThrownBy(() -> Workload.named("x").publishers(p -> p.rate(10))
+                .consumers(c -> c.failureRate(0.1).pipeline(PipelineStage.named("a"))).build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("belong to its steps");
+        assertThatThrownBy(() -> Workload.named("x").publishers(p -> p.rate(10))
+                .consumers(c -> c.pipeline(PipelineStage.named("a"), PipelineStage.named("b").endRate(0.5)))
+                .build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("last pipeline step");
+        assertThatThrownBy(() -> Workload.named("x").topology(t -> t.exchange("e", "direct"))
+                .publishers(p -> p.rate(10)).consumers(c -> c.pipeline(PipelineStage.named("a"))).build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("exchange is its own name");
+        assertThat(Workload.named("x").publishers(p -> p.rate(10))
+                .consumers(c -> c.pipeline(PipelineStage.named("a").endRate(0.5), PipelineStage.named("b")))
+                .build().consumers().pipeline()).hasSize(2);
+    }
 }

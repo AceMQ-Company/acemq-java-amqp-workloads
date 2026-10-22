@@ -207,7 +207,8 @@ public final class Threshold {
         // on it never fires, the same as a latency from a run with no consumers.
         for (String key : java.util.List.of("retried", "recovered", "deadLettered",
                 "claimChecked", "claimMissing", "outboxPeak", "outboxLeft", "outboxFull",
-                "relayGaveUp")) {
+                "relayGaveUp", "sagaCompleted", "sagaCompensated", "sagaUnresolved",
+                "pipelineCompleted", "endedEarly")) {
             m.put(key, r -> r.patterns().containsKey(key) ? r.patterns().get(key) : Double.NaN);
         }
         latencies(m, "endToEnd", WorkloadReport::endToEnd);

@@ -171,6 +171,8 @@ that compresses will report a throughput no real payload reproduces.
 | `handlerTime` | `0s` | simulated work per message |
 | `failureRate` | `0` | fraction of messages the handler rejects; with `retry`, of deliveries |
 | `retry` | | `attempts`, then `delay` or `initialDelay` + `maxDelay` (+ `multiplier`), `brokerFrom`, `jitter`: retry failures on the library's ladder. See [patterns](patterns.md#a-retry-ladder) |
+| `saga` | | `steps` (default `3`), `stepTime`, `failureRate`, `compensationFailureRate`: run the library's saga for every message. See [patterns](patterns.md#a-saga) |
+| `pipeline` | | a list of steps (`name`, `handlerTime`, `failureRate`, `endRate`, `concurrency`, `retry`): consume through the library's pipeline, named after the topology's queue. See [patterns](patterns.md#a-pipeline) |
 
 **`handlerTime` is the setting people leave out and then wonder why the results
 do not resemble production.** A consumer that does nothing measures the broker; a

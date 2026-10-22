@@ -7,7 +7,8 @@ because it does not know those things exist. This is what the project is for.
 
 Each pattern here is the library's own code, not a copy of it: the retry ladder
 is `ConsumerOptions.withRetry`, the outbox relay is `OutboxRelay`, the claim
-check is `ClaimCheckCodec`. A load measures what an application using them gets.
+check is `ClaimCheckCodec`, the saga is `Saga`, the pipeline is `Pipeline`. A
+load measures what an application using them gets.
 
 Every pattern is a setting in an ordinary [workload file](workload-file.md), so
 everything else still applies: the open-loop schedule, latency from when a
@@ -19,6 +20,8 @@ side comparison, and the exit codes.
 | Retry ladder | `consumers.retry` | [`18-retry-ladder.yaml`](#a-retry-ladder) |
 | Outbox | `publishers.outbox` | [`19-outbox.yaml`](#an-outbox) |
 | Claim check | `publishers.claimCheck` | [`20-claim-check.yaml`](#a-claim-check) |
+| Saga | `consumers.saga` | [`21-saga.yaml`](#a-saga) |
+| Pipeline | `consumers.pipeline` | [`22-pipeline.yaml`](#a-pipeline) |
 
 Each pattern adds its own counts to the report, under the totals, in the JSON as
 `patterns`, and as metrics a rule can be put on. A run that did not use a
@@ -173,6 +176,128 @@ From Java:
         .claimCheck(64 * 1024, Path.of("/tmp/acemq-claims")))
 ```
 
+## A saga
+
+```yaml
+consumers:
+  concurrency: 8
+  saga:
+    steps: 3                       # default 3
+    stepTime: 2ms                  # each step, and each compensation
+    failureRate: 0.05              # per step
+    compensationFailureRate: 0.01  # per compensation
+```
+
+Every consumed message runs the library's `Saga`: `steps` steps, each with a
+compensation. A step waits `stepTime` and fails with probability `failureRate`.
+A failure stops the saga and runs the compensations of the steps already done,
+newest first. Each waits `stepTime` too and fails with probability
+`compensationFailureRate`. A compensation that failed is logged by the library,
+the rest still run, and the saga reports that step as *unresolved*: a fact a
+person has to reconcile by hand.
+
+The saga is in process, as the library's is. Its steps are simulated work, not
+messages, so this loads the consumers more than the broker. What it measures is
+what a saga costs per message, and what a failed one costs to undo.
+
+| Count | Metric | |
+|---|---|---|
+| completed | `sagaCompleted` | sagas whose every step succeeded |
+| compensated | `sagaCompensated` | sagas that failed at a step and were undone |
+| unresolved | `sagaUnresolved` | compensated sagas with at least one compensation that failed |
+
+**Each message counts as consumed once.** `Saga.run` reports a failure instead
+of throwing it, so the message is acknowledged whatever happened, and
+`sagaCompleted` plus `sagaCompensated` equals consumed. With `failureRate` and
+`retry` on the consumers as well, the saga runs on every delivery and is counted
+once, when the message settles.
+
+**End-to-end latency is read after the saga**, compensations included. A
+compensated message carries the time it took to undo, which is the cost the
+pattern adds.
+
+From Java:
+
+```java
+.consumers(c -> c.concurrency(8)
+        .saga(new SagaLoad(3, Duration.ofMillis(2), 0.05, 0.01)))
+```
+
+## A pipeline
+
+```yaml
+topology: { queue: orders }        # the pipeline's name
+consumers:
+  concurrency: 2                   # each step's, unless it sets its own
+  prefetch: 50
+  pipeline:
+    - { name: validate, handlerTime: 1ms, endRate: 0.1 }
+    - name: enrich
+      handlerTime: 5ms
+      concurrency: 8
+      failureRate: 0.02
+      retry: { attempts: 2, delay: 200ms, brokerFrom: 100ms }
+    - { name: dispatch, handlerTime: 1ms }
+```
+
+The consumers are the library's `Pipeline`, named after the topology's queue.
+The pipeline declares a direct exchange of that name and a queue per step,
+`{name}.{step}`, quorum where the broker supports it. The publishers send to the
+first step. Each step waits its `handlerTime`, publishes the body to the next
+step with a confirm, then acknowledges. Every hop is a publish, a confirm and a
+delivery, and that is what this measures.
+
+| Step setting | Default | |
+|---|---|---|
+| `name` | required | the routing key and the queue's suffix: letters, digits, `.`, `-`, `_` |
+| `handlerTime` | `0s` | simulated work at this step |
+| `failureRate` | `0` | fraction of deliveries that fail here |
+| `endRate` | `0` | fraction of runs this step ends early by returning nothing. Not on the last step |
+| `concurrency` | the consumers' | consumers for this step: give the slow step more |
+| `retry` | none | the step's ladder, as [`consumers.retry`](#a-retry-ladder) |
+
+A step with no `retry` follows the library's rule: one attempt, then
+`{name}.{step}.dlq`. With `retry`, a failure goes round the step's own ladder,
+through `{name}.{step}.retry.{delay}` rungs at or above `brokerFrom`.
+
+| Count | Metric | |
+|---|---|---|
+| completed | `pipelineCompleted` | runs that reached the end of the last step |
+| ended early | `endedEarly` | runs a step ended by returning nothing (`outcome=ended_early` in the library's telemetry) |
+| dead-lettered | `deadLettered` | runs that failed at a step and went to its `.dlq` |
+| retried, recovered | `retried` `recovered` | as for a retry ladder, when a step has `retry` |
+
+**Each run counts as consumed once**, where it ends: at the last step, at a step
+that ended it early, or at the step that dead-lettered it. The three counts add
+up to consumed, and `noMessagesLost` balances it against confirmed. A message
+lost between two steps fails the run.
+
+**End-to-end latency is from when the message was due to the end of the step
+that ended its run**: every hop, every queue and every step's work, and any
+rung a step waited in.
+
+When publishing stops, the run waits until as many runs have ended as were
+confirmed into the pipeline, for up to 30 seconds plus the longest the steps'
+ladders can take, before it drains the steps. A run still out after that is
+reported as unaccounted for. Queue depth in the report is the first step's.
+
+The file refuses a pipeline with `failureRate`, `handlerTime`, `retry` or `saga`
+on `consumers` (they belong to a step), with `concurrency: 0`, with an `outbox`
+or `claimCheck` on the publishers, with a topology `exchange` (the pipeline's
+exchange is its name), with two steps of one name, and with `endRate` on the
+last step. Each is exit 3.
+
+From Java:
+
+```java
+.topology(t -> t.queue("orders"))
+.consumers(c -> c.concurrency(2).pipeline(
+        PipelineStage.named("validate").handlerTime(Duration.ofMillis(1)).endRate(0.1),
+        PipelineStage.named("enrich").handlerTime(Duration.ofMillis(5)).concurrency(8)
+                .failureRate(0.02).retry(RetryPolicy.fixed(2, Duration.ofMillis(200))),
+        PipelineStage.named("dispatch").handlerTime(Duration.ofMillis(1))))
+```
+
 ## Rules on a pattern
 
 The counts are metrics, in the same shape as any other
@@ -192,8 +317,5 @@ rules:
     because: the relay was still behind 30 seconds after the writes stopped
 ```
 
-## Not yet
-
-Sagas and pipelines are not here yet. A saga needs a compensating flow to fail
-into, and a pipeline needs stages to put a handler time on. Both are a scenario's
-shape rather than a workload's, and they come next.
+Patterns are settings in a workload file. A [scenario file](scenario-file.md)
+does not take them.

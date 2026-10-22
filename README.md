@@ -119,11 +119,15 @@ ramps any workload file without editing it, and `rules:` in the file adds
 consumers: { failureRate: 0.3, retry: { attempts: 3, delay: 500ms, brokerFrom: 250ms } }
 publishers: { rate: 1000, outbox: { batchSize: 100, pollInterval: 50ms } }
 publishers: { rate: 200, messageSize: 524288, claimCheck: { threshold: 65536 } }
+consumers: { saga: { steps: 3, stepTime: 2ms, failureRate: 0.05 } }
+consumers: { pipeline: [ { name: validate, endRate: 0.1 }, { name: enrich, handlerTime: 5ms }, { name: dispatch } ] }
 ```
 
-The library's own retry ladder, outbox relay and claim check, under the same
-open-loop schedule and rules as any other run. The report counts what each did
-(retried, recovered and dead-lettered; the relay's backlog; bodies offloaded),
+The library's own retry ladder, outbox relay, claim check, saga and pipeline,
+under the same open-loop schedule and rules as any other run. The report counts
+what each did (retried, recovered and dead-lettered; the relay's backlog; bodies
+offloaded; sagas completed, compensated and left unresolved; pipeline runs
+completed, ended early and dead-lettered),
 the latency includes the wait each one adds, and every count is a metric a rule
 can be put on. See [patterns under load](docs/patterns.md).
 
@@ -332,9 +336,8 @@ the pauses being measured. `HdrHistogram` solves both.
   version control and runs in CI, topology discovery through the management API,
   and — the real reason it exists — the ability to put **AceMQ's own patterns**
   under load. Retry ladders, outboxes, sagas, claim checks and pipelines are
-  things perftest cannot exercise, because it does not know they exist. The
-  retry ladder, the outbox and the claim check are
-  [here](docs/patterns.md); sagas and pipelines are next.
+  things perftest cannot exercise, because it does not know they exist. All
+  five are [here](docs/patterns.md).
 - **Not a capacity number for your production broker.** A container on a laptop
   sharing a CPU with the generator measures the laptop.
 

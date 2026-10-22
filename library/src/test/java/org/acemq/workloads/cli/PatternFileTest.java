@@ -23,6 +23,8 @@ import java.time.Duration;
 import java.util.List;
 
 import org.acemq.amqp.api.RetryPolicy;
+import org.acemq.workloads.PipelineStage;
+import org.acemq.workloads.SagaLoad;
 import org.acemq.workloads.Workload;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -145,5 +147,91 @@ class PatternFileTest {
         WorkloadFile claims = WorkloadFile.read(Path.of("../examples/20-claim-check.yaml"), name -> null);
         assertThat(claims.workloads()).extracting(w -> w.publishers().claimCheckThreshold())
                 .containsExactly(-1, 65536);
+    }
+
+    @Test
+    @DisplayName("a saga, with defaults for what is left out")
+    void saga() {
+        SagaLoad saga = parse("""
+                consumers:
+                  saga: { steps: 4, stepTime: 2ms, failureRate: 0.1, compensationFailureRate: 0.01 }
+                """).consumers().saga();
+
+        assertThat(saga).isEqualTo(new SagaLoad(4, Duration.ofMillis(2), 0.1, 0.01));
+        assertThat(parse("consumers:\n  saga: {}\n").consumers().saga())
+                .isEqualTo(new SagaLoad(3, Duration.ZERO, 0, 0));
+    }
+
+    @Test
+    @DisplayName("a saga refuses what it cannot run, as a bad file")
+    void sagaRefusals() {
+        for (String yaml : List.of(
+                "consumers:\n  saga: 3\n",
+                "consumers:\n  saga: { steps: 0 }\n",
+                "consumers:\n  saga: { failureRate: 1.5 }\n",
+                "consumers:\n  saga: { stages: 2 }\n")) {
+            assertThatThrownBy(() -> parse(yaml)).as(yaml).isInstanceOf(ConfigException.class);
+        }
+    }
+
+    @Test
+    @DisplayName("a pipeline's steps, in order, each with its own settings")
+    void pipeline() {
+        List<PipelineStage> steps = parse("""
+                topology: { queue: orders }
+                consumers:
+                  concurrency: 2
+                  pipeline:
+                    - { name: validate, endRate: 0.1 }
+                    - name: enrich
+                      handlerTime: 5ms
+                      concurrency: 8
+                      failureRate: 0.02
+                      retry: { attempts: 3, delay: 200ms }
+                    - { name: dispatch }
+                """).consumers().pipeline();
+
+        assertThat(steps).extracting(PipelineStage::name).containsExactly("validate", "enrich", "dispatch");
+        assertThat(steps.get(0).endRate()).isEqualTo(0.1);
+        assertThat(steps.get(1).handlerTime()).isEqualTo(Duration.ofMillis(5));
+        assertThat(steps.get(1).concurrency()).isEqualTo(8);
+        assertThat(steps.get(1).retry().maxAttempts()).isEqualTo(3);
+        assertThat(steps.get(2).retry()).isNull();
+    }
+
+    @Test
+    @DisplayName("a pipeline refuses what it cannot measure honestly, as a bad file")
+    void pipelineRefusals() {
+        for (String yaml : List.of(
+                "consumers:\n  pipeline: []\n",
+                "consumers:\n  pipeline: [ { handlerTime: 1ms } ]\n",
+                "consumers:\n  pipeline: [ { name: a, retries: 2 } ]\n",
+                "consumers:\n  pipeline: [ { name: a, retry: { attempts: 1, delay: 1s } } ]\n",
+                "consumers:\n  pipeline: [ { name: a }, { name: a } ]\n",
+                "consumers:\n  pipeline: [ { name: 'a b' } ]\n",
+                "consumers:\n  pipeline: [ { name: a }, { name: b, endRate: 0.1 } ]\n",
+                "consumers:\n  failureRate: 0.1\n  pipeline: [ { name: a } ]\n",
+                "consumers:\n  saga: {}\n  pipeline: [ { name: a } ]\n",
+                "consumers:\n  concurrency: 0\n  pipeline: [ { name: a } ]\n",
+                "topology: { exchange: x }\nconsumers:\n  pipeline: [ { name: a } ]\n",
+                "publishers:\n  rate: 10\n  outbox: {}\nconsumers:\n  pipeline: [ { name: a } ]\n")) {
+            assertThatThrownBy(() -> parse(yaml)).as(yaml).isInstanceOf(ConfigException.class);
+        }
+        assertThatThrownBy(() -> parse("consumers:\n  pipeline: [ { name: a, retry: { attempts: 1, delay: 1s } } ]\n"))
+                .hasMessageContaining("consumers.pipeline[0].retry.attempts");
+    }
+
+    @Test
+    @DisplayName("the saga and pipeline example files are valid, as written")
+    void sagaAndPipelineExamples() {
+        Workload saga = WorkloadFile.read(Path.of("../examples/21-saga.yaml"), name -> null).workloads().get(0);
+        assertThat(saga.consumers().saga().steps()).isEqualTo(3);
+
+        Workload pipeline = WorkloadFile.read(Path.of("../examples/22-pipeline.yaml"), name -> null)
+                .workloads().get(0);
+        assertThat(pipeline.consumers().pipeline()).extracting(PipelineStage::name)
+                .containsExactly("validate", "enrich", "dispatch");
+        assertThat(pipeline.consumers().pipeline().get(1).retry().brokerRungs())
+                .containsExactly(Duration.ofMillis(200));
     }
 }

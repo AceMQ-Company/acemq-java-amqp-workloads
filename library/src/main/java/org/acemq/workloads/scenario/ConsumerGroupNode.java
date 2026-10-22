@@ -32,6 +32,9 @@ public final class ConsumerGroupNode implements Node {
     private double failureRate = 0.0;
     private boolean enabled = true;
     private org.acemq.amqp.api.RetryPolicy retry;
+    private org.acemq.workloads.SagaLoad saga;
+    private java.util.List<org.acemq.workloads.PipelineStage> pipeline = java.util.List.of();
+    private String pipelineName;
 
     ConsumerGroupNode(QueueNode queue) {
         this.queue = queue;
@@ -114,6 +117,47 @@ public final class ConsumerGroupNode implements Node {
     /** @return the retry policy, or null */
     public org.acemq.amqp.api.RetryPolicy retry() {
         return retry;
+    }
+
+    /**
+     * Runs a saga for every message; see {@link org.acemq.workloads.ConsumerSpec#saga}.
+     *
+     * @param load the saga's shape, or null for none
+     * @return this node
+     */
+    public ConsumerGroupNode saga(org.acemq.workloads.SagaLoad load) {
+        this.saga = load;
+        return this;
+    }
+
+    /** @return the saga, or null */
+    public org.acemq.workloads.SagaLoad saga() {
+        return saga;
+    }
+
+    /**
+     * Consumes through a pipeline whose first step's queue is this one; see
+     * {@link org.acemq.workloads.ConsumerSpec#pipeline(java.util.List)}. The queue's name must be
+     * {@code {name}.{first step}}, which is the queue the library declares for it.
+     *
+     * @param name the pipeline's name, which is also its exchange
+     * @param steps the steps, in order, or empty for none
+     * @return this node
+     */
+    public ConsumerGroupNode pipeline(String name, java.util.List<org.acemq.workloads.PipelineStage> steps) {
+        this.pipelineName = name;
+        this.pipeline = java.util.List.copyOf(steps);
+        return this;
+    }
+
+    /** @return the pipeline's name, or null */
+    public String pipelineName() {
+        return pipelineName;
+    }
+
+    /** @return the pipeline's steps, empty when there is none */
+    public java.util.List<org.acemq.workloads.PipelineStage> pipeline() {
+        return pipeline;
     }
 
     @Override

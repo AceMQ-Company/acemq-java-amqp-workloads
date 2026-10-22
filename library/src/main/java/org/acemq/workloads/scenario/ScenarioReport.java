@@ -188,7 +188,9 @@ public final class ScenarioReport {
      * What the patterns in the run counted: {@code retried}, {@code recovered} and
      * {@code deadLettered} for a retry ladder; {@code claimChecked} and {@code claimMissing} for a
      * claim check; {@code outboxPeak}, {@code outboxLeft}, {@code outboxFull} and
-     * {@code relayGaveUp} for an outbox. Only the keys of patterns the run used.
+     * {@code relayGaveUp} for an outbox; {@code sagaCompleted}, {@code sagaCompensated} and
+     * {@code sagaUnresolved} for a saga; {@code pipelineCompleted}, {@code endedEarly} and
+     * {@code deadLettered} for a pipeline. Only the keys of patterns the run used.
      *
      * @return the counts, in a stable order
      */

@@ -40,10 +40,14 @@ import org.acemq.amqp.core.BytesCodec;
 import org.acemq.amqp.core.ConsumerGroup;
 import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.DefaultPublisher;
+import org.acemq.amqp.core.Pipeline;
+import org.acemq.amqp.core.PipelineBuilder;
 import org.acemq.amqp.patterns.ClaimCheckCodec;
 import org.acemq.amqp.patterns.FilesystemClaimCheckStore;
 import org.acemq.amqp.patterns.InMemoryClaimCheckStore;
 import org.acemq.amqp.patterns.OutboxRelay;
+import org.acemq.amqp.patterns.Saga;
+import org.acemq.amqp.patterns.SagaResult;
 import org.acemq.amqp.security.Security;
 import org.acemq.amqp.transport.ConnectionBlockedException;
 import org.acemq.amqp.transport.ConnectionConfig;
@@ -131,6 +135,8 @@ final class ScenarioRun {
     // delivery of a retried message takes one away. Counted for the whole run, not the window,
     // because it answers "is anything still coming back", which the drain has to know.
     private final AtomicLong onLadder = new AtomicLong();
+    // The library's pipelines, one per queue node that consumes through one.
+    private final List<Pipeline<byte[]>> pipelines = new ArrayList<>();
 
     /**
      * Records an outbox can hold before a write is refused.
@@ -261,6 +267,7 @@ final class ScenarioRun {
                 join(publishers);
                 flushOutboxes();
                 awaitLadder();
+                awaitPipelines();
 
                 // Keep counting what arrives while the queue drains. A publisher latches
                 // `measuring` at the moment it publishes and its confirm callback honours that
@@ -301,6 +308,7 @@ final class ScenarioRun {
                 for (ConsumerGroup group : groups) {
                     group.close();
                 }
+                pipelines.forEach(Pipeline::close);
                 closeRemoteBrokers();
             }
         }
@@ -390,6 +398,11 @@ final class ScenarioRun {
             if (queue.isRemote()) {
                 continue;
             }
+            // A pipeline's queues are the library's to declare, all of them, and it does so when
+            // the pipeline is built.
+            if (!queue.consumersNode().pipeline().isEmpty()) {
+                continue;
+            }
             broker.declareQueue(queue.name(), transportType(queue.type()),
                     queue.declaredArguments());
             for (Binding binding : queue.bindings()) {
@@ -471,6 +484,11 @@ final class ScenarioRun {
                 continue;
             }
             QueueCounters counters = queueCounters.get(queue.name());
+            if (!spec.pipeline().isEmpty()) {
+                startPipeline(brokerFor(queue, broker), spec, counters, groups);
+                continue;
+            }
+            Saga<byte[]> saga = spec.saga() == null ? null : saga(queue.name(), spec.saga());
             long handlerNanos = spec.handlerTime().toNanos();
             double failureRate = spec.failureRate();
             RetryPolicy retry = spec.retry();
@@ -516,8 +534,18 @@ final class ScenarioRun {
                         throw missing;
                     }
                 }
+                // Run before the clock is read, so the end-to-end latency carries the saga and,
+                // when it failed, the compensations.
+                SagaResult outcome = saga == null ? null : saga.run(body);
                 boolean counts = accounting.get() && Payload.isWorkloadMessage(body)
                         && (!byDueTime || Payload.intendedSendNanos(body) - windowStartNanos >= 0);
+                if (outcome != null && counts && !retrying) {
+                    // Once per message, when it settles, as consumed is.
+                    patterns.get(outcome.isComplete() ? "sagaCompleted" : "sagaCompensated").incrementAndGet();
+                    if (outcome.hasUnresolved()) {
+                        patterns.get("sagaUnresolved").incrementAndGet();
+                    }
+                }
                 if (retry != null) {
                     if (counts) {
                         // Counted once per message, when it settles: a success, or the last
@@ -748,8 +776,21 @@ final class ScenarioRun {
      * counters exist first so the consumers, which start before the producers, can see them.
      */
     private void preparePatterns() {
-        if (scenario.activeQueues().stream().anyMatch(q -> q.consumersNode().retry() != null)) {
+        boolean pipeline = scenario.activeQueues().stream()
+                .anyMatch(q -> !q.consumersNode().pipeline().isEmpty());
+        if (pipeline) {
+            for (String key : List.of("pipelineCompleted", "endedEarly", "deadLettered")) {
+                patterns.put(key, new AtomicLong());
+            }
+        }
+        if (scenario.activeQueues().stream().anyMatch(q -> q.consumersNode().retry() != null
+                || q.consumersNode().pipeline().stream().anyMatch(s -> s.retry() != null))) {
             for (String key : List.of("retried", "recovered", "deadLettered")) {
+                patterns.putIfAbsent(key, new AtomicLong());
+            }
+        }
+        if (scenario.activeQueues().stream().anyMatch(q -> q.consumersNode().saga() != null)) {
+            for (String key : List.of("sagaCompleted", "sagaCompensated", "sagaUnresolved")) {
                 patterns.put(key, new AtomicLong());
             }
         }
@@ -785,7 +826,9 @@ final class ScenarioRun {
                         }));
             }
         }
-        byDueTime = patterns.containsKey("retried") || !outboxes.isEmpty();
+        // A pipeline delays delivery as a ladder does: a message is a hop or three from where it
+        // was published when its run ends.
+        byDueTime = patterns.containsKey("retried") || !outboxes.isEmpty() || pipeline;
         if (!outboxes.isEmpty()) {
             for (String key : List.of("outboxPeak", "outboxLeft", "outboxFull", "relayGaveUp")) {
                 patterns.put(key, new AtomicLong());
@@ -843,13 +886,161 @@ final class ScenarioRun {
     private Duration longestRetry() {
         long longest = 0;
         for (QueueNode queue : scenario.activeQueues()) {
-            RetryPolicy retry = queue.consumersNode().retry();
-            if (retry != null && queue.consumersNode().isEnabled()) {
-                long sum = retry.schedule().stream().mapToLong(Duration::toMillis).sum();
-                longest = Math.max(longest, (long) (sum * (1 + retry.jitterFactor())));
+            if (!queue.consumersNode().isEnabled()) {
+                continue;
             }
+            RetryPolicy retry = queue.consumersNode().retry();
+            // A pipeline's steps retry one after another, so a run's longest is their sum.
+            long sum = retry == null ? 0 : longest(retry);
+            for (org.acemq.workloads.PipelineStage stage : queue.consumersNode().pipeline()) {
+                sum += stage.retry() == null ? 0 : longest(stage.retry());
+            }
+            longest = Math.max(longest, sum);
         }
         return Duration.ofMillis(longest);
+    }
+
+    /** @return the longest one message can wait on this ladder, in milliseconds, jitter included */
+    private static long longest(RetryPolicy retry) {
+        long sum = retry.schedule().stream().mapToLong(Duration::toMillis).sum();
+        return (long) (sum * (1 + retry.jitterFactor()));
+    }
+
+    /**
+     * The saga a consumer runs for each message: the library's own, with simulated steps.
+     *
+     * <p>Built once per queue. A saga holds no state between runs, so one is shared by every
+     * consumer of the queue, as an application's would be.
+     */
+    private static Saga<byte[]> saga(String queue, org.acemq.workloads.SagaLoad load) {
+        long nanos = load.stepTime().toNanos();
+        Saga.Builder<byte[]> builder = Saga.named(queue);
+        for (int i = 1; i <= load.steps(); i++) {
+            builder.step("step-" + i, body -> simulate(nanos, load.failureRate(), "step"))
+                    .compensateWith(body -> simulate(nanos, load.compensationFailureRate(), "compensation"));
+        }
+        return builder.build();
+    }
+
+    private static void simulate(long nanos, double failureRate, String what) {
+        if (nanos > 0) {
+            LockSupport.parkNanos(nanos);
+        }
+        if (failureRate > 0 && ThreadLocalRandom.current().nextDouble() < failureRate) {
+            throw new IllegalStateException("simulated " + what + " failure");
+        }
+    }
+
+    /**
+     * Builds and starts the library's pipeline for a queue node, and adds its step groups to the
+     * run's, in step order, so the drain empties the first step before the second.
+     *
+     * <p>Each step's handler is simulated: it waits its handler time, fails with its failure
+     * rate, and otherwise passes the body on unchanged, so the time it was due travels to the end.
+     * A message counts once, where its run ends: the last step, a step that ended it early, or
+     * the step that dead-lettered it.
+     */
+    private void startPipeline(AceMq broker, ConsumerGroupNode spec, QueueCounters counters,
+            List<ConsumerGroup> groups) {
+        List<org.acemq.workloads.PipelineStage> stages = spec.pipeline();
+        PipelineBuilder<byte[], byte[]> builder = broker.pipeline(spec.pipelineName(), byte[].class);
+        for (int i = 0; i < stages.size(); i++) {
+            org.acemq.workloads.PipelineStage stage = stages.get(i);
+            boolean last = i == stages.size() - 1;
+            int maxAttempts = stage.retry() == null ? 1 : stage.retry().maxAttempts();
+            long handlerNanos = stage.handlerTime().toNanos();
+            builder = builder.step(stage.name(), byte[].class, message -> {
+                byte[] body = message.payload();
+                ThreadLocalRandom rnd = ThreadLocalRandom.current();
+                boolean fail = stage.failureRate() > 0 && rnd.nextDouble() < stage.failureRate();
+                boolean retrying = fail && message.attempt() < maxAttempts;
+                if (message.attempt() > 1) {
+                    onLadder.decrementAndGet();
+                }
+                if (retrying) {
+                    onLadder.incrementAndGet();
+                }
+                if (handlerNanos > 0) {
+                    LockSupport.parkNanos(handlerNanos);
+                }
+                boolean counts = accounting.get() && Payload.isWorkloadMessage(body)
+                        && Payload.intendedSendNanos(body) - windowStartNanos >= 0;
+                if (fail) {
+                    if (counts) {
+                        if (retrying) {
+                            patterns.get("retried").incrementAndGet();
+                        } else {
+                            counters.consumed.incrementAndGet();
+                            patterns.get("deadLettered").incrementAndGet();
+                        }
+                    }
+                    throw new IllegalStateException("simulated failure at step " + stage.name());
+                }
+                boolean ends = !last && stage.endRate() > 0 && rnd.nextDouble() < stage.endRate();
+                if (counts) {
+                    if (message.attempt() > 1) {
+                        patterns.get("recovered").incrementAndGet();
+                    }
+                    if (last || ends) {
+                        // From when the message was due to the end of the step that ended its
+                        // run: every hop, every queue, every step's work.
+                        counters.endToEnd.record(System.nanoTime() - Payload.intendedSendNanos(body));
+                        counters.consumed.incrementAndGet();
+                        patterns.get(last ? "pipelineCompleted" : "endedEarly").incrementAndGet();
+                    }
+                }
+                return ends ? null : body;
+            }).encodedAs(new BytesCodec())
+                    .concurrency(stage.concurrency() > 0 ? stage.concurrency() : Math.max(1, spec.concurrency()));
+            if (spec.prefetch() > 0) {
+                builder = builder.prefetch(spec.prefetch());
+            }
+            if (stage.retry() != null) {
+                builder = builder.withRetry(stage.retry());
+            }
+        }
+        Pipeline<byte[]> pipeline = builder.build();
+        pipelines.add(pipeline);
+        for (org.acemq.workloads.PipelineStage stage : stages) {
+            groups.add(pipeline.step(stage.name()));
+        }
+    }
+
+    /**
+     * Waits until every run that entered a pipeline in the window has ended.
+     *
+     * <p>A run published inside the window can be a few hops from its end when publishing stops,
+     * and draining stops every step at once. Settled means as many runs ended as were confirmed
+     * into the pipeline, counted the way the report counts them. Queue depths cannot say it: a
+     * message a step has prefetched and not yet started is in no queue and in no handler, and
+     * draining hands it back to a queue nobody reads any more. Bounded at thirty seconds plus the
+     * longest retry; what is still out after that is reported as unaccounted for.
+     */
+    private void awaitPipelines() {
+        if (pipelines.isEmpty()) {
+            return;
+        }
+        long deadline = System.nanoTime() + longestRetry().plusSeconds(30).toNanos();
+        while (!pipelinesSettled() && System.nanoTime() - deadline < 0 && !stopRequested.get()) {
+            LockSupport.parkNanos(Duration.ofMillis(50).toNanos());
+        }
+    }
+
+    private boolean pipelinesSettled() {
+        for (QueueNode queue : scenario.activeQueues()) {
+            String pipeline = queue.consumersNode().pipelineName();
+            if (pipeline == null || queue.consumersNode().pipeline().isEmpty()) {
+                continue;
+            }
+            long confirmed = scenario.activeProducers().stream()
+                    .filter(producer -> producer.exchange().equals(pipeline))
+                    .mapToLong(producer -> producerCounters.get(producer.name()).confirmed.get())
+                    .sum();
+            if (queueCounters.get(queue.name()).consumed.get() < confirmed) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

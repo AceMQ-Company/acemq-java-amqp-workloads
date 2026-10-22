@@ -430,6 +430,10 @@ public final class Workload {
             if (outbox != null) {
                 throw new IllegalArgumentException(outbox);
             }
+            String pipeline = pipelineProblem(topology, publishers, consumers);
+            if (pipeline != null) {
+                throw new IllegalArgumentException(pipeline);
+            }
             if (publishers.isUnthrottled() && consumers.isEnabled()) {
                 // Not refused: an unthrottled run is a legitimate way to find the ceiling. But
                 // the latency it produces is subject to coordinated omission, and the report
@@ -449,6 +453,50 @@ public final class Workload {
                                         + " then measure latency with rate() set below it")));
             }
             return new Workload(this);
+        }
+
+        /**
+         * @return why these consumers cannot be a pipeline, or null when they can or are not one
+         */
+        private static String pipelineProblem(TopologySpec topology, PublisherSpec publishers,
+                ConsumerSpec consumers) {
+            List<PipelineStage> steps = consumers.pipeline();
+            if (steps.isEmpty()) {
+                return null;
+            }
+            if (!consumers.isEnabled()) {
+                return "a pipeline is its consumers: with concurrency 0 nothing would declare or"
+                        + " run its steps";
+            }
+            if (consumers.saga() != null || consumers.retry() != null || consumers.failureRate() > 0
+                    || !consumers.handlerTime().isZero()) {
+                return "a pipeline's handler time, failures and retries belong to its steps, not to"
+                        + " consumers, and a saga is a different consumer. Put them on a step";
+            }
+            if (publishers.outboxBatchSize() > 0 || publishers.claimCheckThreshold() >= 0) {
+                return "a pipeline passes the body it received from step to step, so an outbox or a"
+                        + " claim check on the way in is not what its steps would see. Load one pattern"
+                        + " at a time";
+            }
+            if (!topology.usesDefaultExchange()) {
+                return "a pipeline's exchange is its own name, which is the topology's queue; leave"
+                        + " the topology's exchange out";
+            }
+            java.util.Set<String> names = new java.util.HashSet<>();
+            for (PipelineStage step : steps) {
+                if (!step.name().matches("[A-Za-z0-9._-]+")) {
+                    return "pipeline step '" + step.name() + "': a step name is a routing key, so"
+                            + " letters, digits, dots, dashes and underscores only";
+                }
+                if (!names.add(step.name())) {
+                    return "pipeline step '" + step.name() + "' appears twice";
+                }
+            }
+            if (steps.get(steps.size() - 1).endRate() > 0) {
+                return "the last pipeline step ends every run, so an endRate on it means nothing;"
+                        + " put it on an earlier step";
+            }
+            return null;
         }
 
         /**

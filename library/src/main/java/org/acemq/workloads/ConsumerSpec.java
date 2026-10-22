@@ -41,6 +41,8 @@ public final class ConsumerSpec {
     private double failureRate = 0.0;
     private boolean enabled = true;
     private org.acemq.amqp.api.RetryPolicy retry;
+    private SagaLoad saga;
+    private java.util.List<PipelineStage> pipeline = java.util.List.of();
 
     ConsumerSpec() {
     }
@@ -167,6 +169,56 @@ public final class ConsumerSpec {
         return retry;
     }
 
+    /**
+     * Runs the library's saga for every consumed message.
+     *
+     * <p>End-to-end latency is measured once the saga has finished, compensations included, so
+     * it carries what a failed saga costs to undo. A message counts as consumed once, whatever
+     * the saga's outcome: {@code Saga.run} reports a failure rather than throwing it.
+     *
+     * @param load the saga's shape
+     * @return this spec
+     */
+    public ConsumerSpec saga(SagaLoad load) {
+        this.saga = Objects.requireNonNull(load, "load");
+        return this;
+    }
+
+    /** @return the saga each message runs, or null */
+    public SagaLoad saga() {
+        return saga;
+    }
+
+    /**
+     * Consumes through the library's pipeline: one queue, one consumer group, per step.
+     *
+     * <p>The pipeline is named after the topology's queue. That name is its exchange, and each
+     * step's queue is {@code {name}.{step}}; the publishers send to the first step. A message
+     * counts as consumed once, where its run ends: at the last step, at a step that ended it
+     * early, or at the step that dead-lettered it.
+     *
+     * @param steps the steps, in order
+     * @return this spec
+     */
+    public ConsumerSpec pipeline(PipelineStage... steps) {
+        return pipeline(java.util.List.of(steps));
+    }
+
+    /**
+     * @param steps the steps, in order
+     * @return this spec
+     * @see #pipeline(PipelineStage...)
+     */
+    public ConsumerSpec pipeline(java.util.List<PipelineStage> steps) {
+        this.pipeline = java.util.List.copyOf(steps);
+        return this;
+    }
+
+    /** @return the pipeline's steps, empty when there is no pipeline */
+    public java.util.List<PipelineStage> pipeline() {
+        return pipeline;
+    }
+
     @Override
     public String toString() {
         return enabled
@@ -175,6 +227,8 @@ public final class ConsumerSpec {
                         + (failureRate > 0 ? ", failureRate=" + failureRate : "")
                         + (retry != null ? ", retry " + retry.maxAttempts() + " attempts after "
                                 + retry.schedule() + ", broker from " + retry.brokerWaitThreshold() : "")
+                        + (saga != null ? ", " + saga : "")
+                        + (pipeline.isEmpty() ? "" : ", pipeline " + pipeline)
                         + "}"
                 : "ConsumerSpec{none}";
     }
