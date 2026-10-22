@@ -10,6 +10,13 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-10-21
+
+- **Built on acemq-java-amqp 0.7.18.** That release changes nothing an
+  application sees: a pipeline step with no retry policy already got one
+  attempt and then went to its `.dlq`, and 0.7.18 adds the conformance test
+  that holds it there. No run counts differently.
+
 ## [0.8.3] - 2026-10-20
 
 - **Built on acemq-java-amqp 0.7.17.** That release adds
