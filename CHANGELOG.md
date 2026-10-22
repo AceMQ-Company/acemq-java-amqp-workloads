@@ -10,6 +10,17 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-10-22
+
+### Changed
+
+- **Built on acemq-java-amqp 0.7.19.** That release makes a closed consumer
+  wait for the handler that is running, keeps unknown `x-acemq-` headers on a
+  pipeline hop, and has the outbox relay publish a record's headers. A run's
+  consumers are drained before they close, workloads writes no unknown
+  `x-acemq-` header, and its outbox records carry none, so no run counts
+  differently.
+
 ### Added
 
 - **Sagas and pipelines under load**, with the library's own `Saga` and
