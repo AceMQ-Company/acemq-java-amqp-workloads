@@ -154,7 +154,7 @@ difference between the two is the cost of the store.
 
 | Count | Metric | |
 |---|---|---|
-| claim-checked | `claimChecked` | messages delivered by key and cleared from the store |
+| claim-checked | `claimChecked` | messages delivered by key and cleared from the store; the same messages `consumed` counts, so the two are equal |
 | missing | `claimMissing` | deliveries whose key was not in the store |
 
 **The store's write happens on the publishing thread**, inside the publish,

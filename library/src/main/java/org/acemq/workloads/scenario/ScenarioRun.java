@@ -580,7 +580,10 @@ final class ScenarioRun {
                     // A real consumer deletes the payload once the message is settled; without it
                     // a store in memory holds every large body of the run.
                     claimStore.delete(key);
-                    if (accounting.get()) {
+                    // `counts`, not a second read of `accounting`: a delivery handled as the
+                    // window opened read false above and true here, and was a claim check that
+                    // was never consumed (claimChecked one ahead of consumed, 2026-10-22).
+                    if (counts) {
                         patterns.get("claimChecked").incrementAndGet();
                     }
                 }

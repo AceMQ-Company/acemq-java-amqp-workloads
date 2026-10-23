@@ -10,6 +10,16 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`claimChecked` counts exactly the messages `consumed` counts.** The
+  consumer read the accounting flag twice, once for `consumed` and again for
+  `claimChecked`. A delivery handled at the instant the measuring window
+  opened could read it false, then true, and be counted as claim-checked
+  without being counted as consumed, so `claimChecked` came out one ahead
+  (seen once in `PatternsIT.claimCheck` on JDK 25: 27 against 26). Both counts
+  now come from the same reading.
+
 ## [0.8.6] - 2026-10-22
 
 ### Changed
