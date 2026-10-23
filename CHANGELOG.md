@@ -10,6 +10,18 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-10-22
+
+### Changed
+
+- **Built on acemq-java-amqp 0.7.20.** That release pauses for one second
+  before it requeues a delivery whose park or dead letter the broker refused,
+  instead of requeueing at once. A run whose broker refuses those copies (a
+  full or missing `.dlq`/`.parked`, a resource alarm) now sees each such
+  delivery come back about once a second rather than at broker speed, and it
+  holds one prefetch slot while it waits. A run on a healthy broker counts
+  exactly as before.
+
 ## [0.8.5] - 2026-10-22
 
 ### Changed
