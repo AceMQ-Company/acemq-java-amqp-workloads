@@ -1,0 +1,32 @@
+{
+  "workloads": [
+    {
+      "name": "no-consume",
+      "startedAt": "2026-11-18T21:06:05.519173Z",
+      "durationSeconds": 5,
+      "valid": true,
+      "passed": true,
+      "offeredRatePerSecond": 200,
+      "publishedTotal": 1001,
+      "confirmedTotal": 1001,
+      "failedTotal": 0,
+      "consumedTotal": 0,
+      "publishRatePerSecond": 200.19,
+      "consumeRatePerSecond": 0.0,
+      "queueDepthAtEnd": 1003,
+      "blockedSeconds": 0.0,
+      "endToEnd": null,
+      "publish": {"count": 1001, "p50Micros": 1228, "p90Micros": 3839, "p99Micros": 7249, "p999Micros": 10305, "maxMicros": 11296},
+      "sendLag": {"count": 1001, "p50Micros": 549, "p90Micros": 609, "p99Micros": 2312, "p999Micros": 10321, "maxMicros": 15040},
+      "samples": [
+        {"at": "2026-11-18T21:06:06.515792Z", "elapsedMillis": 1010, "phase": "MEASURING", "published": 198, "confirmed": 198, "failed": 0, "consumed": 0, "publishRatePerSecond": 197.92, "consumeRatePerSecond": 0.0, "blocked": false, "queueDepth": 200},
+        {"at": "2026-11-18T21:06:07.519446Z", "elapsedMillis": 2013, "phase": "MEASURING", "published": 400, "confirmed": 400, "failed": 0, "consumed": 0, "publishRatePerSecond": 199.97, "consumeRatePerSecond": 0.0, "blocked": false, "queueDepth": 401},
+        {"at": "2026-11-18T21:06:08.522718Z", "elapsedMillis": 3017, "phase": "MEASURING", "published": 601, "confirmed": 601, "failed": 0, "consumed": 0, "publishRatePerSecond": 200.13, "consumeRatePerSecond": 0.0, "blocked": false, "queueDepth": 601},
+        {"at": "2026-11-18T21:06:09.525899Z", "elapsedMillis": 4020, "phase": "MEASURING", "published": 802, "confirmed": 802, "failed": 0, "consumed": 0, "publishRatePerSecond": 200.35, "consumeRatePerSecond": 0.0, "blocked": false, "queueDepth": 802}
+      ],
+      "findings": [
+        {"rule": "run-was-long-enough", "severity": "WARNING", "observation": "the measured window was 5000.2ms", "implication": "short runs measure JIT compilation, connection setup and the first garbage collection as much as they measure the broker. Thirty seconds is a floor, and minutes are better for anything being promised to somebody"}
+      ]
+    }
+  ]
+}

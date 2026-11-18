@@ -23,6 +23,16 @@ the messaging library's release train.
 
 ### Fixed
 
+- **The action writes `workload-result.json` when nothing was consumed.** The
+  report says `"endToEnd": null` when there are no latency samples, and the
+  action divided that by 1000, so jq exited 5 and left an empty file behind a
+  failed step, even when the run itself passed. `latency_ms.p50`/`p99` are now
+  `null` in that case, and a new optional `failure` field says why
+  (`no messages were consumed, so no end-to-end latency was measured`). The
+  schema stays `acemq.workload/v1`; nothing else in the file changes. The jq
+  program moved to `etc/workload-result/workload-result.jq`, and
+  `etc/workload-result/test.sh`, run by CI, checks it against real reports.
+
 - **`claimChecked` counts exactly the messages `consumed` counts.** The
   consumer read the accounting flag twice, once for `consumed` and again for
   `claimChecked`. A delivery handled at the instant the measuring window

@@ -34,7 +34,9 @@ outputs:
     description: pass, fail or error.
     value: ${{ steps.workload.outputs.verdict }}
   result-file:
-    description: Path of workload-result.json.
+    description: >
+      Path of workload-result.json. latency_ms.p50 and p99 are null when no
+      end-to-end latency was measured, and the optional failure field says why.
     value: ${{ steps.workload.outputs.result-file }}
 
 runs:
@@ -120,35 +122,12 @@ runs:
         report=$(ls -t "$out"/reports/*.json 2>/dev/null | head -1 || true)
         name=$(basename "$IN_PROFILE"); name="${name%.*}"
 
-        # Only what the report states. A workload report carries one entry per
-        # workload in the file; a scenario report carries totals and per-queue
-        # latency, so it has no single rate or latency to give.
+        # The program lives in a file of its own so etc/workload-result/test.sh
+        # can run exactly it against real reports.
         jq -n --arg profile "$IN_PROFILE" --arg mode "$IN_MODE" --arg verdict "$verdict" \
               --argjson code "$code" --arg report "${report#"$out"/}" \
-              --slurpfile r "${report:-/dev/null}" '
-          ($r[0] // null) as $doc
-          | {schema: "acemq.workload/v1", profile: $profile, mode: $mode, exit_code: $code}
-          + if $doc == null then {}
-            elif ($doc.workloads | type) == "array" then
-              ($doc.workloads) as $w
-              | {sent: ($w | map(.publishedTotal) | add),
-                 received: ($w | map(.consumedTotal) | add),
-                 errors: ($w | map(.failedTotal) | add),
-                 workloads: ($w | map({name, duration_s: .durationSeconds, sent: .publishedTotal,
-                   received: .consumedTotal, errors: .failedTotal,
-                   rate_msgs_per_s: .consumeRatePerSecond, valid, passed,
-                   latency_ms: {p50: (.endToEnd.p50Micros / 1000), p99: (.endToEnd.p99Micros / 1000)}}))}
-              + if ($w | length) == 1 then
-                  {duration_s: $w[0].durationSeconds, rate_msgs_per_s: $w[0].consumeRatePerSecond,
-                   latency_ms: {p50: ($w[0].endToEnd.p50Micros / 1000), p99: ($w[0].endToEnd.p99Micros / 1000)}}
-                else {} end
-            elif $doc.scenario != null then
-              {scenario: $doc.scenario, duration_s: ($doc.durationMs / 1000),
-               sent: $doc.totalPublished, received: $doc.totalConsumed,
-               errors: (($doc.producers // []) | map(.failed // 0) | add)}
-            else {} end
-          + (if $doc == null then {} else {report_path: $report} end)
-          + {verdict: $verdict}' > "$out/workload-result.json"
+              --slurpfile r "${report:-/dev/null}" \
+              -f "$GITHUB_ACTION_PATH/etc/workload-result/workload-result.jq" > "$out/workload-result.json"
 
         {
           echo "### Workload $IN_MODE: $verdict"

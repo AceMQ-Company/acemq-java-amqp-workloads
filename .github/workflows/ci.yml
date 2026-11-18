@@ -113,6 +113,19 @@ jobs:
             **/target/failsafe-reports/**
           retention-days: 7
 
+  action-result:
+    name: the action's result file, from real reports
+    runs-on: ubuntu-latest
+    # action.yml turns the JSON report into workload-result.json with one jq
+    # program. This runs that program against reports the CLI really wrote,
+    # including a publish-only run whose report has "endToEnd": null, which
+    # once made jq exit 5 and left the file empty. Needs jq and nothing else.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check workload-result.jq against real reports
+        run: etc/workload-result/test.sh
+
   # The interface, in a real browser, against a real broker.
   #
   # Separate from `build` because it needs a jar, a broker and a browser, and

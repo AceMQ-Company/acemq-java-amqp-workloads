@@ -1,0 +1,33 @@
+{
+  "workloads": [
+    {
+      "name": "consume",
+      "startedAt": "2026-11-18T21:06:37.811364Z",
+      "durationSeconds": 5,
+      "valid": true,
+      "passed": true,
+      "offeredRatePerSecond": 200,
+      "publishedTotal": 1001,
+      "confirmedTotal": 1001,
+      "failedTotal": 0,
+      "consumedTotal": 1003,
+      "publishRatePerSecond": 200.17,
+      "consumeRatePerSecond": 200.57,
+      "queueDepthAtEnd": 0,
+      "blockedSeconds": 0.0,
+      "endToEnd": {"count": 1003, "p50Micros": 2010, "p90Micros": 12771, "p99Micros": 31293, "p999Micros": 37289, "maxMicros": 37945},
+      "publish": {"count": 1001, "p50Micros": 2109, "p90Micros": 15089, "p99Micros": 32161, "p999Micros": 39714, "maxMicros": 43974},
+      "sendLag": {"count": 1001, "p50Micros": 552, "p90Micros": 1550, "p99Micros": 6152, "p999Micros": 11296, "maxMicros": 16056},
+      "samples": [
+        {"at": "2026-11-18T21:06:38.812850Z", "elapsedMillis": 1014, "phase": "MEASURING", "published": 198, "confirmed": 197, "failed": 0, "consumed": 199, "publishRatePerSecond": 197.78, "consumeRatePerSecond": 198.78, "blocked": false, "queueDepth": 0, "endToEndP50Micros": 6447, "endToEndP99Micros": 37289},
+        {"at": "2026-11-18T21:06:39.817041Z", "elapsedMillis": 2018, "phase": "MEASURING", "published": 402, "confirmed": 401, "failed": 0, "consumed": 403, "publishRatePerSecond": 201.01, "consumeRatePerSecond": 201.01, "blocked": false, "queueDepth": 0, "endToEndP50Micros": 6488, "endToEndP99Micros": 33783},
+        {"at": "2026-11-18T21:06:40.820444Z", "elapsedMillis": 3022, "phase": "MEASURING", "published": 602, "confirmed": 602, "failed": 0, "consumed": 603, "publishRatePerSecond": 199.19, "consumeRatePerSecond": 199.19, "blocked": false, "queueDepth": 0, "endToEndP50Micros": 3768, "endToEndP99Micros": 33013},
+        {"at": "2026-11-18T21:06:41.823304Z", "elapsedMillis": 4025, "phase": "MEASURING", "published": 803, "confirmed": 803, "failed": 0, "consumed": 804, "publishRatePerSecond": 200.35, "consumeRatePerSecond": 200.35, "blocked": false, "queueDepth": 0, "endToEndP50Micros": 2170, "endToEndP99Micros": 31522}
+      ],
+      "findings": [
+        {"rule": "tail-is-not-extreme", "severity": "WARNING", "observation": "p99 is 16 times the median (p50=2.0ms, p99=31.3ms, max=37.9ms)", "implication": "most messages are fast and a small fraction are far slower. A mean or median latency from this run would describe almost nobody's experience"},
+        {"rule": "run-was-long-enough", "severity": "WARNING", "observation": "the measured window was 5000.8ms", "implication": "short runs measure JIT compilation, connection setup and the first garbage collection as much as they measure the broker. Thirty seconds is a floor, and minutes are better for anything being promised to somebody"}
+      ]
+    }
+  ]
+}

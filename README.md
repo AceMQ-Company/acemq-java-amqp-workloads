@@ -176,6 +176,16 @@ The action builds the CLI, runs the file, and writes
 report states. `verdict` is `pass`, `fail` or `error` by the exit codes above,
 and the step fails unless it is `pass`. `mode: dry-run` needs no broker.
 
+A run with no end-to-end latency samples — a publish-only run, or consumers on
+a queue nobody published to — still writes the file. Its `latency_ms.p50` and
+`p99` are `null`, never `0`, and an optional `failure` string says why, for
+example `no messages were consumed, so no end-to-end latency was measured`.
+`failure` is absent when there is nothing to state, and it does not change the
+verdict: a publish-only run that exits `0` is still `pass`. Each entry under
+`workloads` carries its own `latency_ms` and `failure` the same way; with
+several workloads the top-level `failure` names each one that measured no
+latency.
+
 ## A whole topology, not one path
 
 A workload file describes one path. A **scenario** describes the shape a system
