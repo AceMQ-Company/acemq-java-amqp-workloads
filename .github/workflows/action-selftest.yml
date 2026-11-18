@@ -1,0 +1,60 @@
+# Exercises action.yml: a dry run, which needs no broker, and a short real run
+# against a broker started as a service of this job.
+#
+# Manual only. The run is ten seconds, far too short to be a measurement (the
+# tool says so in a warning); it proves the action builds the tool, passes the
+# broker from an environment variable, and turns the report into
+# workload-result.json.
+name: action-selftest
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    name: the action, dry and against a broker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      broker:
+        image: rabbitmq:4-alpine
+        ports: ['5679:5672']
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - id: dry
+        uses: ./
+        with:
+          profile: examples/01-hello.yaml
+          mode: dry-run
+          report-dir: workload-report/dry
+
+      - id: run
+        uses: ./
+        env:
+          SELFTEST_BROKER: amqp://guest:guest@localhost:5679
+        with:
+          profile: examples/01-hello.yaml
+          duration: 10s
+          broker-uri-env: SELFTEST_BROKER
+          report-dir: workload-report/run
+
+      - name: the result files say what the action said
+        env:
+          DRY_FILE: ${{ steps.dry.outputs.result-file }}
+          RUN_FILE: ${{ steps.run.outputs.result-file }}
+          RUN_VERDICT: ${{ steps.run.outputs.verdict }}
+        run: |
+          set -euo pipefail
+          jq -e '.schema == "acemq.workload/v1" and .mode == "dry-run" and .verdict == "pass"' "$DRY_FILE"
+          jq -e '.schema == "acemq.workload/v1" and .verdict == "pass" and .duration_s == 10
+                 and .sent > 0 and .received > 0 and .errors == 0
+                 and .rate_msgs_per_s > 0 and .latency_ms.p99 > 0' "$RUN_FILE"
+          [ "$RUN_VERDICT" = pass ]

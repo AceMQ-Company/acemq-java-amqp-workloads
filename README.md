@@ -161,6 +161,21 @@ worse than what a browser prints. The HTML carries `@media print` rules, so
 printing it to PDF produces a better document with nothing added to the build.
 Passing `--format pdf` says so rather than failing quietly.
 
+### In a GitHub workflow
+
+```yaml
+- uses: AceMQ-Company/acemq-java-amqp-workloads@<sha>
+  env: { BROKER_URI: "${{ secrets.BROKER_URI }}" }
+  with: { profile: perf/gate.yaml, duration: 2m, broker-uri-env: BROKER_URI }
+```
+
+The action builds the CLI, runs the file, and writes
+`workload-report/workload-result.json` (schema `acemq.workload/v1`): `sent`,
+`received`, `errors`, `duration_s`, and for a single workload
+`rate_msgs_per_s` and end-to-end `latency_ms.p50`/`p99` — only what the JSON
+report states. `verdict` is `pass`, `fail` or `error` by the exit codes above,
+and the step fails unless it is `pass`. `mode: dry-run` needs no broker.
+
 ## A whole topology, not one path
 
 A workload file describes one path. A **scenario** describes the shape a system
