@@ -118,6 +118,22 @@ class TlsMaterialTest {
     }
 
     @Test
+    @DisplayName("is handed a certificate and the key that belongs to it")
+    void fixtureIsAMatchingPair() throws Exception {
+        Fixture fixture = Fixture.create();
+
+        var certificate = TlsMaterial.certificates(fixture.certificatePem).get(0);
+        var key = TlsMaterial.privateKey(fixture.keyPem);
+        var signature = java.security.Signature.getInstance(certificate.getSigAlgName());
+        signature.initSign(key);
+        signature.update(new byte[] {1, 2, 3});
+        byte[] signed = signature.sign();
+        signature.initVerify(certificate.getPublicKey());
+        signature.update(new byte[] {1, 2, 3});
+        assertThat(signature.verify(signed)).isTrue();
+    }
+
+    @Test
     @DisplayName("explains a file that is not a certificate at all")
     void refusesSomethingThatIsNotACertificate() {
         assertThatThrownBy(() -> TlsMaterial.write(directory, "hello", null, null))
@@ -171,31 +187,13 @@ class TlsMaterialTest {
                             java.time.Duration.ofDays(1));
 
             // The generator writes PEMs beside the keystores, which is what a broker is given
-            // and therefore what somebody will point the studio at.
-            String certificate = Files.readString(findOne(result.directory(), "ca"));
-            Path key = findKey(result.directory());
-
-            return new Fixture(certificate, key == null ? null : Files.readString(key));
+            // and therefore what somebody will point the studio at. They are read by the names
+            // the generator gives them: picking "the first file that looks like a key" from a
+            // directory listing depends on the file system's order, and on ext4 that order
+            // changes from one machine to the next, so it sometimes picked keystore.p12 -- a
+            // binary file -- and failed with MalformedInputException.
+            return new Fixture(Files.readString(result.directory().resolve("ca.crt")),
+                    Files.readString(result.directory().resolve("ca.key")));
         }
-
-        private static Path findOne(Path directory, String prefix) throws Exception {
-            try (var files = Files.list(directory)) {
-                return files.filter(p -> p.getFileName().toString().startsWith(prefix)
-                                && (p.toString().endsWith(".pem") || p.toString().endsWith(".crt")))
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalStateException(
-                                "the generator wrote no " + prefix + " certificate into "
-                                        + directory));
-            }
-        }
-
-        private static Path findKey(Path directory) throws Exception {
-            try (var files = Files.list(directory)) {
-                return files.filter(p -> p.toString().endsWith(".key")
-                                || p.getFileName().toString().contains("key"))
-                        .findFirst().orElse(null);
-            }
-        }
-
     }
 }
