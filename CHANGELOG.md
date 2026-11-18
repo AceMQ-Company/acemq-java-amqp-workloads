@@ -10,6 +10,17 @@ the messaging library's release train.
 
 ## [Unreleased]
 
+### Added
+
+- **A GitHub Action.** `uses: AceMQ-Company/acemq-java-amqp-workloads@<sha>`
+  builds the CLI from the action's own checkout, runs a workload or scenario
+  file (`profile`, optional `duration` overriding `runFor`, the broker URI read
+  from the environment variable named by `broker-uri-env` and masked), and
+  writes `workload-result.json` (schema `acemq.workload/v1`) from the JSON
+  report: sent, received, errors, and for a single workload the consume rate
+  and end-to-end p50/p99. The verdict follows the exit code: 0 pass, 1 fail,
+  anything else error. `mode: dry-run` resolves the file without a broker.
+
 ### Fixed
 
 - **`claimChecked` counts exactly the messages `consumed` counts.** The

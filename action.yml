@@ -1,0 +1,166 @@
+name: acemq workload
+description: >
+  Build acemq-workload from this repository, run a workload or scenario file
+  against a broker, and publish the outcome as <report-dir>/workload-result.json
+  (schema acemq.workload/v1).
+
+inputs:
+  profile:
+    description: Workload or scenario file (.yaml or .json), relative to the workspace.
+    required: true
+  duration:
+    description: >
+      Overrides the file's top-level runFor (for example 2m). Empty keeps the
+      file's own. A suite entry with its own runFor keeps it.
+    default: ""
+  broker-uri-env:
+    description: >
+      Name of an environment variable holding the broker URI, passed as
+      --broker. The value is masked and never printed. Empty uses the file's
+      broker.
+    default: ""
+  mode:
+    description: "`run', or `dry-run' to resolve and print the configuration without touching a broker."
+    default: run
+  report-dir:
+    description: Where workload-result.json, the tool's reports and its log are written, relative to the workspace.
+    default: workload-report
+  java-version:
+    description: JDK to build and run with (17 or newer).
+    default: "21"
+
+outputs:
+  verdict:
+    description: pass, fail or error.
+    value: ${{ steps.workload.outputs.verdict }}
+  result-file:
+    description: Path of workload-result.json.
+    value: ${{ steps.workload.outputs.result-file }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      with:
+        distribution: temurin
+        java-version: ${{ inputs.java-version }}
+
+    - id: workload
+      shell: bash
+      env:
+        IN_PROFILE: ${{ inputs.profile }}
+        IN_DURATION: ${{ inputs.duration }}
+        IN_BROKER_ENV: ${{ inputs.broker-uri-env }}
+        IN_MODE: ${{ inputs.mode }}
+        IN_REPORT_DIR: ${{ inputs.report-dir }}
+      run: |
+        set -euo pipefail
+        ws="${GITHUB_WORKSPACE:-$PWD}"
+        cd "$ws"
+
+        case "$IN_MODE" in run|dry-run) ;; *)
+          echo "::error::mode must be run or dry-run, got '$IN_MODE'"; exit 2 ;;
+        esac
+        [ -f "$IN_PROFILE" ] || { echo "::error::profile not found: $IN_PROFILE"; exit 2; }
+        case "$IN_REPORT_DIR" in /*) out="$IN_REPORT_DIR" ;; *) out="$ws/$IN_REPORT_DIR" ;; esac
+        rm -rf "$out/reports"
+        mkdir -p "$out/reports"
+        tmp="${RUNNER_TEMP:-/tmp}/acemq-workload-action"
+        mkdir -p "$tmp"
+
+        args=(-f "$IN_PROFILE")
+        if [ -n "$IN_DURATION" ]; then
+          [[ "$IN_DURATION" =~ ^[0-9][0-9A-Za-z.]*$ ]] || {
+            echo "::error::duration must look like 30s or 2m, got '$IN_DURATION'"; exit 2; }
+          # The CLI has no flag for the run length, so the action runs a copy of
+          # the file with its top-level runFor replaced.
+          # ponytail: line-based, so a flow-style top level ({..., runFor: x})
+          # keeps its own; add a --run-for flag to the CLI if that ever matters.
+          ext="${IN_PROFILE##*.}"
+          derived="$tmp/profile.$ext"
+          grep -v '^runFor:' "$IN_PROFILE" > "$derived" || true
+          printf '\nrunFor: %s\n' "$IN_DURATION" >> "$derived"
+          args=(-f "$derived")
+        fi
+        if [ -n "$IN_BROKER_ENV" ]; then
+          uri="${!IN_BROKER_ENV:-}"
+          [ -n "$uri" ] || { echo "::error::environment variable $IN_BROKER_ENV is empty or unset"; exit 2; }
+          echo "::add-mask::$uri"
+          args+=(--broker "$uri")
+        fi
+
+        # GitHub's runners carry Maven; a local act image may not. Fetch a
+        # pinned, checksummed one only when it is missing.
+        mvn=mvn
+        if ! command -v mvn >/dev/null 2>&1; then
+          mv_ver=3.9.11
+          mv_sha=bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978
+          curl -fsSL -o "$tmp/maven.tgz" \
+            "https://archive.apache.org/dist/maven/maven-3/$mv_ver/binaries/apache-maven-$mv_ver-bin.tar.gz"
+          echo "$mv_sha  $tmp/maven.tgz" | sha512sum -c - >/dev/null
+          tar -xzf "$tmp/maven.tgz" -C "$tmp"
+          mvn="$tmp/apache-maven-$mv_ver/bin/mvn"
+        fi
+        (cd "$GITHUB_ACTION_PATH" && "$mvn" -B -q --no-transfer-progress -pl library -am -DskipTests package)
+        jar="$GITHUB_ACTION_PATH/library/target/acemq-workload.jar"
+
+        if [ "$IN_MODE" = dry-run ]; then
+          args+=(--dry-run)
+        else
+          args+=(--report "$out/reports" --format json,html)
+        fi
+        set +e
+        java -jar "$jar" "${args[@]}" 2>&1 | tee "$out/workload.log"
+        code=${PIPESTATUS[0]}
+        set -e
+
+        # Exit codes are the tool's interface: 0 passed, 1 a sound run missed an
+        # objective, 2 invalid run, 3 bad file, 4 broker unreachable.
+        case "$code" in 0) verdict=pass ;; 1) verdict=fail ;; *) verdict=error ;; esac
+        report=$(ls -t "$out"/reports/*.json 2>/dev/null | head -1 || true)
+        name=$(basename "$IN_PROFILE"); name="${name%.*}"
+
+        # Only what the report states. A workload report carries one entry per
+        # workload in the file; a scenario report carries totals and per-queue
+        # latency, so it has no single rate or latency to give.
+        jq -n --arg profile "$IN_PROFILE" --arg mode "$IN_MODE" --arg verdict "$verdict" \
+              --argjson code "$code" --arg report "${report#"$out"/}" \
+              --slurpfile r "${report:-/dev/null}" '
+          ($r[0] // null) as $doc
+          | {schema: "acemq.workload/v1", profile: $profile, mode: $mode, exit_code: $code}
+          + if $doc == null then {}
+            elif ($doc.workloads | type) == "array" then
+              ($doc.workloads) as $w
+              | {sent: ($w | map(.publishedTotal) | add),
+                 received: ($w | map(.consumedTotal) | add),
+                 errors: ($w | map(.failedTotal) | add),
+                 workloads: ($w | map({name, duration_s: .durationSeconds, sent: .publishedTotal,
+                   received: .consumedTotal, errors: .failedTotal,
+                   rate_msgs_per_s: .consumeRatePerSecond, valid, passed,
+                   latency_ms: {p50: (.endToEnd.p50Micros / 1000), p99: (.endToEnd.p99Micros / 1000)}}))}
+              + if ($w | length) == 1 then
+                  {duration_s: $w[0].durationSeconds, rate_msgs_per_s: $w[0].consumeRatePerSecond,
+                   latency_ms: {p50: ($w[0].endToEnd.p50Micros / 1000), p99: ($w[0].endToEnd.p99Micros / 1000)}}
+                else {} end
+            elif $doc.scenario != null then
+              {scenario: $doc.scenario, duration_s: ($doc.durationMs / 1000),
+               sent: $doc.totalPublished, received: $doc.totalConsumed,
+               errors: (($doc.producers // []) | map(.failed // 0) | add)}
+            else {} end
+          + (if $doc == null then {} else {report_path: $report} end)
+          + {verdict: $verdict}' > "$out/workload-result.json"
+
+        {
+          echo "### Workload $IN_MODE: $verdict"
+          echo
+          echo "| Profile | Sent | Received | msg/s | p50 ms | p99 ms | Errors | Exit |"
+          echo "|---|---|---|---|---|---|---|---|"
+          jq -r '"| \(.profile) | \(.sent // "") | \(.received // "") | \(.rate_msgs_per_s // "") | \(.latency_ms.p50 // "") | \(.latency_ms.p99 // "") | \(.errors // "") | \(.exit_code) |"' \
+            "$out/workload-result.json"
+          echo
+        } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+        echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+        echo "result-file=$out/workload-result.json" >> "$GITHUB_OUTPUT"
+        echo "workload $IN_MODE ($name): $verdict (exit $code) — $out/workload-result.json"
+        [ "$verdict" = pass ]
